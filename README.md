@@ -120,13 +120,14 @@ and fail-closed handling of hostile input.
 ### The paytable is proved, not asserted
 
 `tools/enumerate.mjs` enumerates the entire outcome space in exact fractions and
-checks **<!-- fig:invariantCount -->1597<!-- /fig --> invariants** on every CI
+checks **<!-- fig:invariantCount -->1602<!-- /fig --> invariants** on every CI
 run — including the one that matters:
 
 > **No decision policy beats the target RTP.** The house margin is charged once
 > per ticket; every subsequent action is an exact martingale. Backward induction
 > over the whole decision space shows the best policy and the worst policy have
-> identical value — exactly `1` — in every reachable state. And every one of 45
+> identical value — exactly `1` — in every reachable state. And every one of
+> <!-- fig:portfolioCount -->45<!-- /fig -->
 > enumerated portfolios of route policy plus side bets returns
 > `E[credited] / E[staked] = 191/200` exactly. Route choice, fork balance,
 > shelter size, bank timing and side bets move variance, skew and bust
@@ -173,7 +174,8 @@ npm run docs:check         # fails if any document has drifted from the model
 `npm run enumerate` prints every route contract, every route geometry including
 both fork balances, every `(geometry, survivors)` outcome with its exact
 probability and multiplier, every side bet, the value of every action in every
-state, the full outcome space of nine named policies and 45 portfolios, and the
+state, the full outcome space of <!-- fig:policyCount -->9<!-- /fig --> named
+policies and <!-- fig:portfolioCount -->45<!-- /fig --> portfolios, and the
 max-win cap analysis — all as exact fractions.
 
 ---

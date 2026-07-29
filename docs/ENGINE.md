@@ -460,7 +460,7 @@ Mechanical, adapter-agnostic, and evidence — not certification.
 
 Checks 1–6, 9, 12 and 13 are already implemented and run on every CI run here by
 [`../tools/enumerate.mjs`](../tools/enumerate.mjs)
-(<!-- fig:invariantCount -->1597<!-- /fig --> exact invariants).
+(<!-- fig:invariantCount -->1602<!-- /fig --> exact invariants).
 
 ---
 
@@ -480,7 +480,8 @@ order its id, `event` and `minRunners`; then `firstEntryRtp`, `continuationRtp`,
 **Why the side-bet fields must be in there.** A side-bet price is
 `firstEntryRtp / P(event | geometry)`. Every input to that expression — the
 contracts, the enumerated lane balances, the event definitions, the RTP and the
-pricing rule — is fingerprinted, so the entire 42-row side-bet paytable is
+pricing rule — is fingerprinted, so the entire
+<!-- fig:sideBetRows -->42<!-- /fig -->-row side-bet paytable is
 determined by the fingerprint. An operator that re-prices a side bet must change
 a fingerprinted field, and the change is visible to every verifier. In the v1
 draft the fingerprint covered none of this and a side-bet multiplier could be

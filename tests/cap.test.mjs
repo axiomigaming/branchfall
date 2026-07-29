@@ -14,7 +14,14 @@
 
 import { describe, expect, it } from 'vitest';
 import { openRound, replayRound } from '../tools/transcript.mjs';
-import { CONFIG, CONTRACTS, CONTRACT_IDS, capAnalysis, sideBetOffers } from '../tools/lib/model.mjs';
+import {
+  CONFIG,
+  CONTRACTS,
+  CONTRACT_IDS,
+  capAnalysis,
+  reachableRoundMaxima,
+  sideBetOffers,
+} from '../tools/lib/model.mjs';
 import { F } from '../tools/lib/exact.mjs';
 
 const STAKE = 1_000_000n;
@@ -198,5 +205,42 @@ describe('rounding at every credit event', () => {
     const loss = theoretical.sub(F(BigInt(replay.routeCreditedMicro)));
     expect(loss.gte(F(0n))).toBe(true);
     expect(loss.lt(F(BigInt(CONFIG.arenas)))).toBe(true);
+  });
+});
+
+describe('the exhaustive reachable-maximum search', () => {
+  const reachable = reachableRoundMaxima();
+
+  it('walks the whole non-zero-probability action space', () => {
+    expect(reachable.paths).toBeGreaterThan(200_000);
+  });
+
+  it('agrees with the backward induction on the route-ticket ceiling', () => {
+    // Two different algorithms over the same state space. Agreement is evidence
+    // that neither has a bug the other shares.
+    expect(reachable.routeTicketMax.toString()).toBe(capAnalysis().routeTicketMax.toString());
+    expect(reachable.routeTicketMax.toString()).toBe('24448/25');
+    expect([...reachable.routeTicketLine]).toEqual([
+      'NARROW->5',
+      'NARROW->5',
+      'NARROW->5',
+      'NARROW->5',
+      'NARROW->5',
+    ]);
+  });
+
+  it('stays inside the weighted-mean bound and under the cap', () => {
+    expect(reachable.roundRatioMax.lte(capAnalysis().maxRoundRatio)).toBe(true);
+    expect(reachable.roundRatioMax.lt(F(CONFIG.maxWinMultiple))).toBe(true);
+    expect(reachable.roundTotalPerRouteStakeMax.lte(capAnalysis().maxRoundTotalPerRouteStake)).toBe(true);
+  });
+
+  it('finds a round that pays over 1000x of the ROUTE stake, which is why the basis matters', () => {
+    // 977.92x route ticket plus a Clean Sweep winning on all five NARROW arenas.
+    expect(reachable.roundTotalPerRouteStakeMax.toString()).toBe('25976/25');
+    expect(reachable.roundTotalPerRouteStakeMax.gt(F(CONFIG.maxWinMultiple))).toBe(true);
+    // ... and yet nothing is capped, because it staked 2x the route stake for it
+    // and no ticket came near its own ceiling.
+    expect(reachable.roundRatioMax.lt(F(CONFIG.maxWinMultiple))).toBe(true);
   });
 });

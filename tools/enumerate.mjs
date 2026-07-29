@@ -52,6 +52,7 @@ import {
   POLICIES,
   probabilityAtLeast,
   probabilityOfZero,
+  reachableRoundMaxima,
   routeConfigurations,
   routeMultiplier,
   sideBetOffersFor,
@@ -464,6 +465,29 @@ export function runInvariants() {
     `max round total ${capReport.maxRoundRatio} of total stake is strictly below the cap ${cap}`,
   );
 
+  //     (c) and the bound is not the only evidence: an exhaustive walk over every
+  //     action sequence with non-zero probability finds the round that actually
+  //     pays the most, under the stake allocation that maximises it.
+  const reachable = reachableRoundMaxima();
+  checkEqual(
+    reachable.routeTicketMax,
+    capReport.routeTicketMax,
+    'exhaustive path walk agrees with the backward induction on the route-ticket ceiling',
+  );
+  check(
+    reachable.roundRatioMax.lte(capReport.maxRoundRatio),
+    `reachable round ratio ${reachable.roundRatioMax} is within the weighted-mean bound ${capReport.maxRoundRatio}`,
+  );
+  check(
+    reachable.roundRatioMax.lt(cap),
+    `reachable max round total ${reachable.roundRatioMax} of total stake is strictly below the cap ${cap}`,
+  );
+  check(
+    reachable.roundTotalPerRouteStakeMax.lte(capReport.maxRoundTotalPerRouteStake),
+    'reachable round total in route stakes is within the published upper bound',
+  );
+  check(reachable.paths > 100000, `the cap search walked ${reachable.paths} terminal paths`);
+
   // 15. The published stake limits are coherent: a single bet may not exceed the
   //     round-wide allowance, and the allowance is finite and positive.
   check(
@@ -618,7 +642,9 @@ export function buildTables() {
       ['Per-ticket ceiling (the binding one)', `\`${capReport.maxTicketMultiple}\``, toFixedExact(capReport.maxTicketMultiple, 6)],
       ['Max-win cap (per ticket, against that ticket\'s own stake)', `\`${capReport.cap}\``, toFixedExact(capReport.cap, 6)],
       ['Cap headroom', `\`${capReport.headroom}\``, toFixedExact(capReport.headroom, 6)],
-      ['Max round total, per unit of total round stake', `\`${capReport.maxRoundRatio}\``, toFixedExact(capReport.maxRoundRatio, 6)],
+      ['Max round total, per unit of total round stake (bound)', `\`${capReport.maxRoundRatio}\``, toFixedExact(capReport.maxRoundRatio, 6)],
+      ['Max round total, per unit of total round stake (reachable)', `\`${reachableRoundMaxima().roundRatioMax}\``, toFixedExact(reachableRoundMaxima().roundRatioMax, 6)],
+      ['Max round total, per unit of route stake (reachable)', `\`${reachableRoundMaxima().roundTotalPerRouteStakeMax}\``, toFixedExact(reachableRoundMaxima().roundTotalPerRouteStakeMax, 6)],
       ['Max round total, per unit of route stake (both limits maxed)', `\`${capReport.maxRoundTotalPerRouteStake}\``, toFixedExact(capReport.maxRoundTotalPerRouteStake, 6)],
       ['Side-bet stake limit, per bet', `\`${CONFIG.sideBet.maxStakeRatioPerBet}\``, `${toFixedExact(CONFIG.sideBet.maxStakeRatioPerBet, 2)} x route stake`],
       ['Side-bet stake limit, per round', `\`${CONFIG.sideBet.maxTotalStakeRatio}\``, `${toFixedExact(CONFIG.sideBet.maxTotalStakeRatio, 2)} x route stake`],
@@ -723,6 +749,10 @@ export function buildFigures() {
     lastLightMin: mult(lo(byBet('LAST_LIGHT')), 2),
     lastLightMax: mult(hi(byBet('LAST_LIGHT')), 2),
     sideBetRows: String(sideBetTable().length),
+    policyCount: String(Object.keys(POLICIES).length),
+    sideBetPlanCount: String(Object.keys(SIDE_BET_PLANS).length),
+    portfolioCount: String(Object.keys(POLICIES).length * Object.keys(SIDE_BET_PLANS).length),
+    geometryCount: String(routeConfigurations().length),
 
     /* cap */
     routeTicketMax: mult(capReport.routeTicketMax, 2),
@@ -730,6 +760,9 @@ export function buildFigures() {
     maxRoundRatio: mult(capReport.maxRoundRatio, 2),
     ratioMaxSideBets: mult(capReport.ratioMaxSideBets, 2),
     worstCaseRoundTotal: mult(capReport.maxRoundTotalPerRouteStake, 2),
+    reachableRoundTotal: mult(reachableRoundMaxima().roundTotalPerRouteStakeMax, 2),
+    reachableRoundRatio: mult(reachableRoundMaxima().roundRatioMax, 2),
+    capSearchPaths: grouped(BigInt(reachableRoundMaxima().paths)),
     v1BreachTotal: mult(
       capReport.routeTicketMax.add(hi(byBet('CLEAN_SWEEP')).mul(F(BigInt(CONFIG.arenas)))),
       2,
@@ -883,7 +916,15 @@ function humanReport() {
   push(`  round total / total round stake, no side bets:     ${capReport.ratioNoSideBets} = ${toFixedExact(capReport.ratioNoSideBets, 6)}x`);
   push(`  round total / total round stake, max side bets:    ${capReport.ratioMaxSideBets} = ${toFixedExact(capReport.ratioMaxSideBets, 6)}x`);
   push(`  worst case over the interval:                      ${capReport.maxRoundRatio} = ${toFixedExact(capReport.maxRoundRatio, 6)}x`);
-  push(`  worst-case round total in route stakes:            ${capReport.maxRoundTotalPerRouteStake} = ${toFixedExact(capReport.maxRoundTotalPerRouteStake, 6)}x`);
+  push(`  worst-case round total in route stakes (bound):    ${capReport.maxRoundTotalPerRouteStake} = ${toFixedExact(capReport.maxRoundTotalPerRouteStake, 6)}x`);
+  push('');
+  const reach = reachableRoundMaxima();
+  push(`  exhaustive walk over ${reach.paths} terminal paths:`);
+  push(`    reachable route ticket:                          ${reach.routeTicketMax} = ${toFixedExact(reach.routeTicketMax, 6)}x`);
+  push(`      via ${reach.routeTicketLine.join(' ')}`);
+  push(`    reachable round total / total round stake:       ${reach.roundRatioMax} = ${toFixedExact(reach.roundRatioMax, 6)}x`);
+  push(`    reachable round total / route stake:             ${reach.roundTotalPerRouteStakeMax} = ${toFixedExact(reach.roundTotalPerRouteStakeMax, 6)}x`);
+  push(`      via ${reach.roundTotalLine.join(' ')}`);
   push('  => no ticket and no round can reach the cap: it cannot clip an advertised win.');
   push('');
 

@@ -661,7 +661,7 @@ implying otherwise (`DESIGN.md` §10.3).
 ### 8.4 Exhaustive verification, not just a proof
 
 `tools/enumerate.mjs` verifies the theorems mechanically rather than trusting
-them, checking <!-- fig:invariantCount -->1597<!-- /fig --> exact invariants:
+them, checking <!-- fig:invariantCount -->1602<!-- /fig --> exact invariants:
 
 1. **Per-action check.** For every state `(a, n)` and every legal action —
    including every lane balance — it computes
@@ -683,9 +683,11 @@ them, checking <!-- fig:invariantCount -->1597<!-- /fig --> exact invariants:
 3. **Side-bet binding.** For every state and every legal action, each offered
    side bet's probability is re-derived from that action's own branch table and
    asserted equal, and `P * multiplier` is asserted equal to `r`.
-4. **Whole-outcome-space enumeration.** Nine named policies, including two
-   adaptive ones, are walked to every leaf; and every one of them crossed with
-   every one of five named side-bet plans — 45 portfolios — has its
+4. **Whole-outcome-space enumeration.** <!-- fig:policyCount -->9<!-- /fig -->
+   named policies, including two adaptive ones, are walked to every leaf; and
+   every one of them crossed with every one of
+   <!-- fig:sideBetPlanCount -->5<!-- /fig --> named side-bet plans —
+   <!-- fig:portfolioCount -->45<!-- /fig --> portfolios — has its
    `E[credited] / E[staked]` asserted equal to `191/200`.
 
 Run `npm run enumerate` and read sections 5 and 7 of the output.
@@ -728,7 +730,9 @@ That basis is the correction the v1 draft needed and §9.5 records why.
 | Per-ticket ceiling (the binding one) | `24448/25` | 977.920000 |
 | Max-win cap (per ticket, against that ticket's own stake) | `1000/1` | 1000.000000 |
 | Cap headroom | `552/25` | 22.080000 |
-| Max round total, per unit of total round stake | `24448/25` | 977.920000 |
+| Max round total, per unit of total round stake (bound) | `24448/25` | 977.920000 |
+| Max round total, per unit of total round stake (reachable) | `24448/25` | 977.920000 |
+| Max round total, per unit of route stake (reachable) | `25976/25` | 1039.040000 |
 | Max round total, per unit of route stake (both limits maxed) | `1002368/525` | 1909.272381 |
 | Side-bet stake limit, per bet | `1/1` | 1.00 x route stake |
 | Side-bet stake limit, per round | `1/1` | 1.00 x route stake |
@@ -790,10 +794,34 @@ stake — against 2x the route stake actually wagered, which is the
 <!-- fig:ratioMaxSideBets -->954.64x<!-- /fig --> above. Every one of these is
 strictly below 1000x.
 
-These are upper bounds, not reachable maxima: the route ceiling needs NARROW five
-times with all five clearing, and the largest side-bet multiplier needs a WIDE
-arena with exactly one survivor, so the two cannot occur in the same round. A
-bound is what the cap needs, and a bound is what is proved.
+Those are bounds, and a bound is what the cap obligation needs. They are also
+loose, because the route ceiling needs NARROW five times with all five clearing
+while the largest side-bet multiplier needs a WIDE arena with exactly one
+survivor, and the two cannot occur in the same round.
+
+So the enumerator does not stop at the bound. It walks
+**<!-- fig:capSearchPaths -->256,442<!-- /fig --> terminal paths** — every action
+sequence with non-zero probability, every lane balance, every shelter split — and
+on each one solves the stake allocation exactly (the objective is linear in the
+stakes over a scaled simplex, so the optimum puts the whole side allowance on the
+single best-paying winning side bet available on that path; the resulting ratio
+is linear-fractional in the allowance and therefore extremal at an endpoint). The
+result is the round that actually pays the most:
+
+| | Reachable maximum |
+| --- | --- |
+| Route ticket | <!-- fig:routeTicketMax -->977.92x<!-- /fig --> of the route stake, via NARROW five times with all five clearing |
+| Round total, per unit of route stake | <!-- fig:reachableRoundTotal -->1039.04x<!-- /fig --> — the same line, plus a Clean Sweep at the maximum stake winning on every arena |
+| Round total, per unit of **total round stake** | <!-- fig:reachableRoundRatio -->977.92x<!-- /fig --> |
+
+The exhaustive walk reproduces the backward induction's route-ticket ceiling
+exactly, which is a genuine cross-check: two different algorithms over the same
+state space agreeing on `24448/25`.
+
+And note the middle row. A round *can* credit more than 1000x of the **route**
+stake — 1039.04x — which is precisely why the basis has to be stated and stated
+correctly. It is not over the cap, because it staked 2x the route stake to get
+there and no individual ticket came near its own ceiling.
 
 Note where the side-bet stake limits earn their keep: without the "a side bet may
 never carry more money than the run it rides on" rule, a large enough SOLE

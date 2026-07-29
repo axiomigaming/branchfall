@@ -736,6 +736,111 @@ export function capAnalysis() {
   });
 }
 
+/**
+ * Exhaustive search for the round that actually pays the most.
+ *
+ * `capAnalysis()` gives an upper BOUND by a weighted-mean argument. This gives
+ * the reachable MAXIMUM, by walking every action sequence with non-zero
+ * probability and, on each one, choosing the stake allocation that maximises the
+ * round total. The two together are what the cap obligation needs: a bound that
+ * holds for every allocation, and a witness showing how close the game can
+ * actually get.
+ *
+ * The stake optimisation is exact rather than searched. Total credit is
+ * `routeCredit + sum_a m_a s_a` with `m_a` the realised side multiple on arena
+ * `a`; it is linear in the stakes over a scaled simplex, so the optimum puts the
+ * whole side allowance on the single best-paying winning side bet available on
+ * that path. The ratio `(R + M tau) / (1 + tau)` is linear-fractional in `tau`
+ * and therefore extremal at an endpoint of `[0, maxTotalStakeRatio]`.
+ *
+ * @returns {{paths: number, routeTicketMax: Frac, routeTicketLine: string[],
+ *            roundRatioMax: Frac, roundRatioLine: string[],
+ *            roundTotalPerRouteStakeMax: Frac, roundTotalLine: string[]}}
+ */
+let reachableCache = null;
+export function reachableRoundMaxima() {
+  if (reachableCache) return reachableCache;
+  const T = CONFIG.sideBet.maxTotalStakeRatio;
+
+  let paths = 0;
+  let routeTicketMax = Frac.ZERO;
+  let routeTicketLine = [];
+  let roundRatioMax = Frac.ZERO;
+  let roundRatioLine = [];
+  let roundTotalMax = Frac.ZERO;
+  let roundTotalLine = [];
+
+  const record = (routeMultiple, bestSide, line) => {
+    paths += 1;
+    if (routeMultiple.gt(routeTicketMax)) {
+      routeTicketMax = routeMultiple;
+      routeTicketLine = line;
+    }
+    // ratio(tau) = (R + M tau) / (1 + tau); extremal at tau = 0 or tau = T.
+    const atZero = routeMultiple;
+    const atMax = routeMultiple.add(bestSide.mul(T)).div(Frac.ONE.add(T));
+    const ratio = atZero.gt(atMax) ? atZero : atMax;
+    if (ratio.gt(roundRatioMax)) {
+      roundRatioMax = ratio;
+      roundRatioLine = line;
+    }
+    const total = routeMultiple.add(bestSide.mul(T));
+    if (total.gt(roundTotalMax)) {
+      roundTotalMax = total;
+      roundTotalLine = line;
+    }
+  };
+
+  const walk = (arena, alive, claim, banked, bestSide, line) => {
+    if (alive === 0 || arena > CONFIG.arenas) {
+      record(banked.add(claim), bestSide, line);
+      return;
+    }
+    for (const action of actionsFor(arena, alive)) {
+      if (action.type === 'BANK') {
+        record(banked.add(claim), bestSide, [...line, 'BANK']);
+        continue;
+      }
+      const config = committedConfiguration(action, alive);
+      const offers = sideBetOffersFor(action, alive);
+      const label =
+        action.type === 'SHELTER'
+          ? `SHELTER${action.shelter}`
+          : `${action.contract}${action.laneSplit === null ? '' : `(${action.laneSplit})`}`;
+      for (const b of branches(action, alive)) {
+        if (b.prob.isZero()) continue;
+        let side = bestSide;
+        for (const offer of offers) {
+          const spec = sideBet(offer.bet);
+          if (!spec.predicate(b.survivors, config.runners)) continue;
+          if (offer.multiplier.gt(side)) side = offer.multiplier;
+        }
+        walk(
+          arena + 1,
+          b.survivors,
+          claim.mul(b.claimFactor),
+          banked.add(claim.mul(b.bankFactor)),
+          side,
+          [...line, `${label}->${b.survivors}`],
+        );
+      }
+    }
+  };
+
+  walk(1, CONFIG.squadSize, CONFIG.rtp, Frac.ZERO, Frac.ZERO, []);
+
+  reachableCache = Object.freeze({
+    paths,
+    routeTicketMax,
+    routeTicketLine: Object.freeze(routeTicketLine),
+    roundRatioMax,
+    roundRatioLine: Object.freeze(roundRatioLine),
+    roundTotalPerRouteStakeMax: roundTotalMax,
+    roundTotalLine: Object.freeze(roundTotalLine),
+  });
+  return reachableCache;
+}
+
 /* ------------------------------------------------------------------ *
  * policy enumeration
  * ------------------------------------------------------------------ */
