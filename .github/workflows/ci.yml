@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: branchfall-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    name: Exact enumeration and tests (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck the adapter surface
+        run: npm run typecheck
+
+      # The proof. Exits non-zero if any exact invariant fails, including
+      # "no policy beats the target RTP" and "the max-win cap is unreachable".
+      - name: Enumerate the outcome space
+        run: npm run enumerate
+
+      # Fails if docs/MATH.md has drifted from the model.
+      - name: Check the published paytable is current
+        run: npm run docs:check
+
+      - name: Tests
+        run: npm test
+
+  crosscheck:
+    name: Monte Carlo sanity cross-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Evidence, never proof: an independent forward simulation of the same
+      # rules must agree with the exact enumeration.
+      - name: Simulate 500,000 rounds
+        run: npm run montecarlo -- --rounds 500000
+
+      - name: Reference round (commit, play, reveal, verify)
+        run: npm run transcript
+
+      - name: Emit the enumeration artefacts
+        run: |
+          mkdir -p artifacts
+          npm run enumerate --silent > artifacts/enumeration.txt
+          npm run enumerate:json --silent > artifacts/enumeration.json
+          npm run enumerate:markdown --silent > artifacts/paytable.md
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: enumeration-evidence
+          path: artifacts/
