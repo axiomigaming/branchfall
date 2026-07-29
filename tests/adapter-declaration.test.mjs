@@ -141,8 +141,47 @@ describe('src/staged-survival.ts is the contract ENGINE.md describes', () => {
 
   it('types the cap basis and the speed floor so they cannot be omitted', () => {
     expect(lifecycle).toContain("readonly capBasis: 'per-ticket';");
-    expect(lifecycle).toContain("readonly cycleUnit: 'arena';");
+    expect(lifecycle).toContain("readonly cycleUnit: 'arena' | 'round';");
     expect(lifecycle).toContain('readonly maxDecisionCountdownMs: 0;');
+  });
+
+  it('forbids the published transcript from carrying the table', () => {
+    expect(lifecycle).toContain('readonly hazard?: never;');
+    expect(lifecycle).toContain('export interface SealedRound');
+    expect(lifecycle).toContain('readonly hazard: HazardTable;');
+  });
+
+  it('types the side-bet ticket exactly as the reference wire format accepts it', () => {
+    const ticket = lifecycle.slice(
+      lifecycle.indexOf('export interface SideBetTicket'),
+      lifecycle.indexOf('export type StagedSurvivalAction'),
+    );
+    expect(ticket).toContain('readonly bet: string;');
+    expect(ticket).toContain('readonly stakeMicro: Micro;');
+    expect(ticket).toContain('readonly quotedMultiplier?: string;');
+    // The reference implementation must accept exactly these names.
+    const reference = readFileSync(resolve(root, 'tools/transcript.mjs'), 'utf8');
+    expect(reference).toContain('ticket.quotedMultiplier');
+    expect(reference).toContain('ticket.stakeMicro');
+    expect(reference).toContain('ticket.bet');
+  });
+
+  it('binds a seed-chain POSITION, not just the next hash', () => {
+    expect(lifecycle).toContain('export interface SeedChainPosition');
+    expect(lifecycle).toContain('readonly index: number;');
+    expect(lifecycle).not.toContain('chainNextHash');
+  });
+
+  it('requires openRound to open an already-published pre-commitment', () => {
+    const surface = lifecycle.slice(lifecycle.indexOf('openRound('));
+    expect(surface.slice(0, 400)).toContain('preCommitment: ServerPreCommitment');
+    expect(surface.slice(0, 400)).toContain('): SealedRound;');
+  });
+
+  it('requires verify() to compare a published settlement', () => {
+    expect(lifecycle).toContain('settlement?: StagedSurvivalSettlement');
+    expect(lifecycle).toContain('export interface StagedSurvivalSettlement');
+    expect(engineDoc).toContain('LEDGER_MISMATCH');
   });
 
   it('exposes the failure codes ENGINE.md documents', () => {

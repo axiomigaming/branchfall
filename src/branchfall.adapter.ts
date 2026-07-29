@@ -145,10 +145,14 @@ export const branchfall: Omit<StagedSurvivalDefinition, 'hazard'> & {
     capMustBeUnreachable: true,
   }),
   speed: Object.freeze({
-    /** The game cycle is one arena: it is where money is committed. */
+    /**
+     * The game cycle is one arena: it is where money is committed. Whether a
+     * multi-stage round may be counted that way is a classification question for
+     * a regulator and a test house (docs/DESIGN.md §5.1).
+     */
     cycleUnit: 'arena' as const,
-    /** UKGC RTS 8 floor. A delay, never a countdown. */
-    minGameCycleMs: 2500,
+    /** UKGC RTS 14G — 5 s for casino games other than slots. A delay, never a countdown. */
+    minGameCycleMs: 5000,
     maxDecisionCountdownMs: 0 as const,
   }),
   /**

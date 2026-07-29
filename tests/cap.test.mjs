@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { openRound, replayRound } from '../tools/transcript.mjs';
+import { openRound, preCommit, replayRound } from '../tools/transcript.mjs';
 import {
   CONFIG,
   CONTRACTS,
@@ -156,12 +156,13 @@ describe('the round total', () => {
   });
 
   it('is under the cap for the fixture round too', () => {
-    const round = openRound(
-      '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff',
+    const serverSeed = '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff';
+    const { hazard } = openRound(
+      serverSeed,
       'wren-bramble-ora-tuck-sable-74',
-      'branchfall-fixture-0002',
+      preCommit(serverSeed, 'branchfall-fixture-0002'),
     );
-    const replay = replayRound(round, {
+    const replay = replayRound({ hazard }, {
       stakeMicro: 10_000_000n,
       actions: [
         { type: 'ROUTE', contract: 'SPLIT', laneSplit: 4, sideBets: [{ bet: 'CLEAN_SWEEP', stakeMicro: 2_000_000n }] },

@@ -50,7 +50,7 @@ describe('the enumeration is the proof', () => {
 
   it('checks the speed-of-play floor and the coherence of the stake limits', () => {
     const text = checks.map((c) => c.description).join('\n');
-    expect(text).toMatch(/minimum game cycle is at least 2500 ms/);
+    expect(text).toMatch(/is at least 5000 ms \(UKGC RTS 14G, non-slot\)/);
     expect(text).toMatch(/a single side bet cannot exceed the round-wide side-bet allowance/);
   });
 });
@@ -151,7 +151,7 @@ describe('generated figures', () => {
     expect(figures.soleSurvivorMax).toBe('931.35x');
     expect(figures.capMultiple).toBe('1000x');
     expect(figures.topPrizeOdds).toBe('1 in 1,073,741,824');
-    expect(figures.minCycleMs).toBe('2500');
+    expect(figures.minCycleMs).toBe('5000');
     expect(figures.hazardDraws).toBe('120');
   });
 

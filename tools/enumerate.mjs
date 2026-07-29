@@ -503,8 +503,18 @@ export function runInvariants() {
     'side bets can never carry more money than the route ticket they ride on',
   );
 
-  // 16. Speed of play: the declared minimum game cycle satisfies UKGC RTS 8.
-  check(CONFIG.minGameCycleMs >= 2500, 'minimum game cycle is at least 2500 ms (UKGC RTS 8)');
+  // 16. Speed of play. UKGC RTS 14G is 5000 ms for casino games other than slots
+  //     and peer-to-peer poker; RTS 14D's 2500 ms is the SLOTS rule and RTS 8 is
+  //     the autoplay prohibition. BRANCHFALL is not reel-based, so it builds to
+  //     the longer floor rather than assuming a classification in its own favour.
+  check(
+    CONFIG.minGameCycleMs >= 5000,
+    `minimum game cycle ${CONFIG.minGameCycleMs} ms is at least 5000 ms (UKGC RTS 14G, non-slot)`,
+  );
+  check(
+    CONFIG.minGameCycleMs >= 2500,
+    'minimum game cycle also satisfies the slots floor (UKGC RTS 14D) if the game were ever classified as one',
+  );
 
   return { checks: [...checks], failures: [...failures] };
 }
@@ -786,6 +796,11 @@ export function buildFigures() {
 
     /* rounding */
     maxRoundingLoss: '0.000005',
+    maxRoundingLossRoundUc: String(CONFIG.arenas * (1 + CONFIG.sideBet.maxTicketsPerArena)),
+    maxRoundingLossRound: toFixedExact(
+      F(BigInt(CONFIG.arenas * (1 + CONFIG.sideBet.maxTicketsPerArena)), CONFIG.microCreditsPerCredit),
+      6,
+    ),
     roundingRtpFloorPct: pct(CONFIG.rtp.sub(F(5n, 1_000_000n)), 4),
   });
 }

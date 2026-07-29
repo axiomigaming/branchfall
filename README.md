@@ -90,22 +90,25 @@ complete.**
    <!-- fig:hazardDraws -->120<!-- /fig --> draws, including the routes you will
    not take. Its digest is published immediately.
 4. You play. Your choices select which pre-committed draws are consumed. They
-   cannot change a single draw.
+   cannot change a single draw — and you cannot read them: the table itself stays
+   sealed server-side, and only its digest is published. That is what keeps a
+   side bet a bet rather than a receipt.
 5. At settlement the server seed is revealed. Anyone can re-derive the whole
    table, recompute the commitment and the digest, and replay your action list to
-   reproduce every credit to the micro-credit.
+   reproduce every credit to the micro-credit — including checking the operator's
+   published ledger figure by figure.
 
 Two properties, and it is worth being precise about which is which:
 
 * Because the unchosen branches are committed too, **no operator can adapt an
   outcome to your choice** — and the "Ghost Line" replay can show you what would
   have happened on the route you didn't take, provably fixed in advance.
-* Because the operator commits *before* your seed exists, **no operator can shop
-  for a favourable round**. That attack is the one that matters: it is silent,
-  it is cheap, and against a server-only seed it still passes every verification
-  a player can run. `docs/ENGINE.md` §10.1 measures it, and
-  `tests/seed-grinding.test.mjs` fails the build if the mitigation ever stops
-  working.
+* Because the operator commits *before* your seed exists — and commits to the
+  round id at the same moment — **no operator can shop for a favourable round**.
+  That attack is the one that matters: it is silent, it is cheap, and against a
+  server-only seed it still passes every verification a player can run.
+  `docs/ENGINE.md` §10.1 measures it, and `tests/seed-grinding.test.mjs` fails
+  the build if the mitigation ever stops working.
 
 Neither property means the software running is the software described here. That
 is what an adapter fingerprint, an independent build attestation and a laboratory
@@ -120,7 +123,7 @@ and fail-closed handling of hostile input.
 ### The paytable is proved, not asserted
 
 `tools/enumerate.mjs` enumerates the entire outcome space in exact fractions and
-checks **<!-- fig:invariantCount -->1602<!-- /fig --> invariants** on every CI
+checks **<!-- fig:invariantCount -->1603<!-- /fig --> invariants** on every CI
 run — including the one that matters:
 
 > **No decision policy beats the target RTP.** The house margin is charged once
@@ -153,8 +156,8 @@ across policies at a constant <!-- fig:rtpPct -->95.5%<!-- /fig --> RTP; that
 | Max-win cap | **<!-- fig:capMultiple -->1000x<!-- /fig --> per ticket, against that ticket's own stake** — proved unreachable per ticket *and* over the round total, so it can never clip an advertised win |
 | Bet types | Route Ticket, plus Clean Sweep / Sole Survivor / Last Light side bets, all at the same <!-- fig:rtpPct -->95.5%<!-- /fig --> |
 | Side-bet stake limit | never more than the route stake, per bet and per round |
-| Minimum game cycle | <!-- fig:minCycleMs -->2500<!-- /fig --> ms per arena (UKGC RTS 8), enforced server-side |
-| Money unit | micro-credits; worst-case rounding loss <!-- fig:maxRoundingLoss -->0.000005<!-- /fig --> credits per round |
+| Minimum game cycle | <!-- fig:minCycleMs -->5000<!-- /fig --> ms per arena (UKGC RTS 8), enforced server-side |
+| Money unit | micro-credits; worst-case floor-rounding loss <!-- fig:maxRoundingLoss -->0.000005<!-- /fig --> credits on the route ticket, <!-- fig:maxRoundingLossRound -->0.000020<!-- /fig --> across a round that also carries side bets |
 
 ---
 

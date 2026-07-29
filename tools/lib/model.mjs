@@ -81,10 +81,17 @@ export const CONFIG = Object.freeze({
   minStakeMicro: 1_000_000n,
   /**
    * Minimum game cycle in milliseconds, measured from committing an arena to the
-   * moment the next money control unlocks. UKGC RTS 8 requires 2.5 s; the game
-   * cycle for BRANCHFALL is the ARENA, not the round (docs/DESIGN.md §5.1).
+   * moment the next money control unlocks.
+   *
+   * UKGC RTS 14G — five seconds for casino games other than slots and
+   * peer-to-peer poker. NOT RTS 14D (2.5 s), which is the slots rule, and NOT
+   * RTS 8, which is the autoplay prohibition (we satisfy that separately by
+   * having no autoplay at all). BRANCHFALL is not reel-based, so 14G is the
+   * conservative reading and the one we build to. See docs/DESIGN.md §5.1 for
+   * the game-cycle boundary question, which is a classification matter for a
+   * regulator and a test house, not something this repository can settle.
    */
-  minGameCycleMs: 2500,
+  minGameCycleMs: 5000,
   /** Side-bet limits. Load-bearing for the cap proof and for responsible design. */
   sideBet: Object.freeze({
     /** Side bets are only offered when at least this many runners are running. */

@@ -626,6 +626,16 @@ geometry)`. Then*
 E[total credited] = r * E[total staked]
 ```
 
+**The premise that does the work.** `Z_a` and `w_a` must be `F_a`-measurable:
+whether a ticket is placed, and for how much, must be decided from information
+available *before* the arena resolves. This is not a technicality to be waved
+through — it is a protocol obligation, and a protocol that leaks the hazard table
+to the player violates it. A player who can read the table can place CLEAN SWEEP
+exactly when it wins and nothing otherwise, and realised return goes to 249%
+(`ENGINE.md` §10.2). The theorem below is true; it is true *of a protocol that
+keeps the table sealed*, which is why `ENGINE.md` §5 makes the seal structural
+rather than a convention.
+
 **Proof.** Total credit decomposes as route credit plus side credit.
 `E[route credit] = r` by §8.1. For a ticket placed at arena `a`, let `Z_a` be the
 indicator that it is placed and `w_a` its stake — both `F_a`-measurable, i.e.
@@ -646,22 +656,41 @@ the probability under the *committed geometry*, including its lane balance.
 A side bet priced off a contract id rather than the geometry would break this
 theorem, which is why the enumerator asserts the binding directly (§5.5).
 
-### 8.3 Corollary (optimal play is every play)
+### 8.3 Corollary (optimal play is every play), and exactly what it means
 
 The set of RTP-optimal policies is the set of *all* policies, and the set of
 RTP-optimal portfolios is the set of *all* portfolios. There is no sequence of
 contract choices, lane balances, shelter splits, bank timings, side-bet events or
 side-bet stakes that raises expected return above `191/200`, and — since no cap
-can bind (§9) — none that lowers it either, except for floor rounding, which is
-bounded by five millionths of a credit per round (§10).
+can bind (§9) — none that lowers it either, except for floor rounding (§10).
 
 Consequently BRANCHFALL contains **no skill**, and the product is forbidden from
 implying otherwise (`DESIGN.md` §10.3).
 
+**And here is the honest boundary of that statement.** "Optimal" above means
+optimal for a **risk-neutral objective measured per unit of money staked**:
+`E[credited] / E[staked]`. That is the correct definition of RTP, and it is the
+one a regulator, an operator and a reasonable player all mean by "return to
+player". It is *not* the same as either of these, and both do vary across
+portfolios:
+
+* `E[credited / staked]` — the mean of the per-round return multiple. It differs
+  from RTP whenever a plan stakes a path-dependent total, because the rounds that
+  stake more are not the rounds that pay more. Among the enumerated portfolios it
+  ranges from about `0.825` to about `0.975`.
+* The **median** return, which ranges from `0` (any all-NARROW line) to above
+  `1.03` (bank after one arena with a Last Light attached).
+
+Neither is a way to beat the house: they are different summaries of the same
+95.5%, and they move because the *shape* moves — which is exactly what the game
+sells and what §7 publishes. But "no policy beats the target RTP" should be read
+as the precise claim it is, not as "every way of playing is identical". Every way
+of playing has the same edge. They emphatically do not have the same experience.
+
 ### 8.4 Exhaustive verification, not just a proof
 
 `tools/enumerate.mjs` verifies the theorems mechanically rather than trusting
-them, checking <!-- fig:invariantCount -->1602<!-- /fig --> exact invariants:
+them, checking <!-- fig:invariantCount -->1603<!-- /fig --> exact invariants:
 
 1. **Per-action check.** For every state `(a, n)` and every legal action —
    including every lane balance — it computes
@@ -736,7 +765,7 @@ That basis is the correction the v1 draft needed and §9.5 records why.
 | Max round total, per unit of route stake (both limits maxed) | `1002368/525` | 1909.272381 |
 | Side-bet stake limit, per bet | `1/1` | 1.00 x route stake |
 | Side-bet stake limit, per round | `1/1` | 1.00 x route stake |
-| Minimum game cycle | `2500` ms | 2.5 s per arena |
+| Minimum game cycle | `5000` ms | 5.0 s per arena |
 | Money unit | `1/1000000` credit | 0.000001 |
 | Max floor-rounding loss per round | `5/1000000` credit | 0.000005 |
 
@@ -889,21 +918,37 @@ Credits are floored to whole micro-credits (`floor` is the engine's only roundin
 mode; it never rounds in the player's favour, and it never rounds against them by
 more than one unit).
 
-Each credit event loses at most `1 uc`. A round has at most `K = 5` credit events
-on the route ticket (four shelter withdrawals plus the settlement), and at most
-one per side-bet ticket. So for the route ticket
+Each credit event loses at most `1 uc`. Count them per ticket, because that is
+how the loss is bounded:
+
+| Ticket | Credit events | Floor loss |
+| --- | --- | --- |
+| Route ticket | at most `K = 5` — four shelter withdrawals plus the settlement | `< 5 uc` |
+| Each side-bet ticket | exactly 1 | `< 1 uc` |
+| A whole round, worst case | `5 + 3 x K = 20` | `< `<!-- fig:maxRoundingLossRound -->0.000020<!-- /fig --> credits |
+
+So for the route ticket alone
 
 ```
 0 <= theoretical - credited < 5 uc = 0.000005 credits
 ```
 
-On the minimum stake of 1.000000 credits that is a maximum RTP impact of
-**0.0005%** — i.e. worst-case realised route-ticket RTP
-`>= `<!-- fig:roundingRtpFloorPct -->95.4995%<!-- /fig -->. A side-bet ticket
-loses at most `1 uc` against its own stake, on the same argument.
+which on the minimum stake of 1.000000 credits is a maximum RTP impact of
+**0.0005%** — worst-case realised route-ticket RTP
+`>= `<!-- fig:roundingRtpFloorPct -->95.4995%<!-- /fig -->.
+
+**A round that also carries side bets loses more in absolute terms, and no more
+in relative terms.** Three side bets on each of five arenas add up to fifteen
+further credit events, so the round's total floor loss is bounded by
+<!-- fig:maxRoundingLossRoundUc -->20<!-- /fig --> uc rather than 5. But each of
+those tickets stakes at least 1.000000 credits of its own, so the loss as a
+fraction of *total money staked* is still bounded by `1 uc` per credit event per
+minimum stake — the same 0.0005% per ticket. The README states both numbers; the
+v1 draft published only the route-ticket figure as though it were the round
+figure, which was false for any round containing a side bet.
 
 Floor rounding is the **only** respect in which a policy can differ in realised
-return: it is always downward, and it is bounded by five millionths per ticket.
+return: it is always downward, and it is bounded per ticket as above.
 The cap cannot contribute, because no ticket and no round can reach it (§9). A
 policy that never shelters loses at most `1 uc` on the route ticket.
 

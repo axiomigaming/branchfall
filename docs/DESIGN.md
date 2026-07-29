@@ -8,9 +8,11 @@
 > are actually choosing is the shape of the risk, and which of your runners you
 > are willing to gamble.
 
-Every number in this document is generated from `tools/lib/model.mjs` and
-re-checked on every CI run. `npm run docs:check` fails if a sentence here claims
-something the model does not compute.
+Every number in this document that the *model* computes is a generated slot,
+re-checked on every CI run: `npm run docs:check` fails if a sentence here claims
+a probability, a multiplier or a limit the model does not produce. Numbers that
+are design decisions rather than derivations — budgets, sizes, durations — are
+written plainly and are not slots. §11 says which is which and why.
 
 ---
 
@@ -67,7 +69,7 @@ BUY  ->  [ ROUTE -> RUN -> RESOLVE -> BANK? ] x up to 5  ->  SETTLE  ->  VERIFY
    `(survivors / runners) x route multiplier`. If nobody clears, the round ends.
 7. **Bank or continue.** Available after every resolved arena. **No timer** — but
    the next money control does not unlock for
-   <!-- fig:minCycleSeconds -->2.5<!-- /fig --> seconds (§5.1).
+   <!-- fig:minCycleSeconds -->5.0<!-- /fig --> seconds (§5.1).
 8. **Settle.** Banking, or finishing arena 5, credits the claim. A wipe credits
    nothing beyond anything already sheltered and any side bet that won.
 9. **Verify.** The server seed is revealed. The player can re-derive the whole
@@ -283,11 +285,30 @@ figure lives on the seam between them in tabular numerals and never moves.
 
 ### 5.1 Speed of play — the minimum game cycle
 
-**The game cycle is the arena, not the round**, because the arena is where money
-is committed. From the moment a route is committed, the next money control stays
-locked for **<!-- fig:minCycleMs -->2500<!-- /fig --> ms** (UKGC RTS 8). The
-shortest legal round — arena 1 route, then bank at arena 2 — therefore cannot
-complete faster than two cycles, and `skip` cannot shorten it.
+From the moment a route is committed, the next money control stays locked for
+**<!-- fig:minCycleMs -->5000<!-- /fig --> ms**.
+
+**Which rule, and why this number.** The UKGC's speed-of-play requirement is
+**RTS 14G — five seconds for casino games other than slots and peer-to-peer
+poker**. RTS 14D's 2.5 seconds applies to *slots*, and BRANCHFALL is not
+reel-based, so building to 14D would be assuming a classification in our own
+favour. RTS 8 is the **autoplay prohibition**, which is a different requirement
+that we satisfy separately by having no autoplay at all (§10.2); the v1 draft
+cited it for the timing rule, which was simply wrong.
+
+**Which unit is the cycle, and what we are not claiming.** We declare the
+**arena** as the game cycle, because the arena is where money is committed and
+where a new commitment becomes available. The counter-argument is real and we
+state it rather than bury it: guidance describes a cycle as ending when all money
+staked or won has been lost or delivered, and a route ticket stays live across
+arenas. **This is a classification question for a regulator and a test house, not
+one this document can settle.** `speed.cycleUnit` is a declared, fingerprinted
+field precisely so the position is explicit and can be changed to `'round'`
+without touching anything else. If it must be the round, the floor applies to the
+round and the game gets slower; nothing else changes.
+
+The number is close to free either way: the arena replay is 9–14 s, so the floor
+is already satisfied by watching the run. It binds only when a player skips.
 
 The distinction that matters:
 
@@ -324,6 +345,10 @@ client cannot beat it and a slow network cannot be punished by it.
 - `Buy the run` (primary). On tap: the pre-commitment hash appears for ~1 s with a
   small lock mark and the text *"The server's half of this round is sealed. Your
   half is yours."* Then S2.
+- The client never receives the hazard table. It receives the digest, the frame
+  and the offers. That is a security requirement and not a bandwidth one: a
+  client that held the table could place a side bet on an arena that had already
+  resolved (`ENGINE.md` §10.2).
 
 ### S2 — Arena brief and route choice *(the core screen)*
 - Viewport: the branch ahead in fog, arena name, arena number `2 / 5`. The squad
@@ -362,7 +387,7 @@ client cannot beat it and a slow network cannot be punished by it.
   `Bank 3.82` and `Run The Char ▸`. Neither is styled as the "right" one.
   No pulsing, no colour hierarchy, no default focus.
 - **No timer.** The screen will sit here forever. The
-  <!-- fig:minCycleSeconds -->2.5<!-- /fig --> s hairline completes under both
+  <!-- fig:minCycleSeconds -->5.0<!-- /fig --> s hairline completes under both
   buttons together.
 
 ### S5 — Bank / Shelter
@@ -917,9 +942,9 @@ These are build requirements, not aspirations. Each has an acceptance check.
 - No countdown on any decision. Ever. Rounds persist across app termination.
 - The outcome is committed before the first choice, so input timing is
   mechanically incapable of changing a payout.
-- A minimum game cycle of <!-- fig:minCycleMs -->2500<!-- /fig --> ms per arena,
-  enforced server-side (§5.1). The game cycle is the arena because that is where
-  money is committed.
+- A minimum game cycle of <!-- fig:minCycleMs -->5000<!-- /fig --> ms per arena
+  (UKGC RTS 14G, non-slot), enforced server-side (§5.1). The classification of
+  the cycle unit is stated as a position, not as a settled fact.
 - `skip` is explicitly labelled as skipping the *view*, not the result, and does
   not shorten the game cycle.
 
@@ -971,16 +996,29 @@ in advance. So:
 - **Localisation:** all money strings tabular and RTL-safe; route names are
   translated but stay ALL CAPS with equal weight. The banned-vocabulary list
   (§10.3) is maintained per locale, not machine-translated.
-- **Determinism harness:** a CI job replays the frozen fixture transcript through
-  the presentation layer on every quality tier and asserts the same authored
-  clips are selected and the same credits are produced.
-- **Performance harness:** the same job runs the reference device profile and
-  fails the build on any pass exceeding its §6.8 budget.
-- **What does not ship without the math:** the route cards and the fork control
-  read their numbers from the same tables `tools/enumerate.mjs` publishes. If the
-  enumerator and the card disagree, the build fails — and the same rule now
-  applies to this document, whose every number is a generated slot checked by
-  `npm run docs:check`.
+**Harnesses the client build must have.** These do not exist yet, because the
+client does not exist yet; they are acceptance criteria for it, not descriptions
+of this repository's CI:
+
+- **Determinism harness:** replay the frozen fixture transcript through the
+  presentation layer on every quality tier and assert the same authored clips are
+  selected and the same credits are produced.
+- **Performance harness:** run the reference device profile and fail the build on
+  any pass exceeding its §6.8 budget. Until it exists, every figure in §6.8 is a
+  *budget* — a target the build is held to — and not a measurement. There is no
+  renderer, no asset set and no device trace behind them.
+
+**What does not ship without the math:** the route cards and the fork control
+read their numbers from the same tables `tools/enumerate.mjs` publishes. If the
+enumerator and the card disagree, the build fails.
+
+**What `npm run docs:check` does and does not bind.** It binds every number in
+this document that the *model* computes — probabilities, multipliers, wipe rates,
+cap figures, the game-cycle floor — as generated slots. It does not bind the
+design budgets in §6.8 (download size, triangle counts, millisecond budgets) or
+the sound and layout figures, because nothing computes those: they are decisions.
+Where a number here is a decision rather than a derivation, it is not in a slot,
+and the absence of a slot is the signal.
 
 ---
 

@@ -140,11 +140,12 @@ export interface SideBetSpec {
   readonly minRunners: number;
 }
 
+/** Field names match the reference wire format in tools/transcript.mjs exactly. */
 export interface SideBetTicket {
-  readonly id: string;
-  readonly stake: Micro;
-  /** Recomputed and compared; a stale quote fails `QUOTE_MISMATCH`. */
-  readonly quotedMultiplier: Rational;
+  readonly bet: string;
+  readonly stakeMicro: Micro;
+  /** Optional; when present it is recomputed and a mismatch fails `QUOTE_MISMATCH`. */
+  readonly quotedMultiplier?: string;
 }
 
 export type StagedSurvivalAction =
@@ -192,7 +193,9 @@ export interface StagedSurvivalDefinition {
     readonly capMustBeUnreachable: boolean;
   };
   readonly speed: {
-    readonly cycleUnit: 'arena';
+    /** Which unit the operator declares as the game cycle. Fingerprinted. */
+    readonly cycleUnit: 'arena' | 'round';
+    /** RTS 14G (non-slot casino) is 5000; RTS 14D (slots) is 2500. */
     readonly minGameCycleMs: number;
     readonly maxDecisionCountdownMs: 0;
   };
@@ -209,6 +212,12 @@ placed at the same instant the geometry is committed, resolve from the same
 survivor count, and appear in the same receipt. A separate `PLACE_SIDE_BET`
 command would create a window in which a player has seen a route commitment and
 not yet priced a bet against it.
+
+Atomicity is **necessary and not sufficient**. What actually has to hold is that
+the outcome is not knowable when the ticket is placed, and that is a property of
+the *protocol*, not of the command shape: a client holding the hazard table can
+place a perfectly atomic side bet on an arena that has already resolved. See
+§10.2, and the seal in §5.
 
 **The adapter never declares a multiplier.** `sideBetProbability()` is a module
 function over the committed geometry; the price is
@@ -249,7 +258,7 @@ export const branchfall = {
   limits:  { minStake: 1_000_000n, maxStake: 10n ** 15n,
              maxSideBetStakeRatio: 1n/1n, maxTotalSideBetStakeRatio: 1n/1n },
   risk:    { maxWinMultiple: 1000n, capBasis: 'per-ticket', capMustBeUnreachable: true },
-  speed:   { cycleUnit: 'arena', minGameCycleMs: 2500, maxDecisionCountdownMs: 0 },
+  speed:   { cycleUnit: 'arena', minGameCycleMs: 5000, maxDecisionCountdownMs: 0 },
   cosmetics: { defaultRunnerNames: ['Wren','Bramble','Ora','Tuck','Sable'], renamable: true },
 };
 ```
@@ -318,13 +327,36 @@ The round has a **two-sided** commit-reveal, in this order and no other.
 
 | Step | Who | What is published | What is still secret |
 | --- | --- | --- | --- |
-| 0. Publish the chain terminal (optional, recommended) | operator | `terminal = H^L(root)` | every seed in the chain |
-| 1. Pre-commit | operator | `serverCommitment`, `roundId`, adapter + model versions, optional `chainNextHash` | the server seed |
+| 0. Publish the chain terminal (optional, recommended) | operator | `terminal = H^L(root)`, `length` | every seed in the chain |
+| 1. Pre-commit | operator | `serverCommitment`, `roundId`, adapter + model versions, optional chain `{terminal, length, index}` | the server seed |
 | 2. Contribute entropy | player | `clientSeed` | nothing |
-| 3. Open the round | operator | `hazardDigest`, the frame, the offers | the server seed |
-| 4. Play | player | actions and resolutions as they happen | the server seed |
-| 5. Settle | operator | the revealed server seed | nothing |
+| 3. Open the round | operator | `hazardDigest`, the frame, the offers | the server seed **and the hazard table** |
+| 4. Play | player | actions and resolutions as they happen | the server seed and the unconsumed draws |
+| 5. Settle | operator | the revealed server seed, the ledger | nothing |
 | 6. Verify | anyone | — | — |
+
+**Step 1 must precede step 2, and the module must enforce it.** `openRound()`
+takes an already-published `ServerPreCommitment` and *opens* it; it does not mint
+one. A commitment minted at the same instant the operator learns the client seed
+commits to nothing — and worse, it lets the operator grind **round ids** instead
+of seeds, which recovers the whole attack §10.1 exists to close, silently and
+with every round still verifying. Measured on the reference implementation:
+holding the server seed fixed and grinding 64 round ids per round drives realised
+Ranger RTP to zero.
+
+**The hazard table is sealed until settlement, and the published record must not
+be able to carry it.** `openRound()` returns two objects — a `published` record
+holding the digest and no draws, and the sealed `hazard` — and
+`StagedSurvivalTranscript` types `hazard?: never` so a published record that
+carries the table does not compile. `verifyRound()` rejects one that does.
+
+This is not fussiness about serialisation. A player who can read the table before
+committing can place a side bet on an event that has already resolved: bet CLEAN
+SWEEP exactly when the table says five clear, LAST LIGHT exactly when it says
+none. Every ticket is still syntactically atomic with the route, every round
+still verifies, and realised RTP goes to **249%**. It does not mis-price the side
+bet; it stops the side bet being a bet, and it voids the measurability premise
+the whole `MATH.md` §8.2 theorem rests on.
 
 ```
 serverCommitment = SHA256(encodeFields([
@@ -345,9 +377,6 @@ canonicalHazardBytes = encodeFields([
 `encodeFields` is length-prefixed and type-tagged, so no two distinct field lists
 share an encoding.
 
-**Why step 1 precedes step 2 and cannot be reordered.** The commitment must be
-computed from a value the operator cannot revise once it has seen the client
-seed, and the table must not be derivable — by anyone — until both halves exist.
 An implementation that derives the table at step 1 and merely mixes the client
 seed in later has not built this protocol; it has built the one §10 says is
 broken.
@@ -366,15 +395,25 @@ the recomputed ledger. Failure codes are stable and machine-branchable:
 ### 5.1 Server-seed chains
 
 `buildSeedChain(root, L)` produces `s_0 = root`, `s_i = SHA256(s_{i-1})`, and
-publishes only `s_{L-1}`. Rounds consume the chain in reverse: round 1 reveals
-`s_{L-2}`, round 2 reveals `s_{L-3}`, and each revealed seed is checked by one
-forward hash against the previously published link.
+publishes only `s_{L-1}` and `L`. Rounds consume the chain in reverse: the first
+round reveals `s_{L-2}`, the next `s_{L-3}`, and so on.
+
+**A round binds to a POSITION, not to a link.** The pre-commitment carries
+`{terminal, length, index}`, and verification hashes the revealed seed forward
+`length - 1 - index` times and requires it to land exactly on the published
+terminal. Checking a single forward hash against "the next link" is not enough:
+it proves the seed hashes to *some* published value, not that it is the seed for
+*this* round of *that* chain, so the same seed can be replayed across rounds and
+a stalled chain is invisible. With the index bound, two rounds claiming the same
+index are visibly the same round, and any verifier can see how many rounds a
+terminal is good for.
 
 This is optional in the protocol and **recommended in deployment**, because it
 removes the operator's ability to choose a server seed per round at all: the
 whole sequence is fixed by a single public value published before any of the
-rounds existed. `verifyRound` checks the link whenever `chainNextHash` is
-present, and `tools/transcript.mjs --chain 8` demonstrates it end to end.
+rounds existed. `verifyRound` checks the position whenever a chain is declared,
+and `tools/transcript.mjs --chain 8` demonstrates it end to end, including that a
+link replayed at the wrong index is rejected.
 
 ---
 
@@ -409,7 +448,7 @@ credit(side bet i)          = payableWithinCap(won ? mult_i x s_i : 0, s_i,  cap
 
 `advance()` takes a server clock and rejects any money command arriving before
 `frame.earliestNextActionAtMs` with `TOO_SOON`. The floor is
-`speed.minGameCycleMs` = <!-- fig:minCycleMs -->2500<!-- /fig --> ms and the
+`speed.minGameCycleMs` = <!-- fig:minCycleMs -->5000<!-- /fig --> ms and the
 cycle unit is the **arena**, because the arena is where money is committed.
 `maxDecisionCountdownMs` is the literal `0`: the type system forbids an adapter
 from declaring a decision timer.
@@ -454,13 +493,20 @@ Mechanical, adapter-agnostic, and evidence — not certification.
     strictly below `maxWinMultiple`; every side-bet multiplier is strictly below
     `maxWinMultiple`; and both endpoints of the round-total-over-total-stake
     interval are strictly below `maxWinMultiple`.
-13. `speed.minGameCycleMs >= 2500` and `speed.maxDecisionCountdownMs == 0`.
-14. Every declarative field is frozen; the fingerprint is stable across
-    re-construction and changes when any declarative field changes.
+13. `speed.minGameCycleMs >= 5000` for a non-slot classification (`>= 2500` if a
+    regulator has classified the game as a slot), and
+    `speed.maxDecisionCountdownMs == 0`.
+14. `openRound()` rejects a `preCommitment` its server seed does not open, and
+    the returned published record has no `hazard` field.
+15. `verify()` returns `LEDGER_MISMATCH` when any credited figure in a supplied
+    settlement differs from the re-derivation.
+16. Every declarative field is frozen; the fingerprint is stable across
+    re-construction and changes when any declarative field changes — including
+    when only a `laneSizes()` output changes (§8).
 
 Checks 1–6, 9, 12 and 13 are already implemented and run on every CI run here by
 [`../tools/enumerate.mjs`](../tools/enumerate.mjs)
-(<!-- fig:invariantCount -->1602<!-- /fig --> exact invariants).
+(<!-- fig:invariantCount -->1603<!-- /fig --> exact invariants).
 
 ---
 
@@ -469,13 +515,23 @@ Checks 1–6, 9, 12 and 13 are already implemented and run on every CI run here 
 `adapterFingerprint` is SHA-256 over `encodeFields` of, in order: API version,
 lifecycle id, game id, adapter version, hazard `modelVersion`, `squadSize`,
 `arenas`; then for each contract in declaration order its id, `laneCount`,
-`minRunners`, the four `collapse`/`clear` BigInts, and its enumerated
-`laneSplits(n)` for every `n` in range; then for each side bet in declaration
-order its id, `event` and `minRunners`; then `firstEntryRtp`, `continuationRtp`,
-`sideBetRule`, `rounding`; then `minStake`, `maxStake`, `maxSideBetStakeRatio`,
-`maxTotalSideBetStakeRatio`; then `maxWinMultiple`, `capBasis`,
-`capMustBeUnreachable`; then `cycleUnit`, `minGameCycleMs`,
+`minRunners`, the four `collapse`/`clear` BigInts, and — for every `n` in
+`[minRunners, squadSize]` — its enumerated `laneSplits(n)` **and the full
+`laneSizes(n, k)` output for every `k` in that list**; then for each side bet in
+declaration order its id, `event` and `minRunners`; then `firstEntryRtp`,
+`continuationRtp`, `sideBetRule`, `rounding`; then `minStake`, `maxStake`,
+`maxSideBetStakeRatio`, `maxTotalSideBetStakeRatio`; then `maxWinMultiple`,
+`capBasis`, `capMustBeUnreachable`; then `cycleUnit`, `minGameCycleMs`,
 `maxDecisionCountdownMs`.
+
+**Why the lane SIZES and not only the balances.** `laneSplits(n)` names the
+choices; `laneSizes(n, k)` is what actually determines the survivor distribution.
+Fingerprinting only the former leaves a hole: keep `laneSplits(5) = [3, 4]`
+unchanged and redefine `laneSizes(5, 3)` from `[3,2]` to `[4,1]` — still pure,
+still two lanes, still summing to five, still passing every other conformance
+check — and `P(wipe)` moves from `5/384` to `29/1152` while the fingerprint stays
+identical. That silently re-prices LAST LIGHT and SOLE SURVIVOR. Enumerating the
+sizes closes it.
 
 **Why the side-bet fields must be in there.** A side-bet price is
 `firstEntryRtp / P(event | geometry)`. Every input to that expression — the
@@ -529,6 +585,10 @@ substituting it, silently defaulting it, or re-deriving the table after seeing i
 all break the fairness property in §10 and are integration defects of the highest
 severity.
 
+**Never send to a client before settlement:** the server seed, the hazard table,
+or any draw from it. The published record is the only thing that leaves the
+server, and it carries a digest.
+
 **Never accept from a client:** the server seed, a hazard table or any draw from
 it, a claim value, a multiplier (a quoted multiplier is accepted only to be
 recomputed and compared), a survivor set, an adapter fingerprint, a cap basis, a
@@ -550,7 +610,8 @@ tickets, frame and ledger revisions, the cap basis, the receipt log.
 
 **Seed custody:** server seeds are drawn from a reviewed CSPRNG (or taken in
 order from a pre-committed chain), held server-side, and revealed only at
-settlement. Two failure modes, correctly ranked in §10.
+settlement — as is the hazard table derived from them. Ranked failure modes in
+§10.
 
 ---
 
@@ -562,8 +623,12 @@ settlement. Two failure modes, correctly ranked in §10.
 | Operator adapts outcomes to the player's route choice | high | The whole table — all routes, all lane balances, all slots — is committed before the first decision; unchosen branches are verifiable after the reveal |
 | Operator re-prices a side bet | high | The price is `firstEntryRtp / P(event\|geometry)`; every input is fingerprinted (§8), and the module computes it — the adapter cannot declare one |
 | Operator substitutes or defaults the client seed | high | The client seed is echoed in the opened round, covered by the hazard digest, and shown in the verification screen. A player who typed a seed can see whether it was used |
-| Early server-seed disclosure | medium | Seed server-side until settlement; treat disclosure as a round-void incident. Note this failure favours the **player** and is detectable, which is why it ranks below seed grinding rather than above it |
-| Client claims a survivor set or a multiplier | high | Survivors are re-derived server-side; a quoted multiplier is recomputed and must match exactly (`QUOTE_MISMATCH`) |
+| **Early disclosure of the hazard table or the server seed** | **highest** | The table is sealed: `openRound()` returns it separately from the published record, `StagedSurvivalTranscript` types `hazard?: never`, and `verifyRound()` rejects a published record that carries it. Treat any disclosure as a round-void incident. This is not the mild, player-favouring failure it looks like — see §10.2 |
+| Client claims a survivor set or a multiplier | high | Survivors are re-derived server-side; a quoted multiplier is recomputed and must match exactly (`QUOTE_MISMATCH`), which also catches the honest case of a card that went stale when the player dragged the fork divider |
+| Operator publishes a settlement that does not match the table | high | `verifyRound()` compares every credited figure, the survivor set and both ledgers against a fresh re-derivation and fails `LEDGER_MISMATCH`. A verifier that checks only the commitment proves the table was honest and says nothing about what the player was paid |
+| Operator grinds the round id instead of the seed | highest | `openRound()` opens an already-published pre-commitment and takes the round id from it; it never mints one (§5) |
+| Chain link reused, or chain stalled | medium | A round pre-commits to its chain `index`; verification hashes forward to the published terminal, so a reused link fails and a stalled chain is countable (§5.1) |
+| Side bet placed after the OUTCOME is known | highest | Atomicity with the route action is necessary and not sufficient: what matters is that the outcome is not knowable. Enforced by sealing the table (§10.2), not by the shape of the command |
 | Side bet placed after the route is known | high | Side bets are fields of the route action, not a separate command; there is no API path to place one later |
 | Side-bet stake used to escape the cap or the limits | medium | `maxSideBetStakeRatio` and `maxTotalSideBetStakeRatio` enforced before debit; cap basis is per ticket |
 | Replay/duplicate action | medium | Idempotency key bound to a canonical command fingerprint; exact retries replay the stored receipt, changed payloads fail `IDEMPOTENCY_CONFLICT` |
@@ -614,17 +679,50 @@ stops working.
    never changes it, the operator can grind the client seed instead. Mitigation:
    the client seed must be generated **on the device** with a CSPRNG, displayed
    before the round opens, and freely editable. The verification screen shows
-   which seed was actually used.
+   which seed was actually used. A predictable or reused player seed re-opens the
+   attack in full, so the client must never derive it from a username, a
+   timestamp, or a counter.
 2. An operator that draws a fresh server seed per round can still choose *which
    commitment to serve*, though with the client seed unknown every candidate has
    the same conditional distribution, so the choice is worthless. A pre-committed
    seed chain (§5.1) removes even that.
-3. None of this constrains an operator that simply lies about the whole protocol.
+3. **Selective non-reveal.** Nothing in commit-reveal forces an operator to
+   settle. An operator that voids or abandons rounds it dislikes biases realised
+   return without ever publishing a false round. Mitigations are operational, not
+   cryptographic: round expiry that auto-banks in the player's favour
+   (`DESIGN.md` §2.1), a published void rate, and a chain whose consumed indices
+   are visible so gaps are countable.
+4. **Chain stalling and link reuse** are mitigated by binding the index (§5.1),
+   not eliminated: an operator can still stop publishing. The index makes it
+   visible; it does not make it impossible.
+5. None of this constrains an operator that simply lies about the whole protocol.
    Commit-reveal establishes that a *published* round was not manipulated after
    the fact; it does not establish that the software running is the software
    described. That is what the adapter fingerprint, an independent build
    attestation and a laboratory process are for, and this repository provides
    none of them (§12).
+
+### 10.2 Why early disclosure is not the mild failure it looks like
+
+The v1 draft called early seed disclosure a player-favouring, detectable
+incident. With side bets in the game that is wrong, and it is wrong by a wide
+margin.
+
+A player who can read the hazard table before committing does not merely know
+where the route goes. They can place a side bet on an event that has *already
+resolved*: CLEAN SWEEP exactly when the table says all five clear, SOLE SURVIVOR
+exactly when it says one, LAST LIGHT exactly when it says none, and no side bet
+otherwise. Every ticket is still atomic with the route commitment; every round
+still verifies; the cap never binds. Realised return on a WIDE arena becomes
+
+```
+E[credited] / E[staked] = 4r / (1 + P(m in {0, 1, 5})) = 782336/314050 = 249.1%
+```
+
+The `MATH.md` §8.2 theorem is unaffected as mathematics — it assumes the ticket's
+stake and event are chosen *before* the arena resolves — but that assumption is a
+protocol obligation, and this is what breaks when the protocol does not keep it.
+Which is why the table is sealed structurally rather than by convention.
 
 ---
 

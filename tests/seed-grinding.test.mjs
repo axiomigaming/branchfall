@@ -18,7 +18,7 @@
 
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { openRound, replayRound } from '../tools/transcript.mjs';
+import { openRound, preCommit, replayRound } from '../tools/transcript.mjs';
 import { CONFIG } from '../tools/lib/model.mjs';
 import { F } from '../tools/lib/exact.mjs';
 
@@ -31,8 +31,8 @@ const RANGER = Array.from({ length: CONFIG.arenas }, () => ({ type: 'ROUTE', con
 const hex = (label) => createHash('sha256').update(label).digest('hex');
 
 function payout(serverSeed, clientSeed, roundId) {
-  const round = openRound(serverSeed, clientSeed, roundId);
-  return BigInt(replayRound(round, { stakeMicro: STAKE, actions: RANGER }).creditedMicro);
+  const { hazard } = openRound(serverSeed, clientSeed, preCommit(serverSeed, roundId));
+  return BigInt(replayRound({ hazard }, { stakeMicro: STAKE, actions: RANGER }).creditedMicro);
 }
 
 /**
@@ -103,19 +103,22 @@ describe('operator seed selection', () => {
 describe('the structural reason it works', () => {
   it('publishes a commitment that cannot depend on the client seed', () => {
     const server = hex('structural');
-    const a = openRound(server, 'client-one', 'r1');
-    const b = openRound(server, 'client-two', 'r1');
-    // Same pre-commitment ...
-    expect(a.serverCommitment).toBe(b.serverCommitment);
+    const pre = preCommit(server, 'r1');
+    const a = openRound(server, 'client-one', pre);
+    const b = openRound(server, 'client-two', pre);
+    // Same pre-commitment, and it was fixed before either client seed existed ...
+    expect(a.published.preCommitment.commitment).toBe(b.published.preCommitment.commitment);
+    expect(a.published.preCommitment.commitment).toBe(pre.commitment);
     // ... completely different round.
-    expect(a.hazardDigest).not.toBe(b.hazardDigest);
+    expect(a.published.hazardDigest).not.toBe(b.published.hazardDigest);
     expect(JSON.stringify(a.hazard)).not.toBe(JSON.stringify(b.hazard));
   });
 
   it('makes a single bit of client entropy change the whole table', () => {
     const server = hex('avalanche');
-    const a = openRound(server, 'seed-a', 'r1').hazard;
-    const b = openRound(server, 'seed-b', 'r1').hazard;
+    const pre = preCommit(server, 'r1');
+    const a = openRound(server, 'seed-a', pre).hazard;
+    const b = openRound(server, 'seed-b', pre).hazard;
     let same = 0;
     let total = 0;
     for (let i = 0; i < a.length; i += 1) {

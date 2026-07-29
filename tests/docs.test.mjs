@@ -165,11 +165,41 @@ describe('cross-document consistency', () => {
     expect(readme).toContain('never more than the route stake');
   });
 
-  it('states the minimum game cycle and names its unit', () => {
+  it('states the minimum game cycle, names its unit, and cites the right rule', () => {
     for (const [name, doc] of Object.entries({ designDoc, engineDoc, readme })) {
-      expect(doc, name).toContain('2500');
+      expect(doc, name).toContain(String(CONFIG.minGameCycleMs));
     }
-    expect(designDoc).toContain('The game cycle is the arena, not the round');
     expect(engineDoc).toContain("cycleUnit: 'arena'");
+    // RTS 14G is the non-slot casino rule. RTS 14D (2.5 s) is the slots rule and
+    // RTS 8 is the autoplay prohibition; the v1 draft cited RTS 8 for timing.
+    expect(designDoc).toContain('RTS 14G');
+    expect(designDoc).toContain('RTS 14D');
+    expect(designDoc).toMatch(/RTS 8 is the \*\*autoplay prohibition\*\*/);
+    expect(designDoc).not.toMatch(/2500 ms.{0,40}RTS 8/);
+    // And the classification is stated as a position, not as settled fact.
+    expect(designDoc).toContain('classification question for a regulator and a test house');
+  });
+
+  it('states the round-level rounding bound, not only the route-ticket one', () => {
+    expect(mathDoc).toContain('A round that also carries side bets loses more in absolute terms');
+    expect(readme).toContain('across a round that also carries side bets');
+  });
+
+  it('documents the sealed hazard table as a structural property', () => {
+    expect(engineDoc).toContain('The hazard table is sealed until settlement');
+    expect(engineDoc).toContain('hazard?: never');
+    expect(mathDoc).toContain('The premise that does the work');
+    expect(readme).toMatch(/the table itself stays\s+sealed server-side/);
+  });
+
+  it('scopes the invariance corollary to the objective it is true for', () => {
+    expect(mathDoc).toContain('And here is the honest boundary of that statement');
+    expect(mathDoc).toContain('E[credited / staked]');
+    expect(mathDoc).toContain('They emphatically do not have the same experience');
+  });
+
+  it('fingerprints the lane SIZES, not only the balances', () => {
+    expect(engineDoc).toContain('Why the lane SIZES and not only the balances');
+    expect(engineDoc).toContain('laneSizes(n, k)` output for every `k`');
   });
 });

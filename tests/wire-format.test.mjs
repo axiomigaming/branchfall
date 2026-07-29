@@ -21,6 +21,7 @@ import {
   buildFixture,
   fixturePlay,
   openRound,
+  preCommit,
   replayRound,
   verifyRound,
 } from '../tools/transcript.mjs';
@@ -41,8 +42,24 @@ describe('the frozen v2 fixture', () => {
     expect(frozen.schema).toBe(SCHEMA);
     expect(frozen.schema).toBe('branchfall/transcript-v2');
     expect(frozen.input.clientSeed).toBe(FIXTURE_INPUT.clientSeed);
-    expect(frozen.serverCommitment).toMatch(/^[0-9a-f]{64}$/);
-    expect(frozen.hazardDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(frozen.published.preCommitment.commitment).toMatch(/^[0-9a-f]{64}$/);
+    expect(frozen.published.hazardDigest).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('keeps the published record and the sealed table in separate objects', () => {
+    // The published record is what a player holds mid-round. It must not carry
+    // a single draw. The table is beside it in this file only because the
+    // fixture IS the post-settlement reveal.
+    expect(frozen.published.hazard).toBeUndefined();
+    expect(JSON.stringify(frozen.published)).not.toContain('slips');
+    expect(Object.keys(frozen)).toContain('hazard');
+    expect(frozen.published.preCommitment.roundId).toBe(frozen.published.roundId);
+  });
+
+  it('freezes a quoted side-bet multiplier so the quote path has a vector too', () => {
+    const quoted = frozen.input.actions.flatMap((a) => a.sideBets ?? []).filter((b) => b.quotedMultiplier);
+    expect(quoted.length).toBeGreaterThan(0);
+    for (const ticket of quoted) expect(ticket.quotedMultiplier).toMatch(/^\d+\/\d+$/);
   });
 
   it('exercises every path worth freezing', () => {
@@ -94,21 +111,24 @@ describe('the frozen v2 fixture', () => {
     for (const value of money) expect(typeof value).toBe('string');
   });
 
-  it('verifies from the revealed server seed alone', () => {
+  it('verifies from the revealed server seed alone, ledger included', () => {
     const result = verifyRound(
       frozen.input.serverSeed,
-      openRound(frozen.input.serverSeed, frozen.input.clientSeed, frozen.input.roundId),
+      frozen.published,
       fixturePlay(frozen.input),
+      frozen.replay,
     );
     expect(result.ok).toBe(true);
-    expect(result.commitment).toBe(frozen.serverCommitment);
-    expect(result.hazardDigest).toBe(frozen.hazardDigest);
+    expect(result.commitment).toBe(frozen.published.preCommitment.commitment);
+    expect(result.hazardDigest).toBe(frozen.published.hazardDigest);
     expect(result.replay.creditedMicro).toBe(frozen.replay.creditedMicro);
   });
 
   it('is reproduced by an independent replay of the same inputs', () => {
-    const round = openRound(frozen.input.serverSeed, frozen.input.clientSeed, frozen.input.roundId);
-    const replay = replayRound(round, fixturePlay(frozen.input));
+    const pre = preCommit(frozen.input.serverSeed, frozen.input.roundId);
+    const { published, hazard } = openRound(frozen.input.serverSeed, frozen.input.clientSeed, pre);
+    expect(JSON.stringify(published)).toBe(JSON.stringify(frozen.published));
+    const replay = replayRound({ hazard }, fixturePlay(frozen.input));
     expect(JSON.stringify(replay)).toBe(JSON.stringify(frozen.replay));
   });
 });

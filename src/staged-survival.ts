@@ -147,11 +147,24 @@ export interface ServerPreCommitment {
   readonly commitment: string;
   readonly publishedAtMs: number;
   /**
-   * When the operator runs a pre-committed seed chain, the hash this round's
-   * seed must map to under one forward SHA-256. Optional but recommended:
-   * it removes per-round seed choice entirely.
+   * When the operator runs a pre-committed seed chain, the POSITION this round
+   * consumes. Binding the index — not merely the next hash — is what makes link
+   * reuse and chain stalling visible: two rounds claiming the same index are
+   * visibly the same round, and a verifier can see how many rounds a terminal is
+   * good for. Optional but recommended: it removes per-round seed choice
+   * entirely.
    */
-  readonly chainNextHash?: string;
+  readonly chain?: SeedChainPosition;
+}
+
+/** A round's position in a published chain. */
+export interface SeedChainPosition {
+  readonly version: typeof SEED_CHAIN_VERSION;
+  /** `H^(length-1)(root)`, published once, before any of these rounds. */
+  readonly terminal: string;
+  readonly length: number;
+  /** Which link this round consumes; `0 <= index <= length - 2`. */
+  readonly index: number;
 }
 
 /** A pre-committed server-seed chain: `s_i = SHA256(s_{i-1})`, `terminal` published once. */
@@ -204,16 +217,24 @@ export interface SideBetOffer {
   readonly maxStake: Micro;
 }
 
-/** A side bet the player actually placed, atomic with the route it rides. */
+/**
+ * A side bet the player actually placed, atomic with the route it rides.
+ *
+ * Field names match the reference wire format in `tools/transcript.mjs` exactly.
+ * They diverged in the v1 draft, which meant the frozen fixture and the declared
+ * type described two different messages.
+ */
 export interface SideBetTicket {
-  readonly id: string;
-  readonly stake: Micro;
+  /** Side-bet id, e.g. `CLEAN_SWEEP`. */
+  readonly bet: string;
+  readonly stakeMicro: Micro;
   /**
-   * The multiplier the client was shown. The module recomputes it and rejects
-   * the command on any disagreement, so a stale or tampered quote fails closed
-   * rather than settling at the client's number.
+   * The multiplier the client was shown, as a canonical `"n/d"` string. Optional
+   * on the wire; when present the module recomputes it and rejects the command
+   * with `QUOTE_MISMATCH` on any disagreement, so a stale card or a tampered
+   * payload fails closed rather than settling at the client's number.
    */
-  readonly quotedMultiplier: Rational;
+  readonly quotedMultiplier?: string;
 }
 
 /**
@@ -279,10 +300,24 @@ export interface StagedSurvivalRisk {
   readonly capMustBeUnreachable: boolean;
 }
 
-/** Speed-of-play controls. The game cycle is the ARENA, not the round. */
+/**
+ * Speed-of-play controls.
+ *
+ * `cycleUnit` records which unit the operator is declaring as the game cycle.
+ * BRANCHFALL declares the ARENA, because that is where money is committed —
+ * but whether a multi-stage round may be counted that way is a classification
+ * question for a regulator and a test house, not one an adapter can settle. The
+ * field exists so the declaration is explicit and fingerprinted rather than
+ * implied.
+ */
 export interface StagedSurvivalSpeed {
-  readonly cycleUnit: 'arena';
-  /** Minimum milliseconds between committing an arena and unlocking the next money control. */
+  readonly cycleUnit: 'arena' | 'round';
+  /**
+   * Minimum milliseconds between committing a cycle and unlocking the next money
+   * control. UKGC RTS 14G (casino games other than slots and peer-to-peer poker)
+   * is 5000; RTS 14D (slots) is 2500. BRANCHFALL is not reel-based, so it builds
+   * to the longer floor.
+   */
   readonly minGameCycleMs: number;
   /** No countdown may ever appear on a money decision. Structural, not configurable. */
   readonly maxDecisionCountdownMs: 0;
@@ -378,6 +413,15 @@ export interface StagedSurvivalReceipt {
   readonly capped: boolean;
 }
 
+/**
+ * The round record a player and a verifier may hold BEFORE settlement.
+ *
+ * It carries the hazard DIGEST and no draws. That separation is a security
+ * property, not a formatting choice: a player who can read the table can place a
+ * side bet on an event that has already resolved, which does not mis-price the
+ * bet — it stops it being a bet. The v1 draft returned the table alongside the
+ * published fields and had no type that forbade shipping it.
+ */
 export interface StagedSurvivalTranscript {
   readonly schema: typeof TRANSCRIPT_SCHEMA;
   readonly adapterVersion: string;
@@ -386,12 +430,34 @@ export interface StagedSurvivalTranscript {
   readonly preCommitment: ServerPreCommitment;
   /** SHA-256 over the canonical hazard bytes, published once both seeds are fixed. */
   readonly hazardDigest: string;
-  /** Present only after settlement. */
-  readonly revealedServerSeed?: string;
-  readonly hazard: HazardTable;
   readonly actions: readonly StagedSurvivalAction[];
   readonly resolutions: readonly ArenaResolution[];
   readonly receipts: readonly StagedSurvivalReceipt[];
+  /** The table is never a field of the published record. */
+  readonly hazard?: never;
+  readonly revealedServerSeed?: never;
+}
+
+/**
+ * The operator-side round: the published record plus the sealed table, plus the
+ * server seed. Never serialised to a client before settlement.
+ */
+export interface SealedRound {
+  readonly published: StagedSurvivalTranscript;
+  readonly hazard: HazardTable;
+  readonly serverSeedHex: string;
+}
+
+/** What settlement publishes. `verify()` re-derives it and compares field by field. */
+export interface StagedSurvivalSettlement {
+  readonly published: StagedSurvivalTranscript;
+  readonly revealedServerSeed: string;
+  readonly stakeMicro: Micro;
+  readonly sideStakeMicro: Micro;
+  readonly routeCreditedMicro: Micro;
+  readonly sideCreditedMicro: Micro;
+  readonly creditedMicro: Micro;
+  readonly capped: boolean;
 }
 
 export type VerificationFailureCode =
@@ -445,15 +511,22 @@ export interface StagedSurvivalModule {
     serverSeedHex: string,
     game: StagedSurvivalDefinition,
     roundId: string,
-    chainNextHash?: string,
+    chain?: SeedChainPosition,
   ): ServerPreCommitment;
-  /** Step 3: the client seed has arrived, so the table is now fixed for both parties. */
+  /**
+   * Step 3: the client seed has arrived, so the table is now fixed for both
+   * parties. MUST validate that `serverSeedHex` opens the supplied, already
+   * published `preCommitment` — a commitment minted at the same moment the
+   * operator learns the client seed commits to nothing, and lets the operator
+   * grind round ids instead of seeds. MUST return the sealed table separately
+   * from the published record.
+   */
   openRound(
     serverSeedHex: string,
     game: StagedSurvivalDefinition,
     preCommitment: ServerPreCommitment,
     clientSeed: string,
-  ): StagedSurvivalTranscript;
+  ): SealedRound;
   /** Legal actions, their exact quoted distributions, and the priced side bets. */
   offers(game: StagedSurvivalDefinition, frame: StagedSurvivalFrame): StagedSurvivalFrame['offers'];
   /**
@@ -480,11 +553,18 @@ export interface StagedSurvivalModule {
     readonly debitMicro: Micro;
     readonly creditMicro: Micro;
   };
-  /** Re-derives everything from the revealed server seed and replays the action list. */
+  /**
+   * Re-derives everything from the revealed server seed, replays the action list,
+   * and — when a published settlement is supplied — compares every credited
+   * figure against the re-derivation, failing `LEDGER_MISMATCH` on any
+   * disagreement. A verifier that checks the commitment but not the ledger
+   * proves the table was honest and says nothing about what the player was paid.
+   */
   verify(
     serverSeedHex: string,
     game: StagedSurvivalDefinition,
     transcript: unknown,
     stakeMicro: Micro,
+    settlement?: StagedSurvivalSettlement,
   ): VerificationResult;
 }

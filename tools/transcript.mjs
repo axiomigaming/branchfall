@@ -216,6 +216,12 @@ export function buildSeedChain(rootHex, length) {
 
 /**
  * Verify one revealed link of a seed chain: `SHA256(revealed) == nextHash`.
+ *
+ * Sound as far as it goes, and NOT sufficient on its own: one link proves the
+ * revealed seed hashes to some published value, not that it is the seed for
+ * *this* round of *that* chain. Use `verifyChainPosition()`, which is what
+ * `openRound()` and `verifyRound()` actually enforce.
+ *
  * @param {string} revealedSeedHex
  * @param {string} nextHashHex
  */
@@ -224,6 +230,47 @@ export function verifyChainLink(revealedSeedHex, nextHashHex) {
   const next = normalizeSeed(nextHashHex);
   const forward = createHash('sha256').update(Buffer.from(revealed, 'hex')).digest('hex');
   return forward === next;
+}
+
+/**
+ * A round's position in a published chain: which terminal it belongs to, how
+ * long the chain is, and which index this round consumes.
+ *
+ * Binding the index is what stops link reuse and chain stalling: two rounds
+ * that claim the same index are visibly the same round, and a verifier can see
+ * exactly how many rounds a terminal is good for.
+ *
+ * @param {{terminal: string, length: number, index: number}} position
+ */
+export function normalizeChainPosition(position, path = '$.chain') {
+  if (!position || typeof position !== 'object' || Array.isArray(position)) {
+    fail('INVALID_CHAIN', 'chain position must be an object', path);
+  }
+  const terminal = normalizeSeed(position.terminal);
+  const { length, index } = position;
+  if (!Number.isSafeInteger(length) || length < 2 || length > LIMITS.maxChainLength) {
+    fail('INVALID_CHAIN', `chain length must be an integer in [2, ${LIMITS.maxChainLength}]`, `${path}.length`);
+  }
+  if (!Number.isSafeInteger(index) || index < 0 || index > length - 2) {
+    fail('INVALID_CHAIN', `chain index must be an integer in [0, ${length - 2}]`, `${path}.index`);
+  }
+  return Object.freeze({ version: CHAIN_VERSION, terminal, length, index });
+}
+
+/**
+ * Hash a revealed seed forward to the published terminal and check it lands
+ * exactly where the round claims it should.
+ * @param {string} revealedSeedHex
+ * @param {{terminal: string, length: number, index: number}} position
+ */
+export function verifyChainPosition(revealedSeedHex, position) {
+  const revealed = normalizeSeed(revealedSeedHex);
+  const chain = normalizeChainPosition(position);
+  let current = Buffer.from(revealed, 'hex');
+  for (let step = chain.index; step < chain.length - 1; step += 1) {
+    current = createHash('sha256').update(current).digest();
+  }
+  return current.toString('hex') === chain.terminal;
 }
 
 /* ------------------------------------------------------------------ *
@@ -249,6 +296,7 @@ const RANGE = 1n << 256n;
 export function uniformBigInt(serverSeedHex, clientSeed, label, modulus) {
   const seed = normalizeSeed(serverSeedHex);
   const client = normalizeClientSeed(clientSeed);
+  if (!Array.isArray(label)) fail('INVALID_ARGUMENT', 'label must be an array of encodable fields', '$.label');
   if (typeof modulus !== 'bigint' || modulus <= 0n || modulus >= RANGE) {
     fail('INVALID_MODULUS', 'Modulus must be a BigInt in [1, 2^256)', '$.modulus');
   }
@@ -355,6 +403,7 @@ export function assertHazardShape(hazard, path = '$.hazard') {
 
 /** Canonical bytes of the hazard table — the thing the digest covers. */
 export function canonicalHazardBytes(roundId, clientSeed, hazard) {
+  assertHazardShape(hazard);
   const fields = [
     'BRANCHFALL hazard table',
     SCHEMA,
@@ -383,33 +432,110 @@ export function hazardDigest(roundId, clientSeed, hazard) {
 }
 
 /**
- * Open a round. Step 3 of the lifecycle: the server seed is already committed,
- * the client seed has arrived, and the table is now fixed for both parties.
+ * STEP 1. The pre-commitment the operator publishes before the player supplies
+ * anything, and before the operator itself can evaluate any table.
+ *
+ * The round id is fixed HERE, not later. That matters: if the round id were
+ * chosen after the client seed arrived, the operator could grind round ids
+ * instead of seeds and recover the whole attack the client seed exists to
+ * close — with the same silent, fully-verifiable result.
+ *
  * @param {string} serverSeedHex
- * @param {string} clientSeed
  * @param {string} roundId
- * @param {{chainNextHash?: string}} [options]
+ * @param {{chain?: {terminal: string, length: number, index: number}}} [options]
  */
-export function openRound(serverSeedHex, clientSeed, roundId, options = {}) {
+export function preCommit(serverSeedHex, roundId, options = {}) {
   const seed = normalizeSeed(serverSeedHex);
-  const client = normalizeClientSeed(clientSeed);
   const round = normalizeRoundId(roundId);
-  const hazard = deriveHazardTable(seed, client, round);
-  const opened = {
-    schema: SCHEMA,
+  if (options === null || typeof options !== 'object' || Array.isArray(options)) {
+    fail('INVALID_ARGUMENT', 'preCommit options must be an object', '$.options');
+  }
+  const record = {
+    version: COMMITMENT_VERSION,
     gameId: CONFIG.gameId,
     adapterVersion: CONFIG.adapterVersion,
     modelVersion: CONFIG.modelVersion,
     roundId: round,
-    clientSeed: client,
-    serverCommitment: serverCommitment(seed, round),
-    hazardDigest: hazardDigest(round, client, hazard),
-    hazard,
+    commitment: serverCommitment(seed, round),
   };
-  if (options.chainNextHash !== undefined) {
-    opened.chainNextHash = normalizeSeed(options.chainNextHash);
+  if (options.chain !== undefined) {
+    record.chain = normalizeChainPosition(options.chain, '$.options.chain');
+    if (!verifyChainPosition(seed, record.chain)) {
+      fail('CHAIN_MISMATCH', 'server seed is not at the declared chain position', '$.options.chain');
+    }
   }
-  return Object.freeze(opened);
+  return Object.freeze(record);
+}
+
+/** @param {unknown} pre */
+export function assertPreCommitment(pre, path = '$.preCommitment') {
+  if (!pre || typeof pre !== 'object' || Array.isArray(pre)) {
+    fail('INVALID_TRANSCRIPT', 'pre-commitment must be an object', path);
+  }
+  if (pre.version !== COMMITMENT_VERSION) {
+    fail('UNSUPPORTED_VERSION', 'unknown commitment version', `${path}.version`);
+  }
+  if (pre.adapterVersion !== CONFIG.adapterVersion || pre.modelVersion !== CONFIG.modelVersion) {
+    fail('ADAPTER_MISMATCH', 'pre-commitment was produced by a different adapter', `${path}.adapterVersion`);
+  }
+  normalizeRoundId(pre.roundId);
+  if (typeof pre.commitment !== 'string' || !/^[0-9a-f]{64}$/u.test(pre.commitment)) {
+    fail('INVALID_TRANSCRIPT', 'commitment must be 32 bytes of lowercase hexadecimal', `${path}.commitment`);
+  }
+  if (pre.chain !== undefined) normalizeChainPosition(pre.chain, `${path}.chain`);
+  return pre;
+}
+
+/**
+ * STEP 3. The client seed has arrived, so the table is now fixed for both
+ * parties. Takes the ALREADY PUBLISHED pre-commitment and opens it — it does not
+ * manufacture one, because a commitment the operator mints at the same moment it
+ * learns the client seed commits to nothing.
+ *
+ * Returns two separate objects, and the separation is the security property:
+ *
+ *   `published` — everything the player and any verifier may see now. It carries
+ *     the hazard DIGEST and no draws. Publishing this object leaks nothing.
+ *   `hazard` — the sealed table. Operator-side only, until settlement.
+ *
+ * The v1 draft returned one object with the table inside it. Any caller that
+ * handed that object to a client handed over the outcomes, and a player who can
+ * read the table can place a side bet on an event that has already happened —
+ * which is not a pricing bug but a total break: side bets stop being bets.
+ *
+ * @param {string} serverSeedHex
+ * @param {string} clientSeed
+ * @param {ReturnType<typeof preCommit>} preCommitment
+ * @returns {{published: object, hazard: ReturnType<typeof deriveHazardTable>}}
+ */
+export function openRound(serverSeedHex, clientSeed, preCommitment) {
+  const seed = normalizeSeed(serverSeedHex);
+  const client = normalizeClientSeed(clientSeed);
+  const pre = assertPreCommitment(preCommitment);
+
+  if (serverCommitment(seed, pre.roundId) !== pre.commitment) {
+    fail(
+      'COMMITMENT_MISMATCH',
+      'the server seed does not open the published pre-commitment',
+      '$.preCommitment.commitment',
+    );
+  }
+  if (pre.chain !== undefined && !verifyChainPosition(seed, pre.chain)) {
+    fail('CHAIN_MISMATCH', 'the server seed is not at the pre-committed chain position', '$.preCommitment.chain');
+  }
+
+  const hazard = deriveHazardTable(seed, client, pre.roundId);
+  const published = Object.freeze({
+    schema: SCHEMA,
+    gameId: CONFIG.gameId,
+    adapterVersion: CONFIG.adapterVersion,
+    modelVersion: CONFIG.modelVersion,
+    roundId: pre.roundId,
+    clientSeed: client,
+    preCommitment: pre,
+    hazardDigest: hazardDigest(pre.roundId, client, hazard),
+  });
+  return Object.freeze({ published, hazard });
 }
 
 /* ------------------------------------------------------------------ *
@@ -450,10 +576,16 @@ export function resolveArena(hazard, arena, contractId, running, laneSplit = nul
   if (!Array.isArray(running) || running.length === 0) {
     fail('INVALID_SQUAD', 'running must be a non-empty array of squad slots', '$.running');
   }
+  if (running.length > CONFIG.squadSize) {
+    fail('INVALID_SQUAD', 'running cannot exceed the squad size', '$.running');
+  }
+  const seenSlots = new Set();
   for (const slot of running) {
     if (!Number.isSafeInteger(slot) || slot < 0 || slot >= CONFIG.squadSize) {
       fail('INVALID_SQUAD', `squad slot must be an integer in [0, ${CONFIG.squadSize})`, '$.running');
     }
+    if (seenSlots.has(slot)) fail('INVALID_SQUAD', 'running must name distinct squad slots', '$.running');
+    seenSlots.add(slot);
   }
   const spec = CONTRACTS[contractId];
   const laneDraws = hazard[arena - 1][contractId];
@@ -489,6 +621,18 @@ export function resolveArena(hazard, arena, contractId, running, laneSplit = nul
  * the total is a sum of capped tickets (docs/MATH.md §9).
  */
 export function payableWithinCap(theoretical, basisStakeMicro, maxWinMultiple, alreadyCredited) {
+  if (!(theoretical instanceof Frac)) {
+    fail('INVALID_ARGUMENT', 'theoretical payout must be an exact Frac', '$.theoretical');
+  }
+  for (const [name, value] of [
+    ['basisStakeMicro', basisStakeMicro],
+    ['maxWinMultiple', maxWinMultiple],
+    ['alreadyCredited', alreadyCredited],
+  ]) {
+    if (typeof value !== 'bigint' || value < 0n) {
+      fail('INVALID_ARGUMENT', `${name} must be a non-negative BigInt`, `$.${name}`);
+    }
+  }
   const uncapped = theoretical.floor();
   const ceiling = basisStakeMicro * maxWinMultiple;
   const remaining = ceiling > alreadyCredited ? ceiling - alreadyCredited : 0n;
@@ -543,6 +687,21 @@ function priceSideBets(tickets, contractId, runners, laneSplit, routeStakeMicro,
       fail('INVALID_SIDE_BET', 'side-bet stake exceeds the published per-round limit', `${at}.stakeMicro`);
     }
     const offer = offers.find((o) => o.bet === ticket.bet);
+    // The client may echo the multiplier it was shown. We never settle at the
+    // client's number — we recompute and reject any disagreement, so a stale
+    // card or a tampered payload fails closed instead of paying out.
+    if (ticket.quotedMultiplier !== undefined) {
+      if (typeof ticket.quotedMultiplier !== 'string') {
+        fail('QUOTE_MISMATCH', 'quotedMultiplier must be a canonical "n/d" string', `${at}.quotedMultiplier`);
+      }
+      if (ticket.quotedMultiplier !== offer.multiplier.toString()) {
+        fail(
+          'QUOTE_MISMATCH',
+          `quoted ${ticket.quotedMultiplier} but this geometry prices ${offer.multiplier}`,
+          `${at}.quotedMultiplier`,
+        );
+      }
+    }
     priced.push({
       bet: ticket.bet,
       stakeMicro: ticket.stakeMicro,
@@ -740,31 +899,85 @@ export function replayRound(round, play) {
  * published digest, optionally check the seed-chain link, and replay the
  * recorded actions.
  */
-export function verifyRound(serverSeedHex, published, play) {
+export function verifyRound(serverSeedHex, published, play, settlement = undefined) {
   try {
     const seed = normalizeSeed(serverSeedHex);
-    if (!published || published.schema !== SCHEMA) {
+    if (!published || typeof published !== 'object' || published.schema !== SCHEMA) {
       return { ok: false, code: 'UNSUPPORTED_VERSION', message: 'Unknown transcript schema', path: '$.schema' };
     }
     if (published.adapterVersion !== CONFIG.adapterVersion || published.modelVersion !== CONFIG.modelVersion) {
       return { ok: false, code: 'ADAPTER_MISMATCH', message: 'Transcript was produced by a different adapter', path: '$.adapterVersion' };
     }
-    const expectedCommitment = serverCommitment(seed, published.roundId);
-    if (expectedCommitment !== published.serverCommitment) {
-      return { ok: false, code: 'COMMITMENT_MISMATCH', message: 'Pre-commitment does not match the revealed server seed', path: '$.serverCommitment' };
+    // A published round that carries draws has already leaked its outcomes.
+    if (published.hazard !== undefined) {
+      return {
+        ok: false,
+        code: 'INVALID_TRANSCRIPT',
+        message: 'A published round must carry the hazard digest, never the table',
+        path: '$.hazard',
+      };
     }
-    if (published.chainNextHash !== undefined && !verifyChainLink(seed, published.chainNextHash)) {
-      return { ok: false, code: 'CHAIN_MISMATCH', message: 'Revealed seed is not the pre-committed chain link', path: '$.chainNextHash' };
+    const pre = assertPreCommitment(published.preCommitment);
+    if (pre.roundId !== published.roundId) {
+      return { ok: false, code: 'TRANSCRIPT_MISMATCH', message: 'Round id does not match the pre-commitment', path: '$.roundId' };
+    }
+    const expectedCommitment = serverCommitment(seed, pre.roundId);
+    if (expectedCommitment !== pre.commitment) {
+      return { ok: false, code: 'COMMITMENT_MISMATCH', message: 'Pre-commitment does not match the revealed server seed', path: '$.preCommitment.commitment' };
+    }
+    if (pre.chain !== undefined && !verifyChainPosition(seed, pre.chain)) {
+      return { ok: false, code: 'CHAIN_MISMATCH', message: 'Revealed seed is not at the pre-committed chain position', path: '$.preCommitment.chain' };
     }
     const hazard = deriveHazardTable(seed, published.clientSeed, published.roundId);
     const digest = hazardDigest(published.roundId, published.clientSeed, hazard);
     if (digest !== published.hazardDigest) {
       return { ok: false, code: 'TRANSCRIPT_MISMATCH', message: 'Hazard digest does not match the published table', path: '$.hazardDigest' };
     }
-    const replay = replayRound(
-      { roundId: published.roundId, clientSeed: published.clientSeed, hazard },
-      play,
-    );
+    const replay = replayRound({ hazard }, play);
+
+    // If the operator published a settlement, every credited figure in it must
+    // equal the one re-derived here. Without this comparison a verifier proves
+    // the table was honest and says nothing about what the player was paid.
+    if (settlement !== undefined) {
+      if (!settlement || typeof settlement !== 'object') {
+        return { ok: false, code: 'LEDGER_MISMATCH', message: 'settlement must be an object', path: '$.settlement' };
+      }
+      for (const field of [
+        'stakeMicro',
+        'sideStakeMicro',
+        'totalStakeMicro',
+        'routeCreditedMicro',
+        'sideCreditedMicro',
+        'creditedMicro',
+        'finalClaim',
+        'returnMultiple',
+      ]) {
+        if (settlement[field] !== undefined && String(settlement[field]) !== replay[field]) {
+          return {
+            ok: false,
+            code: 'LEDGER_MISMATCH',
+            message: `published ${field} ${String(settlement[field])} does not match the re-derived ${replay[field]}`,
+            path: `$.settlement.${field}`,
+          };
+        }
+      }
+      if (settlement.capped !== undefined && Boolean(settlement.capped) !== replay.capped) {
+        return { ok: false, code: 'LEDGER_MISMATCH', message: 'published cap flag does not match', path: '$.settlement.capped' };
+      }
+      if (settlement.survivorsBanked !== undefined &&
+          JSON.stringify(settlement.survivorsBanked) !== JSON.stringify(replay.survivorsBanked)) {
+        return { ok: false, code: 'LEDGER_MISMATCH', message: 'published survivor set does not match', path: '$.settlement.survivorsBanked' };
+      }
+      if (settlement.sideLedger !== undefined &&
+          JSON.stringify(settlement.sideLedger) !== JSON.stringify(replay.sideLedger)) {
+        return { ok: false, code: 'LEDGER_MISMATCH', message: 'published side-bet ledger does not match', path: '$.settlement.sideLedger' };
+      }
+      if (settlement.ledger !== undefined &&
+          JSON.stringify(settlement.ledger) !== JSON.stringify(replay.ledger)) {
+        return { ok: false, code: 'LEDGER_MISMATCH', message: 'published arena ledger does not match', path: '$.settlement.ledger' };
+      }
+    }
+
     return { ok: true, commitment: expectedCommitment, hazardDigest: digest, replay };
   } catch (error) {
     if (error instanceof TranscriptError) {
@@ -798,7 +1011,7 @@ export const FIXTURE_INPUT = Object.freeze({
       type: 'ROUTE',
       contract: 'SPLIT',
       laneSplit: 4,
-      sideBets: [{ bet: 'CLEAN_SWEEP', stakeMicro: '2000000' }],
+      sideBets: [{ bet: 'CLEAN_SWEEP', stakeMicro: '2000000', quotedMultiplier: '9168/3125' }],
     },
     { type: 'ROUTE', contract: 'WIDE' },
     { type: 'SHELTER', shelter: [0], sideBets: [{ bet: 'LAST_LIGHT', stakeMicro: '1000000' }] },
@@ -820,16 +1033,76 @@ export function fixturePlay(input = FIXTURE_INPUT) {
 }
 
 export function buildFixture() {
-  const round = openRound(FIXTURE_INPUT.serverSeed, FIXTURE_INPUT.clientSeed, FIXTURE_INPUT.roundId);
-  const replay = replayRound(round, fixturePlay());
+  const pre = preCommit(FIXTURE_INPUT.serverSeed, FIXTURE_INPUT.roundId);
+  const { published, hazard } = openRound(FIXTURE_INPUT.serverSeed, FIXTURE_INPUT.clientSeed, pre);
+  const replay = replayRound({ hazard }, fixturePlay());
   return {
     schema: SCHEMA,
     input: FIXTURE_INPUT,
-    serverCommitment: round.serverCommitment,
-    hazardDigest: round.hazardDigest,
-    hazard: round.hazard,
+    /** Everything a player and a verifier may see before settlement. No draws. */
+    published,
+    /** Sealed until settlement. Frozen here because this file IS the reveal. */
+    hazard,
     replay,
   };
+}
+
+/**
+ * Build a legal action list against a known table.
+ *
+ * The demo has to be adaptive, not scripted: a fixed "shelter slot 0" is illegal
+ * the moment slot 0 has already fallen, and CI runs this command on a random
+ * seed. Stepping the resolved state is the only way a demo round is guaranteed
+ * to be legal, and it is also what a real client does.
+ *
+ * @param {ReturnType<typeof deriveHazardTable>} hazard
+ * @returns {ReplayAction[]}
+ */
+export function demoPlay(hazard) {
+  assertHazardShape(hazard);
+  let alive = Array.from({ length: CONFIG.squadSize }, (_, i) => i);
+  const actions = [];
+
+  for (let arena = 1; arena <= CONFIG.arenas && alive.length > 0; arena += 1) {
+    if (arena === CONFIG.arenas) {
+      actions.push({ type: 'BANK' });
+      break;
+    }
+
+    let action;
+    if (arena === 1 && alive.length >= 2) {
+      const split = laneSplitsFor('SPLIT', alive.length)[0];
+      action = {
+        type: 'ROUTE',
+        contract: 'SPLIT',
+        laneSplit: split,
+        sideBets: [{ bet: 'CLEAN_SWEEP', stakeMicro: 2_000_000n }],
+      };
+    } else if (arena === 3 && alive.length >= 2) {
+      // Shelter a runner that is actually alive, chosen by position not by id.
+      action = {
+        type: 'SHELTER',
+        shelter: [alive[0]],
+        sideBets:
+          alive.length - 1 >= CONFIG.sideBet.minRunners
+            ? [{ bet: 'LAST_LIGHT', stakeMicro: 1_000_000n }]
+            : undefined,
+      };
+    } else if (arena === 4) {
+      action = { type: 'ROUTE', contract: 'NARROW' };
+    } else {
+      action = { type: 'ROUTE', contract: 'WIDE' };
+    }
+    if (action.sideBets === undefined) delete action.sideBets;
+
+    const running = action.type === 'SHELTER' ? alive.filter((slot) => slot !== action.shelter[0]) : alive;
+    const contractId = action.type === 'SHELTER' ? 'WIDE' : action.contract;
+    const outcome = resolveArena(hazard, arena, contractId, running, action.laneSplit ?? null);
+    actions.push(action);
+    alive = outcome.survivors;
+  }
+
+  return actions;
 }
 
 function main() {
@@ -849,14 +1122,22 @@ function main() {
     const chain = buildSeedChain(randomBytes(32).toString('hex'), length);
     process.stdout.write('BRANCHFALL — pre-committed server-seed chain\n');
     process.stdout.write('===========================================\n');
-    process.stdout.write(`published once, before any of these rounds:  ${chain.terminal}\n\n`);
-    for (let i = chain.length - 2; i >= 0; i -= 1) {
-      const ok = verifyChainLink(chain.seeds[i], chain.seeds[i + 1]);
+    process.stdout.write(`terminal, published once before any of these rounds:\n  ${chain.terminal}\n\n`);
+    process.stdout.write('Rounds consume the chain in reverse. Each round pre-commits to its INDEX,\n');
+    process.stdout.write('so a reused link and a stalled chain are both visible to a verifier.\n\n');
+    for (let index = length - 2; index >= 0; index -= 1) {
+      const seed = chain.seeds[index];
+      const position = { terminal: chain.terminal, length, index };
+      const ok = verifyChainPosition(seed, position);
+      const wrongIndex = index > 0 ? verifyChainPosition(seed, { ...position, index: index - 1 }) : false;
       process.stdout.write(
-        `  round ${String(chain.length - 1 - i).padStart(2)}  reveal ${chain.seeds[i]}  link ${ok ? 'OK' : 'BROKEN'}\n`,
+        `  round ${String(length - 1 - index).padStart(2)}  index ${String(index).padStart(2)}  ` +
+          `reveal ${seed}  position ${ok ? 'OK' : 'BROKEN'}  replayed-at-wrong-index ${wrongIndex ? 'ACCEPTED' : 'rejected'}\n`,
       );
     }
-    process.stdout.write('\nThe operator never chooses a seed per round: the sequence was fixed by one public hash.\n');
+    process.stdout.write(
+      '\nThe operator never chooses a seed per round: the whole sequence was fixed by\none public hash, and each round names the position it consumes.\n',
+    );
     return;
   }
 
@@ -864,35 +1145,29 @@ function main() {
   const clientSeed = flag('--client') ?? `player-${randomBytes(6).toString('hex')}`;
   const roundId = flag('--round') ?? 'demo-round';
 
-  // Step 1: publish the pre-commitment, before any client entropy exists.
-  const precommitment = serverCommitment(serverSeed, roundId);
-  // Step 2 & 3: the client seed arrives; only now is the table derivable.
-  const round = openRound(serverSeed, clientSeed, roundId);
-  const play = {
-    stakeMicro: 10_000_000n,
-    actions: [
-      {
-        type: 'ROUTE',
-        contract: 'SPLIT',
-        laneSplit: 3,
-        sideBets: [{ bet: 'CLEAN_SWEEP', stakeMicro: 2_000_000n }],
-      },
-      { type: 'ROUTE', contract: 'WIDE' },
-      { type: 'SHELTER', shelter: [0], sideBets: [{ bet: 'LAST_LIGHT', stakeMicro: 1_000_000n }] },
-      { type: 'ROUTE', contract: 'NARROW' },
-      { type: 'BANK' },
-    ],
-  };
-  const replay = replayRound(round, play);
-  const verified = verifyRound(serverSeed, round, play);
+  // Step 1: publish the pre-commitment. No client input exists yet.
+  const pre = preCommit(serverSeed, roundId);
+  // Step 2 & 3: the client seed arrives; only now is the table derivable, and
+  // `published` is everything the player is allowed to see.
+  const { published, hazard } = openRound(serverSeed, clientSeed, pre);
+  const play = { stakeMicro: 10_000_000n, actions: demoPlay(hazard) };
+
+  const replay = replayRound({ hazard }, play);
+  // Step 5 & 6: reveal, and verify the published settlement against a fresh
+  // re-derivation — the ledger comparison, not just the commitment check.
+  const verified = verifyRound(serverSeed, published, play, replay);
 
   process.stdout.write('BRANCHFALL — reference round\n');
   process.stdout.write('============================\n');
-  process.stdout.write(`roundId          ${roundId}\n`);
-  process.stdout.write(`pre-commitment   ${precommitment}   (published before the client seed exists)\n`);
-  process.stdout.write(`client seed      ${clientSeed}   (player-supplied, editable)\n`);
-  process.stdout.write(`hazard digest    ${round.hazardDigest}   (published once both seeds are fixed)\n`);
-  process.stdout.write(`server seed      ${serverSeed}   (revealed at settlement)\n\n`);
+  process.stdout.write(`roundId          ${published.roundId}\n`);
+  process.stdout.write(`pre-commitment   ${pre.commitment}   (published before the client seed exists)\n`);
+  process.stdout.write(`client seed      ${published.clientSeed}   (player-supplied, editable)\n`);
+  process.stdout.write(`hazard digest    ${published.hazardDigest}   (published once both seeds are fixed)\n`);
+  process.stdout.write(`server seed      ${serverSeed}   (revealed at settlement)\n`);
+  process.stdout.write(
+    `published keys   ${Object.keys(published).join(', ')}\n` +
+      `                 (no hazard table: the draws stay sealed until settlement)\n\n`,
+  );
   for (const entry of replay.ledger) {
     if (entry.action === 'BANK') {
       process.stdout.write(`  arena ${entry.arena}  BANK        claim=${entry.claimBefore}\n`);
@@ -915,9 +1190,12 @@ function main() {
       `  staked          ${replay.totalStakeMicro} micro-credits (route ${replay.stakeMicro} + side ${replay.sideStakeMicro})\n` +
       `  credited        ${replay.creditedMicro} micro-credits (${replay.returnMultiple}x total stake)\n` +
       `  capped          ${replay.capped}\n` +
-      `  verification    ${verified.ok ? 'OK' : `FAILED ${verified.code}`}\n`,
+      `  verification    ${verified.ok ? 'OK (commitment, digest and ledger)' : `FAILED ${verified.code}`}\n`,
   );
-  if (!verified.ok) process.exitCode = 1;
+  if (!verified.ok) {
+    process.stderr.write(`${verified.message} at ${verified.path}\n`);
+    process.exitCode = 1;
+  }
 }
 
 const invokedDirectly = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
