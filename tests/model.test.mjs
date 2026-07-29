@@ -330,6 +330,37 @@ describe('policy enumeration', () => {
     expect(probabilityOfZero(keeper.distribution).toString()).toBe('0/1');
   });
 
+  /**
+   * The label used to read "Keeper (Shelter half, then Wide)", whose literal
+   * reading is a different policy: shelter once, then run Wide. That policy has
+   * a standard deviation of 0.449236 or 0.343542 depending on the first split
+   * and a ceiling of 1.752119 or 1.486412 — none of which are the published
+   * row. It is the one row in MATH.md §7 a reader could not reproduce from the
+   * document, so the name has to describe the code.
+   */
+  it('names the shelter ladder for what it does on every arena', () => {
+    const { label, fn } = POLICIES.SHELTER_LADDER;
+    expect(label).toContain('every arena');
+    for (let arena = 1; arena <= CONFIG.arenas; arena += 1) {
+      for (let alive = 2; alive <= CONFIG.squadSize; alive += 1) {
+        const action = fn(arena, alive);
+        expect(action.type, `arena ${arena}, ${alive} alive`).toBe('SHELTER');
+        expect(action.shelter).toBe(Math.floor(alive / 2));
+      }
+      expect(fn(arena, 1)).toEqual({ type: 'ROUTE', contract: 'WIDE' });
+    }
+    // And the literal reading of the old label is a materially different policy.
+    const shelterOnce = (arena, alive) =>
+      arena === 1 && alive >= 2
+        ? { type: 'SHELTER', shelter: Math.floor(alive / 2) }
+        : { type: 'ROUTE', contract: 'WIDE' };
+    const published = enumeratePolicy(fn);
+    const misread = enumeratePolicy(shelterOnce);
+    expect(misread.variance.toString()).not.toBe(published.variance.toString());
+    expect(misread.maxReturn.toString()).not.toBe(published.maxReturn.toString());
+    expect(misread.rtp.toString()).toBe(published.rtp.toString());
+  });
+
   it('enforces the side-bet stake limit ACROSS arenas, not once per arena', () => {
     // 1x on every eligible arena is five side units on a five-arena path, not
     // one. The first draft reset the accumulator each arena and accepted it.

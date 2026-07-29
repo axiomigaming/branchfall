@@ -1349,7 +1349,15 @@ export const POLICIES = Object.freeze({
     fn: () => ({ type: 'ROUTE', contract: 'NARROW' }),
   },
   SHELTER_LADDER: {
-    label: 'Keeper (Shelter half, then Wide)',
+    /**
+     * The label used to read "Shelter half, then Wide", which invites the
+     * literal reading "shelter once, then run Wide" — a different policy with a
+     * different standard deviation (0.449236 at j=2, 0.343542 at j=3) and a
+     * different ceiling. This is the one published row a reader cannot reproduce
+     * from a mislabelled name, so the name says what the code does: floor(n/2)
+     * sheltered on EVERY arena while two or more are alive.
+     */
+    label: 'Keeper (shelter half every arena, Wide when alone)',
     fn: (_arena, alive) =>
       alive >= 2 ? { type: 'SHELTER', shelter: Math.floor(alive / 2) } : { type: 'ROUTE', contract: 'WIDE' },
   },

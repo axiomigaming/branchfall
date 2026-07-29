@@ -749,7 +749,7 @@ exactly. "Leaves" is the number of terminal paths walked.
 | Forker (Split x5 balanced, Wide when alone) | 252 | `191/200` | 95.5000 | 0.837499 | 0.23838546 | 0.33002791 | 0.00000000 | 0.0000000000 | `24448/6075` = 4.024362 |
 | Scout (Split x5 lopsided, Wide when alone) | 252 | `191/200` | 95.5000 | 0.877762 | 0.26028451 | 0.32909257 | 0.00000000 | 0.0000000000 | `24448/6075` = 4.024362 |
 | Knife (Narrow x5) | 252 | `191/200` | 95.5000 | 14.464388 | 0.99541297 | 0.00458703 | 0.00458703 | 0.0045870254 | `24448/25` = 977.920000 |
-| Keeper (Shelter half, then Wide) | 20 | `191/200` | 95.5000 | 0.304026 | 0.00000000 | 0.49744350 | 0.00000000 | 0.0000000000 | `5459539607/4084101000` = 1.336779 |
+| Keeper (shelter half every arena, Wide when alone) | 20 | `191/200` | 95.5000 | 0.304026 | 0.00000000 | 0.49744350 | 0.00000000 | 0.0000000000 | `5459539607/4084101000` = 1.336779 |
 | Gambit (Split x3, then Narrow x2) | 252 | `191/200` | 95.5000 | 3.041933 | 0.89476204 | 0.10523796 | 0.02392629 | 0.0000000000 | `24448/675` = 36.219259 |
 | Adaptive (Narrow while >=4 alive, Split below, bank at 1 alive) | 196 | `191/200` | 95.5000 | 2.524887 | 0.60896013 | 0.31291487 | 0.00930825 | 0.0000305856 | `24448/25` = 977.920000 |
 | Greedy (Split until a runner falls, then Narrow to the end) | 252 | `191/200` | 95.5000 | 6.926628 | 0.95184542 | 0.04777445 | 0.02012730 | 0.0005952294 | `97792/375` = 260.778667 |
@@ -758,10 +758,14 @@ Reading it:
 
 * **Volatility bands.** Low: Bolt, Keeper. Medium: Ranger, Forker, Scout.
   High: Gambit, Adaptive. Extreme: Greedy, Knife.
-* **A zero-bust policy exists.** "Keeper" shelters on the very first arena, so
-  money is banked before any wipe can happen: `P(bust) = `<!-- fig:keeperBust -->0.00%<!-- /fig -->`
+* **A zero-bust policy exists.** "Keeper" shelters `floor(n/2)` runners on
+  **every** arena while two or more are alive — not once and then Wide, which is
+  a different policy with a different ceiling — so money is banked before any
+  wipe can happen: `P(bust) = `<!-- fig:keeperBust -->0.00%<!-- /fig -->`
   exactly, and the player always walks away with something. Its ceiling is
-  <!-- fig:keeperMax -->1.34x<!-- /fig -->. The trade is total and legible.
+  <!-- fig:keeperMax -->1.34x<!-- /fig -->. The trade is total and legible, and
+  the name has to carry the "every arena" or the row is not reproducible from
+  this document alone.
 * **The lane balance is a real volatility dial.** Forker and Scout differ only in
   the SPLIT balance they choose, run the same contracts on the same arenas, and
   land at standard deviations of <!-- fig:forkerSd -->0.83<!-- /fig --> and
@@ -821,11 +825,11 @@ asserts it across all <!-- fig:portfolioCount -->45<!-- /fig --> portfolios.
 | Knife (Narrow x5) | + Last Light every arena at 1/10 the route stake | 252 | `48298619/41943040` | `9225036229/8388608000` | `191/200` | 95.5000 | 10.895312 | `48896/75` = 651.946667 |
 | Knife (Narrow x5) | + Sole Survivor at the maximum legal stake, arena 1 only | 252 | `3/2` | `573/400` | `191/200` | 95.5000 | 9.700552 | `48896/75` = 651.946667 |
 | Knife (Narrow x5) | + all three side bets on arena 1 at 1/6 the route stake each | 252 | `3/2` | `573/400` | `191/200` | 95.5000 | 9.696105 | `148216/225` = 658.737778 |
-| Keeper (Shelter half, then Wide) | route ticket only | 20 | `1/1` | `191/200` | `191/200` | 95.5000 | 0.304026 | `5459539607/4084101000` = 1.336779 |
-| Keeper (Shelter half, then Wide) | + Clean Sweep every arena at 1/10 the route stake | 20 | `18629/16000` | `3558139/3200000` | `191/200` | 95.5000 | 0.313507 | `6596658107/4900921200` = 1.346004 |
-| Keeper (Shelter half, then Wide) | + Last Light every arena at 1/10 the route stake | 20 | `18629/16000` | `3558139/3200000` | `191/200` | 95.5000 | 0.428369 | `89197/36850` = 2.420543 |
-| Keeper (Shelter half, then Wide) | + Sole Survivor at the maximum legal stake, arena 1 only | 20 | `3/2` | `573/400` | `191/200` | 95.5000 | 1.538396 | `52953188957/6126151500` = 8.643794 |
-| Keeper (Shelter half, then Wide) | + all three side bets on arena 1 at 1/6 the route stake each | 20 | `3/2` | `573/400` | `191/200` | 95.5000 | 0.630530 | `19934636957/6126151500` = 3.254023 |
+| Keeper (shelter half every arena, Wide when alone) | route ticket only | 20 | `1/1` | `191/200` | `191/200` | 95.5000 | 0.304026 | `5459539607/4084101000` = 1.336779 |
+| Keeper (shelter half every arena, Wide when alone) | + Clean Sweep every arena at 1/10 the route stake | 20 | `18629/16000` | `3558139/3200000` | `191/200` | 95.5000 | 0.313507 | `6596658107/4900921200` = 1.346004 |
+| Keeper (shelter half every arena, Wide when alone) | + Last Light every arena at 1/10 the route stake | 20 | `18629/16000` | `3558139/3200000` | `191/200` | 95.5000 | 0.428369 | `89197/36850` = 2.420543 |
+| Keeper (shelter half every arena, Wide when alone) | + Sole Survivor at the maximum legal stake, arena 1 only | 20 | `3/2` | `573/400` | `191/200` | 95.5000 | 1.538396 | `52953188957/6126151500` = 8.643794 |
+| Keeper (shelter half every arena, Wide when alone) | + all three side bets on arena 1 at 1/6 the route stake each | 20 | `3/2` | `573/400` | `191/200` | 95.5000 | 0.630530 | `19934636957/6126151500` = 3.254023 |
 
 Every row is exactly `191/200`. Side bets move variance and the shape of the
 tail; they cannot move the edge, in either direction.
