@@ -1,0 +1,428 @@
+{
+  "schema": "branchfall/transcript-v1",
+  "input": {
+    "seed": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+    "roundId": "branchfall-fixture-0001",
+    "stakeMicro": "10000000",
+    "actions": [
+      {
+        "type": "ROUTE",
+        "contract": "SPLIT"
+      },
+      {
+        "type": "ROUTE",
+        "contract": "WIDE"
+      },
+      {
+        "type": "SHELTER",
+        "shelter": [
+          0
+        ]
+      },
+      {
+        "type": "ROUTE",
+        "contract": "NARROW"
+      },
+      {
+        "type": "BANK"
+      }
+    ]
+  },
+  "commitment": "f093b04fbed13e5b659290bcb04bf7062f0b3d855de2cf8895f379bbb0f31cf1",
+  "hazard": [
+    {
+      "WIDE": [
+        {
+          "collapse": 24,
+          "slips": [
+            1,
+            2,
+            5,
+            5,
+            0
+          ]
+        }
+      ],
+      "SPLIT": [
+        {
+          "collapse": 3,
+          "slips": [
+            2,
+            2,
+            1,
+            4,
+            5
+          ]
+        },
+        {
+          "collapse": 8,
+          "slips": [
+            4,
+            4,
+            0,
+            4,
+            1
+          ]
+        }
+      ],
+      "NARROW": [
+        {
+          "collapse": 1,
+          "slips": [
+            1,
+            1,
+            0,
+            0,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "WIDE": [
+        {
+          "collapse": 4,
+          "slips": [
+            1,
+            7,
+            1,
+            7,
+            4
+          ]
+        }
+      ],
+      "SPLIT": [
+        {
+          "collapse": 6,
+          "slips": [
+            1,
+            5,
+            1,
+            3,
+            0
+          ]
+        },
+        {
+          "collapse": 0,
+          "slips": [
+            0,
+            5,
+            1,
+            5,
+            2
+          ]
+        }
+      ],
+      "NARROW": [
+        {
+          "collapse": 1,
+          "slips": [
+            0,
+            1,
+            1,
+            1,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "WIDE": [
+        {
+          "collapse": 20,
+          "slips": [
+            1,
+            6,
+            4,
+            6,
+            5
+          ]
+        }
+      ],
+      "SPLIT": [
+        {
+          "collapse": 4,
+          "slips": [
+            3,
+            0,
+            1,
+            4,
+            1
+          ]
+        },
+        {
+          "collapse": 6,
+          "slips": [
+            3,
+            2,
+            3,
+            0,
+            2
+          ]
+        }
+      ],
+      "NARROW": [
+        {
+          "collapse": 0,
+          "slips": [
+            0,
+            0,
+            1,
+            1,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "WIDE": [
+        {
+          "collapse": 14,
+          "slips": [
+            4,
+            7,
+            4,
+            0,
+            1
+          ]
+        }
+      ],
+      "SPLIT": [
+        {
+          "collapse": 1,
+          "slips": [
+            1,
+            0,
+            2,
+            1,
+            1
+          ]
+        },
+        {
+          "collapse": 9,
+          "slips": [
+            5,
+            5,
+            3,
+            1,
+            4
+          ]
+        }
+      ],
+      "NARROW": [
+        {
+          "collapse": 0,
+          "slips": [
+            1,
+            0,
+            1,
+            1,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "WIDE": [
+        {
+          "collapse": 19,
+          "slips": [
+            0,
+            2,
+            2,
+            1,
+            5
+          ]
+        }
+      ],
+      "SPLIT": [
+        {
+          "collapse": 9,
+          "slips": [
+            0,
+            3,
+            2,
+            3,
+            4
+          ]
+        },
+        {
+          "collapse": 5,
+          "slips": [
+            2,
+            2,
+            2,
+            4,
+            3
+          ]
+        }
+      ],
+      "NARROW": [
+        {
+          "collapse": 1,
+          "slips": [
+            0,
+            1,
+            0,
+            1,
+            0
+          ]
+        }
+      ]
+    }
+  ],
+  "replay": {
+    "stakeMicro": "10000000",
+    "ledger": [
+      {
+        "arena": 1,
+        "action": "ROUTE",
+        "contract": "SPLIT",
+        "sheltered": [],
+        "running": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        "lanes": [
+          [
+            0,
+            1,
+            2
+          ],
+          [
+            3,
+            4
+          ]
+        ],
+        "collapsed": [
+          false,
+          false
+        ],
+        "survivors": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        "fallen": [],
+        "claimBefore": "191/200",
+        "claimAfter": "191/150"
+      },
+      {
+        "arena": 2,
+        "action": "ROUTE",
+        "contract": "WIDE",
+        "sheltered": [],
+        "running": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        "lanes": [
+          [
+            0,
+            1,
+            2,
+            3,
+            4
+          ]
+        ],
+        "collapsed": [
+          false
+        ],
+        "survivors": [
+          0,
+          2,
+          4
+        ],
+        "fallen": [
+          {
+            "slot": 1,
+            "cause": "slip",
+            "lane": 0
+          },
+          {
+            "slot": 3,
+            "cause": "slip",
+            "lane": 0
+          }
+        ],
+        "claimBefore": "191/150",
+        "claimAfter": "191/210"
+      },
+      {
+        "arena": 3,
+        "action": "SHELTER",
+        "contract": "WIDE",
+        "sheltered": [
+          0
+        ],
+        "running": [
+          2,
+          4
+        ],
+        "lanes": [
+          [
+            2,
+            4
+          ]
+        ],
+        "collapsed": [
+          false
+        ],
+        "survivors": [
+          2,
+          4
+        ],
+        "fallen": [],
+        "claimBefore": "191/315",
+        "claimAfter": "955/1323"
+      },
+      {
+        "arena": 4,
+        "action": "ROUTE",
+        "contract": "NARROW",
+        "sheltered": [],
+        "running": [
+          2,
+          4
+        ],
+        "lanes": [
+          [
+            2,
+            4
+          ]
+        ],
+        "collapsed": [
+          true
+        ],
+        "survivors": [],
+        "fallen": [
+          {
+            "slot": 2,
+            "cause": "collapse",
+            "lane": 0
+          },
+          {
+            "slot": 4,
+            "cause": "collapse",
+            "lane": 0
+          }
+        ],
+        "claimBefore": "955/1323",
+        "claimAfter": "0/1"
+      }
+    ],
+    "survivorsBanked": [],
+    "finalClaim": "0/1",
+    "creditedMicro": "3031746",
+    "returnMultiple": "1515873/5000000",
+    "capped": false
+  }
+}
