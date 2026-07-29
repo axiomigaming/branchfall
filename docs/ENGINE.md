@@ -328,6 +328,15 @@ For BRANCHFALL the table is
 `5 arenas x 4 lanes x (1 collapse + 5 slips) = `<!-- fig:hazardDraws -->120<!-- /fig -->
 draws — small enough to commit and ship whole.
 
+**Presentation draws are derived separately and are not in that count.**
+`DESIGN.md` §6.9 selects an authored fall clip from a `flavour` draw, taken from
+the same seed pair under its own field label. It is re-derivable by the player at
+settlement and it is deliberately outside the hazard table and its digest, because
+it decides which of two authored variants plays and can move no money. The
+*margin* a clip has to honour is not a draw at all: it is the value of the
+committed slip draw, so `DESIGN.md` §6.9 rule 4 reads a number this table already
+contains.
+
 **Lane assignment** is a pure function of the running set and the committed
 balance: runners sorted by squad slot, the leading `laneSplit` to lane 0 and the
 rest to lane 1 for SPLIT, all runners to lane 0 otherwise. Deterministic, so a

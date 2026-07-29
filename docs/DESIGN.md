@@ -1501,11 +1501,13 @@ figure `ENGINE.md` §4 publishes for something that decides nothing.
 The library is combinatorial only if a clip depends on the whole outcome. Ours
 does not, and that is a hard authoring rule:
 
-**Clips are per runner, never per outcome.** A five-body collapse on The Reach —
-`c = 1/2`, so <!-- fig:narrowWipe5 -->51.56%<!-- /fig --> of NARROW arenas at five
-runners, all of it inside a 24 mm handheld frame (§6.4) — is five instances of one
-per-runner collapse clip, triggered with the slot's own root offset and a phase
-offset from the flavour draw. Slot position is therefore a **transform**, not a
+**Clips are per runner, never per outcome.** A five-body fall on The Reach is
+routine, not exceptional: the lane collapses in half of all NARROW arenas
+(`c = 1/2`), and once the independent slips are counted all five go down in
+<!-- fig:narrowWipe5 -->51.56%<!-- /fig --> of NARROW arenas at five runners — all
+of it inside a 24 mm handheld frame (§6.4). That is five instances of one
+per-runner clip (the collapse one or the slip one, per the resolution), triggered
+with the slot's own root offset and a phase offset from the flavour draw. Slot position is therefore a **transform**, not a
 clip axis, which is what keeps the count linear. Two rules make that composition
 safe: no fall clip may reference another figure's position, and falling figures
 never interact — no contact, no collision, no simulation between them.
@@ -2015,9 +2017,11 @@ art budget.
 module, RGS integration), audio production (§7's budget is separate and is
 contract work), UI implementation as opposed to UI art, localisation, marketing
 and store art, QA, and the comprehension testing in §5.2.8.
-**Harnesses the client build must have.** These do not exist yet, because the
-client does not exist yet; they are acceptance criteria for it, not descriptions
-of this repository's CI:
+
+### 11.3 Harnesses the client build must have
+
+These do not exist yet, because the client does not exist yet; they are
+acceptance criteria for it, not descriptions of this repository's CI:
 
 - **Determinism harness:** replay the frozen fixture transcript through the
   presentation layer on every quality tier and assert the same authored clips are
@@ -2045,11 +2049,20 @@ enumerator and the card disagree, the build fails.
 
 **What `npm run docs:check` does and does not bind.** It binds every number in
 this document that the *model* computes — probabilities, multipliers, wipe rates,
-cap figures, the game-cycle floor — as generated slots. It does not bind the
-design budgets in §6.8 (download size, triangle counts, millisecond budgets) or
-the sound and layout figures, because nothing computes those: they are decisions.
-Where a number here is a decision rather than a derivation, it is not in a slot,
-and the absence of a slot is the signal.
+break-even counts, cap figures, the game-cycle floor — as generated slots. It does
+not bind the design budgets in §6.8 and §11 (download size, triangle counts,
+millisecond budgets, asset counts, clip counts, art hours) or the sound and layout
+figures, because nothing computes those: they are decisions. Where a number here
+is a decision rather than a derivation, it is not in a slot, and the absence of a
+slot is the signal.
+
+**But a decision still has to add up.** `tests/copy-discipline.test.mjs` parses
+the per-frame budgets, the first-load table, the on-screen triangle budget, the
+16 MB round trip and the art-hours table, sums their rows, and fails the build if
+a total, a contingency or a reserve disagrees with the items above it. That is a
+weaker guarantee than `docs:check` — it proves the arithmetic, never the
+achievability — and it is the strongest one available for a number no model
+produces.
 
 ---
 

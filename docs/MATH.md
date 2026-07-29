@@ -540,6 +540,13 @@ This is a property of the model, not a UI choice, and `DESIGN.md` §2 and S2 are
 required to surface it — including the rule that the shelter picker must reject
 an all-`n` selection at input time rather than at commit time.
 
+It also binds the one resolution the player does not choose. A round abandoned
+past the operator's expiry window is closed by the server, and because `BANK` does
+not exist in state `(1, n)` an expiry before arena 1 resolves cannot bank: it
+voids the wager and returns the stake, which is a cancellation and not a payout.
+`DESIGN.md` §2.1 and `ENGINE.md` §6.1 carry that rule; it is recorded here because
+this paragraph is where a future editor will look for the reason.
+
 ### 5.4 What runner identity does, and does not, do
 
 Which specific runners are withdrawn to a shelter, and which lane a given runner
