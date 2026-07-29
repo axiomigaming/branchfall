@@ -231,7 +231,11 @@ bank-or-continue, the wipe, the round summary, the verification screen, the
 Ghost Line, and the unstaked three-branch rehearsal on the published seed pair.
 The branch is a rectangle and a Kindling is a stroke with a lantern dot — the art
 direction in `docs/DESIGN.md` §6 is a later wave, and the palette and type
-direction are the only parts of it this build implements.
+direction are the only parts of it this build implements. §6.5 writes its sizes
+as limits — 15 px body, 13 px secondary, 28 px for the claim, no numeral under
+15 px — so they are CSS tokens and `tests/type-floor.test.mjs` fails if a rule
+reaches for a size instead of a floor. The one size below the floor is the
+break-even tick glyph on the distribution chart, which carries no figure.
 
 Three properties of the client are worth stating because they are the ones a
 graybox usually gets wrong:

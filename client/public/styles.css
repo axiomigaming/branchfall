@@ -202,11 +202,18 @@ h3 {
   gap: 10px;
 }
 
+/*
+ * A label and its choices. At the numeral floor four chips no longer fit beside
+ * a label on a 390 pt screen, so the row wraps and the chips keep their size:
+ * §6.5's floor outranks keeping a settings row on one line.
+ */
 .spread {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 
 hr {
@@ -1056,6 +1063,13 @@ button {
   margin: 6px 0 0;
 }
 
+/*
+ * A chip is a control, and the ones that matter carry a figure the player is
+ * choosing: a stake preset, a loss limit, a reality-check interval. §6.5 writes
+ * the numeral floor as a floor, so a chip is body size, not secondary size — the
+ * previous build set stake presets at 13 px, which put "25.00" on a money
+ * control below the line the document draws.
+ */
 .chip {
   display: inline-flex;
   align-items: center;
@@ -1064,7 +1078,7 @@ button {
   border-radius: 999px;
   padding: 6px 12px;
   margin: 0 4px 4px 0;
-  font-size: var(--floor-secondary);
+  font-size: var(--floor-body);
   min-height: 36px;
 }
 
@@ -1212,15 +1226,20 @@ button {
 .odds-table td {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
-  font-size: var(--floor-secondary);
+  font-size: var(--floor-numeral);
+  white-space: nowrap;
 }
 
 /*
- * The one place a numeral is allowed under the floor, and it is not a money
- * figure: the exact fractions in the full-odds table are 13 px so a 12-digit
- * denominator fits on one line without reflowing. The figures a player acts on —
- * every credit, claim, multiplier and stake — are at or above 15 px everywhere.
+ * The odds table keeps the numeral floor and scrolls sideways instead.
+ * A twelve-digit exact denominator does not fit four-across on a 390 pt screen
+ * at 15 px, and the answer to that is a table that moves, not a numeral that
+ * shrinks: §6.5 writes the floor as a floor.
  */
+.odds-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
 
 /* ----------------------------------------------------------- verify (S8) */
 

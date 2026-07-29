@@ -530,7 +530,9 @@ function stakeScreen(): HTMLElement {
         { class: 'row', style: 'flex-wrap:wrap;justify-content:center' },
         ...presets.map((preset) =>
           el('button', {
-            class: 'chip',
+            // A stake preset is a money figure on a money control: tabular
+            // numerals and the §6.5 numeral floor, like every other figure.
+            class: 'chip money',
             'aria-pressed': String(preset === stake),
             text: credits(preset),
             onClick: () => setStake(preset),
@@ -555,7 +557,7 @@ function stakeScreen(): HTMLElement {
             maxlength: '64',
             'aria-label': 'Client seed',
             style:
-              'width:100%;background:var(--void);border:1px solid var(--fog-mid);color:var(--mist);font-family:var(--mono);font-size:11px;padding:10px;border-radius:3px',
+              'width:100%;background:var(--void);border:1px solid var(--fog-mid);color:var(--mist);font-family:var(--mono);font-size:13px;padding:10px;border-radius:3px',
             onChange: (event: Event) => {
               // Anything they like, which is what the line above promises. A seed
               // that is already 32 bytes of hex is used as it stands; anything
@@ -2279,7 +2281,7 @@ function settingsScreen(): HTMLElement {
             ['100.00', '100000000'],
           ] as const).map(([label, value]) =>
             el('button', {
-              class: 'chip',
+              class: 'chip money',
               'aria-pressed': String(lossLimit === value),
               text: label,
               onClick: () => patch({ sessionLossLimitMicro: lossLimit === value ? null : value }),

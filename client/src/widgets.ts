@@ -372,34 +372,44 @@ export function routeTabs(
   );
 }
 
-/** The exact per-outcome table — the same rows as `MATH.md` §5.2, as fractions. */
+/**
+ * The exact per-outcome table — the same rows as `MATH.md` §5.2, as fractions.
+ *
+ * Wrapped in its own scroller. A twelve-digit exact denominator does not always
+ * fit four columns across a 390 pt screen at the §6.5 numeral floor, and the
+ * answer to that is a table that moves sideways, not a numeral that shrinks.
+ */
 export function oddsTable(figures: Figures): HTMLElement {
   return el(
-    'table',
-    { class: 'odds-table' },
+    'div',
+    { class: 'odds-scroll' },
     el(
-      'thead',
-      {},
+      'table',
+      { class: 'odds-table' },
       el(
-        'tr',
+        'thead',
         {},
-        el('th', { text: 'Back' }),
-        el('th', { text: 'Probability' }),
-        el('th', { text: 'Exact' }),
-        el('th', { text: 'Claim x' }),
-      ),
-    ),
-    el(
-      'tbody',
-      {},
-      figures.outcomes.map((row) =>
         el(
           'tr',
           {},
-          el('td', { text: String(row.survivors) }),
-          el('td', { text: row.probability.decimal.slice(0, 10) }),
-          el('td', { text: row.probability.exact }),
-          el('td', { text: row.claimFactor.exact }),
+          el('th', { text: 'Back' }),
+          el('th', { text: 'Probability' }),
+          el('th', { text: 'Exact' }),
+          el('th', { text: 'Claim x' }),
+        ),
+      ),
+      el(
+        'tbody',
+        {},
+        figures.outcomes.map((row) =>
+          el(
+            'tr',
+            {},
+            el('td', { text: String(row.survivors) }),
+            el('td', { text: row.probability.decimal.slice(0, 10) }),
+            el('td', { text: row.probability.exact }),
+            el('td', { text: row.claimFactor.exact }),
+          ),
         ),
       ),
     ),
