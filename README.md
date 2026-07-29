@@ -266,11 +266,33 @@ shipped is generic, and two things landed differently.
    shelter withdrawals, banks and settlement exactly as specified. Side bets are
    separate tickets with their own stakes and their own accumulators, which is
    the per-ticket basis `docs/MATH.md` §9 proves.
+3. **A stake divides into five equal shares, so it is a multiple of five
+   micro-credits.** Every runner carries an equal share and the module holds each
+   share as an integer, so a stake of `1.000001` credits is refused where
+   `1.000000` and `1.000005` are taken. `docs/MATH.md` declares the interval and
+   no increment, so this is a real narrowing — of five millionths of a credit,
+   and the alternative is unequal shares, which is the premise the whole §8 proof
+   rests on.
+4. **The engine's round entropy is exactly 32 bytes of hex; a player's seed is
+   anything they like.** `docs/ENGINE.md` §9 requires the operator to accept
+   1–64 printable bytes, and refusing one is called an integration defect of the
+   highest severity. So a seed that is not already in the module's form is hashed
+   into it with SHA-256, and the verification screen shows both halves and the
+   derivation, because a player who typed a seed still has to be able to see that
+   theirs is the one that was used.
 
-Neither changes a probability, a price or a payout. `tests/graybox-model.test.mjs`
-checks every geometry, every outcome, every claim factor and all
-<!-- fig:sideBetRows -->42<!-- /fig --> side-bet prices against
+Neither of the first two changes a probability, a price or a payout.
+`tests/graybox-model.test.mjs` checks every geometry, every outcome, every claim
+factor and all <!-- fig:sideBetRows -->42<!-- /fig --> side-bet prices against
 `tools/enumerate.mjs` before a card is allowed to show a digit.
+
+**And one thing commit-reveal cannot do, said plainly.** The stake is not inside
+the commitment — the module's transcript has no stake field and nothing here is
+signed — so a verifier establishes that *every credit is right for the stake the
+record declares*, not that the declared stake is what was debited. A player
+checks that against what their own client showed them. The verification screen
+says so in the same weight as the checks that do pass, because a control that
+does not exist should not be implied by silence.
 
 ---
 

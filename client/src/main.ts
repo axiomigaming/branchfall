@@ -470,15 +470,25 @@ function stakeScreen(): HTMLElement {
           el('input', {
             value: state.clientSeed,
             spellcheck: 'false',
+            maxlength: '64',
             'aria-label': 'Client seed',
             style:
               'width:100%;background:var(--void);border:1px solid var(--fog-mid);color:var(--mist);font-family:var(--mono);font-size:11px;padding:10px;border-radius:3px',
             onChange: (event: Event) => {
-              const value = (event.target as HTMLInputElement).value.trim().toLowerCase();
-              if (isSeed(value)) state.clientSeed = value;
-              else toast('A client seed is 64 hexadecimal characters.', true);
+              // Anything they like, which is what the line above promises. A seed
+              // that is already 32 bytes of hex is used as it stands; anything
+              // else is hashed into the round's entropy, publicly and visibly.
+              const value = (event.target as HTMLInputElement).value.trim();
+              if (value.length === 0) toast('A seed needs at least one character.', true);
+              else state.clientSeed = value;
               render();
             },
+          }),
+          el('p', {
+            class: 'tiny',
+            text: isSeed(state.clientSeed)
+              ? 'Used exactly as it stands.'
+              : 'Not 32 bytes of hex, so the round uses SHA-256 of it — shown on the verification screen, next to what you typed.',
           }),
           el('button', {
             class: 'btn quiet',
@@ -534,7 +544,7 @@ async function buyRun(): Promise<void> {
       'POST',
       `/api/rounds/${precommit.roundId}/open`,
       {
-        clientEntropy: state.clientSeed,
+        clientSeed: state.clientSeed,
         respondingTo: precommit.seedCommitment,
         stakeMicro: state.stakeMicro.toString(),
       },
@@ -1586,7 +1596,16 @@ function verifyScreen(): HTMLElement {
         'div',
         {},
         hashRow('Server pre-commitment', fairness.preCommitment, 'published before your seed existed'),
-        hashRow('Your client seed', fairness.clientEntropy ?? '—', 'generated on this device'),
+        hashRow(
+          'Your client seed',
+          fairness.clientSeed ?? '—',
+          fairness.clientEntropyIsSeed
+            ? 'generated on this device, used exactly as it stands'
+            : 'generated on this device — hashed into the round entropy below',
+        ),
+        fairness.clientEntropyIsSeed
+          ? null
+          : hashRow('Round entropy', fairness.clientEntropy ?? '—', 'SHA-256 of your seed'),
         hashRow('Hazard tape digest', fairness.tapeDigest ?? '—', 'published when the round opened'),
         hashRow('Revealed server seed', fairness.revealedServerSeed ?? '—', 'revealed at settlement'),
         hashRow('Adapter fingerprint', fairness.fingerprint, `${fairness.definitionId} ${fairness.definitionVersion}`),

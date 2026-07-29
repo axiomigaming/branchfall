@@ -65,6 +65,8 @@ export interface AppOptions {
   readonly seedSource?: () => string;
   /** Test-only. See `RoundStore.roundIdSource`. */
   readonly roundIdSource?: (counter: number) => string;
+  /** The operator's expiry window. Default 24 h (`DESIGN.md` §2.1). */
+  readonly expiryWindowMs?: number;
 }
 
 export interface App {
@@ -177,7 +179,7 @@ export function createApp(options: AppOptions = {}): App {
   assertGeometryMatchesSpecification();
   const clock = new Clock(options.devClock === true);
   const wallet = new Wallet(options.openingBalanceMicro ?? 500_000_000n, () => clock.now());
-  const store = new RoundStore(wallet, clock);
+  const store = new RoundStore(wallet, clock, options.expiryWindowMs ?? 24 * 60 * 60 * 1000);
   if (options.seedSource) store.seedSource = options.seedSource;
   if (options.roundIdSource) store.roundIdSource = options.roundIdSource;
   const session: Session = {
@@ -301,7 +303,11 @@ export function createApp(options: AppOptions = {}): App {
             return json(response, 200, { ...(result as object), frame: frameOf(round, store), ...sessionPayload() });
           }
           if (method === 'POST' && action === '/expire') {
-            const result = await store.expire(roundId);
+            // Operator path. It refuses a round that is not past its window —
+            // a player-reachable cancel would be a zero-risk exit from arena 1,
+            // and the model has no such action (`MATH.md` §5.3). `--dev-clock`
+            // forces it, which is why that flag prints a banner.
+            const result = await store.expire(roundId, { force: options.devClock === true });
             const round = store.get(roundId);
             return json(response, 200, { ...(result as object), frame: frameOf(round, store), ...sessionPayload() });
           }
@@ -381,6 +387,19 @@ export function createApp(options: AppOptions = {}): App {
       }
     })();
   });
+
+  /**
+   * The expiry sweep.
+   *
+   * `ENGINE.md` §6.1: a round abandoned past the operator's window is closed by
+   * the server, through `expire()` and nothing else. Without something calling
+   * it, that path is a function nobody runs and a promise nobody keeps. The
+   * timer is unref'd so it never holds a test process open.
+   */
+  const sweep = setInterval(() => {
+    void store.sweepExpired().catch(() => undefined);
+  }, 60_000);
+  sweep.unref?.();
 
   // The runner names the player chose apply to the next round they open.
   const originalPrecommit = store.precommit.bind(store);

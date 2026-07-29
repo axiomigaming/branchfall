@@ -19,6 +19,7 @@
  * A bundle carries no tape and cannot: the published record is the transcript,
  * and the transcript's own type forbids one.
  */
+import { createHash } from 'node:crypto';
 import {
   add,
   compare,
@@ -77,6 +78,8 @@ export interface VerificationBundle {
     readonly moduleVersion: string;
   };
   readonly roundId: string;
+  /** What the player typed. `clientEntropy` is it, or `SHA-256` of it. */
+  readonly clientSeed: string;
   readonly clientEntropy: string;
   readonly preCommitment: string;
   readonly preCommitmentPublishedAtMs: number;
@@ -128,7 +131,6 @@ function replayLedger(
 
   let liquid = 0n;
   let live: number[] = Array.from({ length: SQUAD_SIZE }, (_value, slot) => slot);
-  let expectedTotal = 0n;
   let mismatch: string | null = null;
 
   const creditAt = (
@@ -141,7 +143,6 @@ function replayLedger(
     if (payable.credited !== claimed)
       mismatch ??= `${event.kind} at stage ${event.stage}: bundle says ${claimed}, re-derivation says ${payable.credited}`;
     liquid += payable.credited;
-    expectedTotal += payable.credited;
     for (const slot of event.entities) values.set(slot, rational(0n));
     live = live.filter((slot) => !event.entities.includes(slot));
   };
@@ -181,7 +182,6 @@ function replayLedger(
         const claimed = parseMicro(event.creditedMicro, 'Side-bet credit');
         if (payable.credited !== claimed)
           mismatch ??= `Side bet ${event.bet} at arena ${index + 1}: bundle says ${claimed}, re-derivation says ${payable.credited}`;
-        expectedTotal += payable.credited;
       }
 
     const multiplier = rational(contract.multiplier.numerator, contract.multiplier.denominator);
@@ -194,7 +194,36 @@ function replayLedger(
   boundary(transcript.steps.length);
   for (const event of credits) if (event.kind === 'SETTLE') creditAt(event);
 
-  void expectedTotal;
+  /**
+   * Completeness: every share that was not lost was credited exactly once.
+   *
+   * Re-deriving only the events a bundle *lists* is not verification — delete
+   * them all, publish a total of zero, and a bundle of nothing verifies. So the
+   * required set is derived from the transcript instead: a runner is either
+   * failed in some step, or banked at some boundary, or still standing at the
+   * end, and each of the latter two owes exactly one route credit. A missing
+   * event, an invented one, or an entity credited twice all fail here.
+   */
+  const failed = new Set<number>();
+  for (const step of transcript.steps) for (const slot of step.failed) failed.add(slot);
+  const owed = new Set<number>();
+  for (let slot = 0; slot < SQUAD_SIZE; slot += 1) if (!failed.has(slot)) owed.add(slot);
+  const seen = new Set<number>();
+  let doubled: number | null = null;
+  for (const event of credits) {
+    if (event.kind === 'SIDE_BET') continue;
+    for (const slot of event.entities) {
+      if (seen.has(slot)) doubled ??= slot;
+      seen.add(slot);
+    }
+  }
+  const missing = [...owed].filter((slot) => !seen.has(slot));
+  const extra = [...seen].filter((slot) => !owed.has(slot));
+  if (doubled !== null) mismatch ??= `Runner ${doubled} is credited by two events`;
+  else if (missing.length > 0)
+    mismatch ??= `Runner${missing.length > 1 ? 's' : ''} ${missing.join(', ')} survived and no credit event pays them`;
+  else if (extra.length > 0)
+    mismatch ??= `Runner${extra.length > 1 ? 's' : ''} ${extra.join(', ')} fell and are credited anyway`;
 
   results.push({
     code: 'LEDGER',
@@ -203,6 +232,92 @@ function replayLedger(
     detail: mismatch ?? `${credits.length} credit events re-derived to the micro-credit`,
   });
   return results;
+}
+
+/**
+ * Side-bet legality, checked by the verifier and not only by the server.
+ *
+ * The stake limits in `MATH.md` §5.5 are load-bearing for the cap proof and for
+ * `DESIGN.md` §10.2's responsible-design claim, so a published round that
+ * breached them should be visible as a breach to anyone holding the record —
+ * not only to the process that refused to write it. Without this, a bundle
+ * carrying a losing 999-credit ticket on a 5-credit run verified: the price and
+ * the loss both re-derive, and nothing looked at the size.
+ */
+function checkSideBetLegality(
+  transcript: SurvivalTranscript,
+  routeStakeMicro: bigint,
+  credits: readonly CreditEvent[],
+): readonly CheckResult[] {
+  const perBetCeiling = routeStakeMicro / 2n;
+  const tickets = credits.filter(
+    (event): event is Extract<CreditEvent, { kind: 'SIDE_BET' }> => event.kind === 'SIDE_BET',
+  );
+  let breach: string | null = null;
+  let total = 0n;
+  const perArena = new Map<number, Set<string>>();
+  for (const ticket of tickets) {
+    const stake = parseMicro(ticket.stakeMicro, 'Side-bet stake');
+    total += stake;
+    if (stake < 1_000_000n) breach ??= `${ticket.bet} at arena ${ticket.stage + 1} stakes under the 1.00 minimum`;
+    if (stake > perBetCeiling)
+      breach ??= `${ticket.bet} at arena ${ticket.stage + 1} stakes ${stake}, past half the route stake`;
+    const seen = perArena.get(ticket.stage) ?? new Set<string>();
+    if (seen.has(ticket.bet)) breach ??= `${ticket.bet} is staked twice in arena ${ticket.stage + 1}`;
+    seen.add(ticket.bet);
+    perArena.set(ticket.stage, seen);
+    if (seen.size > 3) breach ??= `More than three tickets in arena ${ticket.stage + 1}`;
+    if (ticket.stage >= transcript.steps.length)
+      breach ??= `A ticket rides arena ${ticket.stage + 1}, which this round never ran`;
+  }
+  if (total > perBetCeiling)
+    breach ??= `Side bets total ${total}, past half the route stake for the round`;
+  return [
+    {
+      code: 'SIDE_BET_LIMITS',
+      title: 'Every side bet is inside the declared stake limits',
+      ok: breach === null,
+      detail: breach ?? `${tickets.length} tickets, ${total} micro-credits, ceiling ${perBetCeiling}`,
+    },
+  ];
+}
+
+/**
+ * The ledger is published in the order the round happened.
+ *
+ * Order does not move a figure here — no ticket and no round can reach the cap,
+ * so the accumulator never binds — but a record that lists a settlement before
+ * the shelter it followed is not a record of what happened, and a verifier that
+ * silently re-sorts it is checking a different document from the one it was
+ * handed.
+ */
+function checkOrdering(
+  transcript: SurvivalTranscript,
+  credits: readonly CreditEvent[],
+): CheckResult {
+  const rank = (event: CreditEvent): number => {
+    const stage = event.stage;
+    const within = event.kind === 'SETTLE' ? 3 : event.kind === 'SIDE_BET' ? 2 : 1;
+    return stage * 10 + within;
+  };
+  let previous = -1;
+  let out: string | null = null;
+  for (const event of credits) {
+    const value = rank(event);
+    if (value < previous) out ??= `${event.kind} at stage ${event.stage} is out of order`;
+    previous = Math.max(previous, value);
+  }
+  const settlements = credits.filter((event) => event.kind === 'SETTLE');
+  if (settlements.length > 1) out ??= 'A round settles once';
+  if (settlements.length === 1 && credits[credits.length - 1]?.kind !== 'SETTLE')
+    out ??= 'The settlement is not the last credit';
+  void transcript;
+  return {
+    code: 'LEDGER_ORDER',
+    title: 'The credits are published in the order the round happened',
+    ok: out === null,
+    detail: out ?? `${credits.length} events, in order`,
+  };
 }
 
 /** Verifies a published bundle end to end. Pure: no server state is consulted. */
@@ -260,8 +375,23 @@ export function verifyBundle(input: unknown): VerificationReport {
       result.ok ? `commitment ${result.commitment.slice(0, 16)}…` : `${result.code}: ${result.message}`,
     );
 
+    const seedIsHex = /^[0-9a-f]{64}$/u.test(bundle.clientSeed ?? '');
+    const derived = seedIsHex
+      ? bundle.clientSeed
+      : createHash('sha256').update(bundle.clientSeed ?? '', 'utf8').digest('hex');
+    push(
+      'CLIENT_SEED',
+      'The round used the seed you typed',
+      derived === bundle.clientEntropy,
+      seedIsHex
+        ? 'used as given'
+        : `SHA-256("${bundle.clientSeed}") = ${bundle.clientEntropy.slice(0, 16)}…`,
+    );
+
     const routeStake = parseMicro(bundle.routeStakeMicro, 'Route stake');
     for (const check of replayLedger(transcript, routeStake, bundle.credits)) checks.push(check);
+    for (const check of checkSideBetLegality(transcript, routeStake, bundle.credits)) checks.push(check);
+    checks.push(checkOrdering(transcript, bundle.credits));
 
     const total = bundle.credits.reduce(
       (sum, event) => sum + parseMicro(event.creditedMicro, 'credit'),
@@ -272,6 +402,24 @@ export function verifyBundle(input: unknown): VerificationReport {
       'The published total is the sum of the credits it lists',
       total === parseMicro(bundle.totalCreditedMicro, 'total'),
       `${total} micro-credits`,
+    );
+
+    /**
+     * The stake is a declaration, and saying so is the honest part.
+     *
+     * Commit-reveal proves what the tape was and what the decisions were. It
+     * cannot prove what was debited, because no stake is inside the commitment —
+     * the engine's transcript has no stake field, and nothing here is signed. So
+     * what this verifier establishes is that **every credit is right for the
+     * stake the record declares**, and a player checks the stake itself against
+     * what their own client showed them. Claiming more would be claiming a
+     * control that does not exist (`ENGINE.md` §10.1's residual risks, and §12).
+     */
+    push(
+      'STAKE_BASIS',
+      'The stake is a declared field, not a proven one — every credit is checked against it',
+      routeStake >= 1_000_000n && routeStake <= 1_000_000_000n && routeStake % 5n === 0n,
+      `${routeStake} micro-credits, inside the declared stake limits`,
     );
   } catch (error) {
     push(

@@ -20,7 +20,7 @@
  * arrive before `earliestNextActionAtMs` (§6.2), and an abandoned round closes
  * through `expire()` and nothing else (§6.1).
  */
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
   add,
   compare,
@@ -197,6 +197,8 @@ export class Round {
   readonly createdAtMs: number;
   publishedAtMs: number;
   clientEntropy: string | null = null;
+  /** Exactly what the player typed. Hashed into `clientEntropy` when it is not already hex. */
+  clientSeedText: string | null = null;
   stakeMicro = 0n;
   entityStakeMicro = 0n;
   book: SurvivalBook | null = null;
@@ -378,7 +380,7 @@ export class RoundStore {
 
   async open(
     roundId: unknown,
-    body: { clientEntropy?: unknown; respondingTo?: unknown; stakeMicro?: unknown },
+    body: { clientSeed?: unknown; clientEntropy?: unknown; respondingTo?: unknown; stakeMicro?: unknown },
   ): Promise<Round> {
     const round = this.get(roundId);
     if (round.phase !== 'PRECOMMIT')
@@ -396,17 +398,31 @@ export class RoundStore {
         '$.respondingTo',
       );
 
-    try {
-      assertClientEntropy(body.clientEntropy, '$.clientEntropy');
-    } catch {
+    // The player's seed is whatever they typed, and the operator must accept it
+    // (`ENGINE.md` §9: 1–64 bytes of printable ASCII, player-editable, refusing
+    // it is an integration defect of the highest severity). The module needs
+    // exactly 32 bytes of hex, so a seed that is not already in that form is
+    // hashed into it — publicly, reproducibly, and shown next to the seed on the
+    // verification screen, so a player who typed a seed can still see that
+    // theirs is the one that was used.
+    const seedText = typeof body.clientSeed === 'string' ? body.clientSeed : body.clientEntropy;
+    if (typeof seedText !== 'string' || seedText.length === 0 || Buffer.byteLength(seedText, 'utf8') > 64)
       throw new RoundError(
         'INVALID_ARGUMENT',
-        'A client seed is exactly 32 bytes of lowercase hexadecimal',
+        'A client seed is 1 to 64 characters. Anything you like.',
         400,
-        '$.clientEntropy',
+        '$.clientSeed',
       );
+    if (/[ -]/u.test(seedText))
+      throw new RoundError('INVALID_ARGUMENT', 'A client seed is printable text', 400, '$.clientSeed');
+    const clientEntropy = /^[0-9a-f]{64}$/u.test(seedText)
+      ? seedText
+      : createHash('sha256').update(seedText, 'utf8').digest('hex');
+    try {
+      assertClientEntropy(clientEntropy, '$.clientEntropy');
+    } catch {
+      throw new RoundError('INVALID_ARGUMENT', 'That seed could not be used', 400, '$.clientSeed');
     }
-    const clientEntropy = body.clientEntropy as string;
     if (clientEntropy === REHEARSAL_SEED_PAIR.clientEntropy)
       throw new RoundError(
         'INVALID_ARGUMENT',
@@ -449,6 +465,7 @@ export class RoundStore {
       await book.enter(`${round.roundId}:enter:${slot}`, slot, perRunner);
 
     round.clientEntropy = clientEntropy;
+    round.clientSeedText = seedText;
     round.stakeMicro = stake;
     round.entityStakeMicro = perRunner;
     round.book = book;
@@ -777,8 +794,13 @@ export class RoundStore {
   async bank(roundId: unknown, body: CommandEnvelope = {}): Promise<unknown> {
     const round = this.get(roundId);
     const key = idempotencyKey(body);
+    const fingerprint = `bank:${String(body.expectedFrameRevision ?? 'any')}`;
     const stored = round.commands.get(key);
-    if (stored) return stored.response;
+    if (stored) {
+      if (stored.fingerprint !== fingerprint)
+        throw new RoundError('IDEMPOTENCY_CONFLICT', 'That key was used for a different command', 409);
+      return stored.response;
+    }
     if (round.phase !== 'DECISION')
       throw new RoundError('ILLEGAL_ACTION', 'There is nothing to bank right now', 409);
     const book = round.book as SurvivalBook;
@@ -808,7 +830,7 @@ export class RoundStore {
     }
     const settlement = await this.#settle(round, 'BANK', receipt.credited);
     const response = { ok: true, settlement: serialiseSettlement(settlement), phase: round.phase };
-    round.commands.set(key, { fingerprint: 'bank', response });
+    round.commands.set(key, { fingerprint, response });
     return response;
   }
 
@@ -821,8 +843,10 @@ export class RoundStore {
     if (round.phase !== 'FINISHED')
       throw new RoundError('ILLEGAL_ACTION', 'This round has not finished', 409);
     const book = round.book as SurvivalBook;
-    const wiped = book.live.length === 0 && book.claims.every((held) => !held.live);
-    const kind = wiped && round.arenas.every((arena) => arena.shelter.length === 0) ? 'WIPE' : wiped ? 'WIPE' : 'FINISH';
+    // A wipe is a round with nothing still running. Anything sheltered along the
+    // way was credited when it was sheltered and is stated separately (§S6).
+    const wiped = book.live.length === 0;
+    const kind: Settlement['kind'] = wiped ? 'WIPE' : 'FINISH';
     for (const runner of round.runners) if (runner.status === 'running') runner.status = 'home';
     const settlement = await this.#settle(round, kind, 0n);
     const response = { ok: true, settlement: serialiseSettlement(settlement), phase: round.phase };
@@ -885,11 +909,24 @@ export class RoundStore {
    * Never a forced run, in either row. A route the player *had already committed*
    * is resolved first: that is not a forced run, it is the completion of an
    * action they took and whose money is already at risk.
+   *
+   * **This is an operator path, not a player action.** A player who could call it
+   * would hold a zero-risk exit from arena 1 — a full refund on demand — and the
+   * action set in state `(1, n)` has no such element (`MATH.md` §5.3). So it
+   * refuses until the round is actually past the operator's window. `force` is
+   * reachable only from the dev endpoint, which only exists when the process was
+   * started with `--dev-clock`.
    */
-  async expire(roundId: unknown): Promise<unknown> {
+  async expire(roundId: unknown, options: { readonly force?: boolean } = {}): Promise<unknown> {
     const round = this.get(roundId);
     if (round.phase === 'SETTLED' || round.phase === 'VOID')
       throw new RoundError('ILLEGAL_ACTION', 'That round is already closed', 409);
+    if (options.force !== true && !this.isExpired(round))
+      throw new RoundError(
+        'ILLEGAL_ACTION',
+        'This round is not past its expiry window. A round waits as long as you need it to.',
+        409,
+      );
     if (round.phase === 'PRECOMMIT') {
       round.phase = 'VOID';
       return { ok: true, resolution: 'VOID', refundedMicro: '0' };
@@ -904,14 +941,32 @@ export class RoundStore {
         const receipt = await book.bank(`${round.roundId}:expiry-bank`, live);
         credited = receipt.credited;
         round.routeCreditedMicro += credited;
+        // The expiry bank is a credit like any other, so it is in the published
+        // ledger like any other. Omitting it left `verifyBundle` unable to
+        // reproduce the round's own total — the server failing its own check.
+        round.creditEvents.push({
+          kind: 'BANK',
+          stage: book.stageRevision,
+          entities: live,
+          creditedMicro: credited.toString(),
+        });
         this.wallet.credit(credited, 'Auto-bank at expiry', round.roundId);
         for (const slot of live) {
           const runner = round.runners.find((candidate) => candidate.slot === slot);
           if (runner) runner.status = 'home';
         }
       }
-      const settlement = await this.#settle(round, 'AUTO_BANK', credited);
-      return { ok: true, resolution: 'AUTO_BANK', settlement: serialiseSettlement(settlement) };
+      // `AUTO_BANK` is the resolution only where BANK was a legal move. A frame
+      // with nothing still running is not a decision point the player walked
+      // away from — the round had already resolved and only needed closing, so
+      // calling that an auto-bank would name an action that did not exist.
+      const banked = live.length > 0;
+      const settlement = await this.#settle(round, banked ? 'AUTO_BANK' : 'WIPE', credited);
+      return {
+        ok: true,
+        resolution: banked ? 'AUTO_BANK' : 'AUTO_SETTLE',
+        settlement: serialiseSettlement(settlement),
+      };
     }
 
     // No branch has resolved. A void is not a settlement: the stake comes back
@@ -937,14 +992,19 @@ export class RoundStore {
     };
   }
 
+  /** Has this round sat past the operator's window (default 24 h)? */
+  isExpired(round: Round): boolean {
+    if (round.phase === 'SETTLED' || round.phase === 'VOID') return false;
+    const idleSince = round.arenas.length > 0 ? round.earliestNextActionAtMs : round.createdAtMs;
+    return this.clock.now() - idleSince >= this.expiryWindowMs;
+  }
+
   /** Rounds past the operator's expiry window, closed the only way they may be. */
   async sweepExpired(): Promise<number> {
-    const now = this.clock.now();
     let closed = 0;
     for (const round of this.all) {
       if (round.phase === 'SETTLED' || round.phase === 'VOID' || round.phase === 'PRECOMMIT') continue;
-      const idleSince = round.arenas.length > 0 ? round.earliestNextActionAtMs : round.createdAtMs;
-      if (now - idleSince >= this.expiryWindowMs) {
+      if (this.isExpired(round)) {
         await this.expire(round.roundId);
         closed += 1;
       }
@@ -1071,6 +1131,7 @@ export function bundleFor(round: Round): VerificationBundle {
       moduleVersion: stagedSurvival.version,
     },
     roundId: round.roundId,
+    clientSeed: round.clientSeedText as string,
     clientEntropy: round.clientEntropy as string,
     preCommitment: round.preCommitment,
     preCommitmentPublishedAtMs: round.publishedAtMs,
@@ -1199,7 +1260,9 @@ export function frameOf(round: Round, store: RoundStore) {
     fairness: {
       preCommitment: round.preCommitment,
       publishedAtMs: round.publishedAtMs,
+      clientSeed: round.clientSeedText,
       clientEntropy: round.clientEntropy,
+      clientEntropyIsSeed: round.clientSeedText === round.clientEntropy,
       tapeDigest: round.tapeDigest,
       definitionId: BRANCHFALL.id,
       definitionVersion: BRANCHFALL.version,

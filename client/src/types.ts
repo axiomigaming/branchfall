@@ -148,7 +148,9 @@ export interface Frame {
   readonly fairness: {
     readonly preCommitment: string;
     readonly publishedAtMs: number;
+    readonly clientSeed: string | null;
     readonly clientEntropy: string | null;
+    readonly clientEntropyIsSeed: boolean;
     readonly tapeDigest: string | null;
     readonly definitionId: string;
     readonly definitionVersion: string;
