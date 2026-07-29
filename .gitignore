@@ -4,3 +4,5 @@ dist/
 *.local.json
 .env
 .DS_Store
+client/dist/
+scratch/

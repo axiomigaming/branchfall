@@ -1,6 +1,6 @@
 {
   "name": "@axiom-games/branchfall",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "BRANCHFALL — squad staged-survival runner on the Axiom Games Reveal Engine",
@@ -23,11 +23,23 @@
     "rehearsal:check": "node tools/rehearsal.mjs --json | diff -u tests/fixtures/rehearsal-v1.json - && echo 'rehearsal fixture is current'",
     "docs:sync": "node tools/sync-docs.mjs",
     "docs:check": "node tools/sync-docs.mjs --check",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.app.json",
+    "build:client": "node build/bundle-client.mjs",
+    "dev": "node --import tsx server/main.ts",
+    "start": "node --import tsx server/main.ts",
+    "conformance": "node --import tsx server/conformance-report.ts",
+    "rehearsal:seed": "node --import tsx tools/rehearsal-seed.ts",
+    "verify:bundle": "node --import tsx tools/verify-bundle.ts",
     "test": "vitest run",
-    "verify": "npm run typecheck && node tools/enumerate.mjs --quiet && npm run docs:check && npm run fixture:check && npm run rehearsal:check && npm test && npm run montecarlo -- --rounds 100000"
+    "verify": "npm run typecheck && node tools/enumerate.mjs --quiet && npm run docs:check && npm run fixture:check && npm run rehearsal:check && npm run conformance && npm test && npm run montecarlo -- --rounds 100000"
+  },
+  "dependencies": {
+    "@axiom-games/reveal-engine": "file:vendor/axiom-games-reveal-engine-0.4.0.tgz"
   },
   "devDependencies": {
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "vitest": "^4.1.10"
   }
