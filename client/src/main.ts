@@ -18,6 +18,7 @@
  */
 import { ApiError, api, credits, idempotencyKey, isSeed, micro, newClientSeed } from './api.js';
 import { COPY } from './copy.js';
+import { rederive, type Rederivation } from './derive.js';
 import { el, frag, type Child } from './dom.js';
 import type {
   ArenaRecord,
@@ -31,7 +32,7 @@ import type {
   VerifyCheck,
   WalletView,
 } from './types.js';
-import { claimMeter, distributionBars, field, oddsTable, routeCard } from './widgets.js';
+import { claimMeter, distributionBars, field, oddsTable, routeCard, routeTabs } from './widgets.js';
 
 type View =
   | 'squad'
@@ -76,6 +77,9 @@ interface State {
   rehearsalChoices: { route: string; laneSplit: number | null; shelter: number[] }[];
   rehearsalStage: number;
   verify: { checks: readonly VerifyCheck[]; bundle: unknown; ghost: readonly GhostRow[] } | null;
+  /** What this device recomputed for itself, and whether it is doing it now. */
+  rederived: Rederivation | null;
+  rederiving: boolean;
 }
 
 const state: State = {
@@ -103,10 +107,11 @@ const state: State = {
   rehearsalChoices: [],
   rehearsalStage: 0,
   verify: null,
+  rederived: null,
+  rederiving: false,
 };
 
 const root = document.getElementById('app') as HTMLElement;
-let cycleTimer: number | undefined;
 
 function render(): void {
   root.textContent = '';
@@ -118,11 +123,17 @@ function render(): void {
   root.appendChild(sessionStrip());
   root.appendChild(screen());
   if (state.sheet) root.appendChild(sheetLayer(state.sheet));
+  // The pause goes over the sheet as well as the game: §10.2 says it pauses the
+  // game, and a modal a player can tap around is not a pause.
+  if (realityCheckDue()) root.appendChild(realityCheck());
   if (state.toast)
     root.appendChild(
       el('div', { class: `toast${state.toast.bad ? ' error' : ''}`, text: state.toast.message }),
     );
-  startCycleTicker();
+  // The tree is now attached, so the pager can be put back where the player left
+  // it. This is the line whose absence made the card on screen and the card being
+  // committed two different things.
+  syncPager();
 }
 
 function screen(): HTMLElement {
@@ -150,6 +161,70 @@ function screen(): HTMLElement {
     case 'rehearsal':
       return rehearsalScreen();
   }
+}
+
+/**
+ * The reality check (`DESIGN.md` §10.2).
+ *
+ * *"A reality check fires at the operator's interval, default 30 min, and pauses
+ * the game."* The interval and the acknowledgement are the server's, measured on
+ * the server's session clock, so the check cannot be skipped by a client that
+ * chooses not to draw it, and a test can move the clock and prove it fires.
+ *
+ * It is not shown over the rehearsal, which has no stake, no wallet and no
+ * ledger entry in it — but the clock keeps running underneath, so the check
+ * fires on the next screen that has money on it.
+ */
+function realityCheckDue(): boolean {
+  const session = state.session;
+  if (!session) return false;
+  if (state.view === 'rehearsal') return false;
+  return session.realityCheckDueMs <= 0;
+}
+
+function realityCheck(): HTMLElement {
+  const session = state.session as Session;
+  const wallet = state.wallet as WalletView;
+  const minutes = Math.floor(session.elapsedMs / 60000);
+  return el(
+    'div',
+    { class: 'reality-backdrop', role: 'dialog', 'aria-modal': 'true' },
+    el(
+      'div',
+      { class: 'reality' },
+      el('h2', { text: 'You have been playing for a while' }),
+      el(
+        'div',
+        { class: 'figures' },
+        field('Time played', `${minutes} min`),
+        field('Staked', credits(wallet.stakedMicro, 2)),
+        field('Returned', credits(wallet.creditedMicro, 2)),
+        field('Net', `${wallet.netSign}${wallet.netDisplay}`),
+      ),
+      el('p', {
+        class: 'note',
+        text: 'Nothing is waiting on you and nothing expires. A round in progress is exactly where you left it.',
+      }),
+      el('button', {
+        class: 'btn',
+        text: 'Keep playing',
+        onClick: () =>
+          void guard(async () => {
+            adopt(await api('POST', '/api/session', { acknowledgeRealityCheck: true }));
+          }),
+      }),
+      el('div', { style: 'height:10px' }),
+      el('button', {
+        class: 'btn quiet',
+        text: 'Settings and limits',
+        onClick: () =>
+          void guard(async () => {
+            adopt(await api('POST', '/api/session', { acknowledgeRealityCheck: true }));
+            state.view = 'settings';
+          }),
+      }),
+    ),
+  );
 }
 
 function toast(message: string, bad = false): void {
@@ -265,6 +340,13 @@ function viewport(options: {
   readonly lanes: number;
   readonly progress?: number;
   readonly collapsed?: readonly boolean[];
+  /**
+   * On the decision screens the world is a band rather than the top 58% of the
+   * frame. `DESIGN.md` §5's seam is written for the run, where the viewport
+   * expands to full bleed; on S2 the decision is the screen, and a graybox
+   * rectangle is not what the player is there to read.
+   */
+  readonly compact?: boolean;
 }): HTMLElement {
   const progress = options.progress ?? 0.08;
   const branches: Child[] = [];
@@ -276,7 +358,7 @@ function viewport(options: {
     );
   return el(
     'div',
-    { class: 'viewport' },
+    { class: `viewport${options.compact ? ' compact' : ''}` },
     branches,
     ...options.runners.map((runner, index) => {
       const top = runner.lane > 0 ? '70%' : '52%';
@@ -511,7 +593,15 @@ function stakeScreen(): HTMLElement {
         el('span', { text: `stake ${credits(stake, 2)}` }),
         el('span', { text: `claim opens at ${credits(claim, 3)}` }),
       ),
-      el('button', { class: 'btn primary', text: 'Buy the run', onClick: () => buyRun() }),
+      state.session?.stakingBlock
+        ? el('p', { class: 'note', text: state.session.stakingBlock.message })
+        : null,
+      el('button', {
+        class: 'btn primary',
+        text: 'Buy the run',
+        disabled: Boolean(state.session?.stakingBlock),
+        onClick: () => buyRun(),
+      }),
       el('div', { style: 'height:8px' }),
       el('button', {
         class: 'btn quiet',
@@ -569,8 +659,37 @@ function resetChoice(): void {
   // §4: side-bet stakes reset to zero every arena and are never inherited.
   state.sideBets = {};
 }
-
 /* ------------------------------------------------------------------- S2 */
+
+/**
+ * The core screen, and the constraint it is built to.
+ *
+ * `DESIGN.md` §S2 asks for a paged stack of four route cards with a page
+ * indicator, the claim meter on the seam, the controls that name Kindlings, and
+ * `Commit route` in the thumb zone. The first build of this screen did all of
+ * that and still failed, in two ways worth recording here because the layout
+ * below is the answer to both:
+ *
+ * 1. **The card on screen was not the card being committed.** The whole tree is
+ *    rebuilt on every state change, and nothing restored the pager's scroll
+ *    position, so choosing a fork balance threw you off the SPLIT card while the
+ *    footer still committed SPLIT. The pager is now the selection: `syncPager()`
+ *    puts the selected card back under the scroll position after every render,
+ *    and a settled scroll sets the selection from whatever card the player
+ *    stopped on. The two can no longer disagree.
+ * 2. **It was 2.7 screens tall.** Cards were sized by their content, stretched to
+ *    the tallest of them, inside a page that scrolled vertically *and*
+ *    horizontally — two axes to make one decision. The screen is now a fixed
+ *    column: scene, claim, tabs, exactly one card, the controls, the action.
+ *    Nothing on it scrolls vertically, and every field the specification puts on
+ *    a card face is still on the card face.
+ *
+ * The controls that name a Kindling — the fork balance, who takes the thin limb,
+ * who comes home — moved out of the card and into a strip directly above the
+ * primary action. They are decisions, not information, so they belong in the
+ * bottom 280 pt with the button that commits them, and they stay visible while
+ * the player builds a selection.
+ */
 
 function figuresFor(entry: MenuEntry, laneSplit: number | null, shelterSize: number): Figures {
   if (entry.route === 'SHELTER') {
@@ -581,16 +700,92 @@ function figuresFor(entry: MenuEntry, laneSplit: number | null, shelterSize: num
   return (found ?? entry.figures[0])?.figures as Figures;
 }
 
+/** Two decimals of a server-computed decimal string. A truncation, never a division. */
+function shortMultiplier(decimal: string): string {
+  const dot = decimal.indexOf('.');
+  return `${dot < 0 ? decimal : decimal.slice(0, dot + 3)}x`;
+}
+
+/**
+ * Selecting a route, from the tabs, from a card tap, or from a settled swipe.
+ *
+ * Every route change drops the options that belonged to the previous one: a
+ * shelter selection is not carried onto NARROW, and a fork balance is not
+ * carried onto WIDE. The server would refuse either, but the screen should never
+ * be showing a commitment it knows is illegal.
+ */
+function selectRoute(route: string, frame: Frame): void {
+  if (route !== 'WIDE' && route !== 'SPLIT' && route !== 'NARROW' && route !== 'SHELTER') return;
+  state.route = route;
+  if (route !== 'SHELTER') state.shelter = [];
+  if (route !== 'SPLIT') {
+    state.laneSplit = null;
+    state.laneOrder = null;
+  } else if (state.laneSplit === null) {
+    const split = frame.menu.find((entry) => entry.route === 'SPLIT');
+    state.laneSplit = (split?.laneSplits[0] as number | undefined) ?? null;
+  }
+}
+
+let pagerSettle: number | undefined;
+/**
+ * What a settled swipe means, set by whichever screen built the pager.
+ *
+ * The route screen and the rehearsal both page four cards and select differently
+ * — one has a live frame behind it, the other a published seed pair — so the
+ * handler carries no knowledge of either.
+ */
+let pagerPick: (route: string) => void = () => {};
+
+/**
+ * A settled swipe *is* a choice.
+ *
+ * The handler waits for the scroll to stop rather than tracking it live: reading
+ * the position mid-gesture would fight the snap, and re-rendering mid-gesture
+ * would cancel it. Once it has stopped, the card under the viewport becomes the
+ * selection, which is the invariant the footer depends on.
+ */
+function onPagerScroll(event: Event): void {
+  const pager = event.currentTarget as HTMLElement;
+  window.clearTimeout(pagerSettle);
+  pagerSettle = window.setTimeout(() => {
+    if (!pager.isConnected) return;
+    const width = pager.clientWidth || 1;
+    const index = Math.max(0, Math.min(pager.children.length - 1, Math.round(pager.scrollLeft / width)));
+    const route = (pager.children[index] as HTMLElement | undefined)?.getAttribute('data-route');
+    if (route && route !== state.route) pagerPick(route);
+  }, 90);
+}
+
+/**
+ * Puts the selected card back under the viewport after a re-render.
+ *
+ * Called at the end of every `render()`. Each page is exactly the pager's client
+ * width, so the position is `index x width` and no measurement of the card
+ * itself is involved — the arithmetic cannot drift when a card's content changes
+ * height. `scrollLeft` is assigned rather than animated: the tree it belongs to
+ * was created microseconds ago and animating from a position the player never
+ * saw would be theatre.
+ */
+function syncPager(): void {
+  const pager = root.querySelector('.card-pager') as HTMLElement | null;
+  if (!pager) return;
+  const routes = [...pager.children].map((child) => (child as HTMLElement).getAttribute('data-route'));
+  const index = routes.indexOf(state.route);
+  if (index < 0) return;
+  const target = index * (pager.clientWidth || 0);
+  if (Math.abs(pager.scrollLeft - target) > 1) pager.scrollLeft = target;
+}
+
 function routeScreen(): HTMLElement {
   const frame = state.frame as Frame;
   const config = state.config as Config;
   const session = state.session as Session;
-  const live = frame.live;
-  const running = live.length;
+  const running = frame.live.length;
 
   if (state.route === 'SPLIT' && state.laneSplit === null) {
     const split = frame.menu.find((entry) => entry.route === 'SPLIT');
-    state.laneSplit = (split?.laneSplits[0] as number) ?? null;
+    state.laneSplit = (split?.laneSplits[0] as number | undefined) ?? null;
   }
 
   const selectedEntry = frame.menu.find((entry) => entry.route === state.route);
@@ -604,17 +799,28 @@ function routeScreen(): HTMLElement {
       ? [state.laneSplit, running - state.laneSplit]
       : null;
 
-  const canCommit =
-    state.route !== 'SHELTER' || (shelterSize >= 1 && shelterSize <= running - 1);
+  const canCommit = state.route !== 'SHELTER' || (shelterSize >= 1 && shelterSize <= running - 1);
+
+  const tabs = frame.menu.map((entry) => ({
+    route: entry.route,
+    multiplier: figuresFor(entry, state.laneSplit, Math.max(1, shelterSize)).display.multiplier,
+  }));
+
+  const pick = (route: string) => {
+    selectRoute(route, frame);
+    render();
+  };
+  pagerPick = pick;
 
   return el(
     'div',
-    { class: 'screen fade-in' },
+    { class: 'screen route-screen fade-in' },
     viewport({
       title: frame.arena.name,
       subtitle: frame.arena.subtitle,
       counter: `${frame.arena.index} / ${frame.arena.of}`,
       lanes: state.route === 'SPLIT' ? 2 : 1,
+      compact: true,
       runners: orderedRunners(frame).map((runner, index) => ({
         name: runner.name,
         status: runner.status,
@@ -627,46 +833,39 @@ function routeScreen(): HTMLElement {
       caption: `claim · ${running} still running`,
       squad: frame.squad,
       laneSizes,
-      perRunner: frame.claim.perRunnerDisplay,
       bankedNote: bankedNote(frame),
     }),
+    routeTabs(tabs, state.route, pick),
+    // The product's thesis, permanently on the route screen (§3). Not a
+    // disclaimer in a legal sheet: the sentence the whole game is an argument for.
     el(
-      'div',
-      { class: 'surface' },
-      el('p', { class: 'note pad', style: 'padding-bottom:0', text: COPY.everyRoute }),
-      el(
-        'div',
-        { class: 'card-pager' },
-        ...frame.menu.map((entry) => renderCard(entry, frame, config)),
-      ),
-      sideBetPanel(frame, session, selectedFigures),
-      session.roundsSeen < 3
-        ? el('p', { class: 'tiny pad', text: COPY.noClock })
-        : null,
+      'p',
+      { class: 'thesis' },
+      `Every route returns ${config.money.rtpPct}. ${COPY.everyRoute}`,
+      // §5.2.5 rule 2: one tap out of every gated screen, remembered, never
+      // re-asked. It is a link and not a button in the thumb zone because it is
+      // not a money control.
       !session.showEverything
-        ? el(
-            'div',
-            { class: 'pad' },
-            el('button', {
-              class: 'btn quiet',
-              text: COPY.showEverything,
-              onClick: () =>
-                void guard(async () => {
-                  adopt(await api('POST', '/api/session', { showEverything: true }));
-                }),
-            }),
-          )
+        ? el('button', {
+            class: 'link',
+            text: COPY.showEverything,
+            onClick: () =>
+              void guard(async () => {
+                adopt(await api('POST', '/api/session', { showEverything: true }));
+              }),
+          })
         : null,
     ),
     el(
       'div',
+      { class: 'card-pager', onScroll: onPagerScroll },
+      ...frame.menu.map((entry) => renderCard(entry, frame, config)),
+    ),
+    controlStrip(frame, selectedEntry ?? null),
+    sideBetStrip(frame, session, selectedFigures),
+    el(
+      'div',
       { class: 'footer' },
-      el(
-        'div',
-        { class: 'status' },
-        el('span', { text: `claim ${frame.claim.display}` }),
-        el('span', { text: `${running} of ${config.game.squadSize} running` }),
-      ),
       el('button', {
         class: 'btn primary',
         text: commitLabel(),
@@ -674,6 +873,7 @@ function routeScreen(): HTMLElement {
         onClick: () => commitRoute(),
       }),
       cycleBar(frame),
+      session.roundsSeen < 3 ? el('p', { class: 'tiny', text: COPY.noClock }) : null,
     ),
   );
 }
@@ -709,19 +909,28 @@ function renderCard(entry: MenuEntry, frame: Frame, config: Config): HTMLElement
   const figures = figuresFor(entry, state.laneSplit, shelterSize);
   const selected = state.route === entry.route;
   const fiction = config.game.routeTitles[entry.route] ?? '';
-
-  let extra: Child = null;
-  if (entry.route === 'SPLIT' && entry.laneSplits.length > 1) extra = forkControl(entry, frame);
-  else if (entry.route === 'SPLIT' && selected) extra = limbPicker(frame);
-  else if (entry.route === 'SHELTER') extra = shelterPicker(entry, frame);
+  const balances = entry.laneSplits.filter((value): value is number => value !== null);
 
   return routeCard({
-    title: entry.route,
     route: entry.route,
     fiction,
     figures,
     selected,
     rtp: config.money.rtpPct,
+    // At two and three runners there is one legal balance and the comparison does
+    // not exist, so the card does not draw two columns to imply a choice that is
+    // not there (§3.3).
+    fork:
+      entry.route === 'SPLIT' && balances.length > 1
+        ? {
+            balances,
+            running,
+            selected: state.laneSplit,
+            figuresOf: (balance: number) =>
+              entry.figures.find((candidate) => candidate.laneSplit === balance)
+                ?.figures as Figures,
+          }
+        : null,
     headNote:
       entry.route === 'SHELTER'
         ? state.shelter.length > 0
@@ -729,19 +938,17 @@ function renderCard(entry: MenuEntry, frame: Frame, config: Config): HTMLElement
           : `Bring one home and ${shelterCreditLabel(entry)} stops running. The rest cross on the Broad Bough.`
         : null,
     onSelect: () => {
-      state.route = entry.route;
-      if (entry.route !== 'SPLIT') state.laneOrder = null;
-      if (entry.route !== 'SHELTER') state.shelter = [];
-      if (entry.route === 'SPLIT' && state.laneSplit === null)
-        state.laneSplit = (entry.laneSplits[0] as number) ?? null;
-      if (entry.route !== 'SPLIT') state.laneSplit = null;
+      selectRoute(entry.route, frame);
       render();
     },
     onOdds: () => {
       state.sheet = {
         title: `${entry.route} — every outcome, exactly`,
         body: frag(
-          el('p', { class: 'note', text: `Multiplier ${figures.multiplier.exact} = ${figures.display.multiplier}.` }),
+          el('p', {
+            class: 'note',
+            text: `Multiplier ${figures.multiplier.exact} = ${figures.display.multiplier}.`,
+          }),
           oddsTable(figures),
           el('p', {
             class: 'tiny',
@@ -752,7 +959,6 @@ function renderCard(entry: MenuEntry, frame: Frame, config: Config): HTMLElement
       render();
     },
     onCompare: () => openCompare(entry, frame, config),
-    extra,
   });
 }
 
@@ -762,29 +968,47 @@ function shelterCreditLabel(entry: MenuEntry): string {
   return credits(found?.banksMicro ?? '0', 3);
 }
 
+/* ----------------------------------------------------------- the controls */
+
+/**
+ * The decisions that name a Kindling, in the thumb zone.
+ *
+ * One strip, directly above `Commit route`, carrying whatever the selected route
+ * actually asks the player to decide: the fork balance and who takes the thin
+ * limb, or who comes home through the Lamp House door. Nothing here changes a
+ * distribution except the fork balance, and the copy says which is which — *"Who
+ * goes where changes who comes home, not the odds"* is on the screen next to the
+ * control it is about, not in a tooltip.
+ */
+function controlStrip(frame: Frame, entry: MenuEntry | null): Child {
+  if (!entry) return null;
+  if (entry.route === 'SPLIT') {
+    const balances = entry.laneSplits.filter((value): value is number => value !== null);
+    return el(
+      'div',
+      { class: 'control-strip' },
+      balances.length > 1 ? forkDial(balances, frame) : null,
+      limbPicker(frame),
+    );
+  }
+  if (entry.route === 'SHELTER') return el('div', { class: 'control-strip' }, shelterPicker(entry, frame));
+  return null;
+}
+
 /**
  * The fork balance (`DESIGN.md` §3.3).
  *
- * Both columns shown at once, always, with no default highlighted and no
- * recommendation. The added line under them is the honest one: `4 + 1` is the
- * wider spread — a mean-preserving spread of `3 + 2` — so the copy may not call
- * it a balanced trade, and may not call it the wrong choice either.
+ * A volatility dial: `4 + 1` is an exact mean-preserving spread of `3 + 2`, so
+ * the copy may not call it a balanced trade — and may not call it the wrong
+ * choice either. No default is highlighted until the player has one, no colour
+ * hierarchy, no recommendation. The card above carries both columns of numbers
+ * at once; this is the control that picks between them.
  */
-function forkControl(entry: MenuEntry, frame: Frame): Child {
+function forkDial(balances: readonly number[], frame: Frame): HTMLElement {
   const running = frame.live.length;
-  const balances = entry.laneSplits.filter((value): value is number => value !== null);
-  const rows: [string, (figures: Figures) => string][] = [
-    ['Nobody makes it', (figures) => figures.display.wipePct],
-    [`All ${running} make it`, (figures) => figures.display.allClearPct],
-    ['Claim grows', (figures) => figures.display.growsPct],
-    ['One alone comes home', (figures) => figures.display.solePct],
-  ];
-  const figuresOf = (balance: number) =>
-    (entry.figures.find((candidate) => candidate.laneSplit === balance)?.figures as Figures);
-
   return el(
     'div',
-    { class: 'fork' },
+    {},
     el(
       'div',
       { class: 'balance-tabs' },
@@ -793,61 +1017,29 @@ function forkControl(entry: MenuEntry, frame: Frame): Child {
           class: 'balance-tab',
           'aria-pressed': String(state.laneSplit === balance),
           text: `${balance} + ${running - balance}`,
-          onClick: (event: MouseEvent) => {
-            event.stopPropagation();
+          onClick: () => {
             state.route = 'SPLIT';
             state.laneSplit = balance;
+            state.laneOrder = null;
             render();
           },
         }),
       ),
     ),
-    el(
-      'table',
-      { class: 'compare-table' },
-      el(
-        'thead',
-        {},
-        el(
-          'tr',
-          {},
-          el('th', { text: '' }),
-          ...balances.map((balance) => el('th', { text: `${balance} + ${running - balance}` })),
-        ),
-      ),
-      el(
-        'tbody',
-        {},
-        ...rows.map(([label, read]) =>
-          el(
-            'tr',
-            {},
-            el('td', { text: label }),
-            ...balances.map((balance) => el('td', { text: read(figuresOf(balance)) })),
-          ),
-        ),
-      ),
-    ),
-    el(
-      'div',
-      { class: 'row', style: 'gap:6px;margin-top:8px' },
-      ...balances.map((balance) => distributionBars(figuresOf(balance))),
-    ),
     el('p', {
       class: 'tiny',
-      text: `Same 95.5% either way. ${balances[balances.length - 1]} + ${running - (balances[balances.length - 1] as number)} ${COPY.forkShape}`,
+      text: `Same 95.5% either way. ${balances[balances.length - 1]} + ${running - (balances[balances.length - 1] as number)} is the wider spread.`,
     }),
-    limbPicker(frame),
   );
 }
 
 /**
  * Who takes the thin limb.
  *
- * Narratively enormous, mathematically inert, and the card says both in one line.
- * Runners are exchangeable (`MATH.md` §5.4): no assignment of names to positions
- * can move any moment of any distribution. What it changes is which committed
- * slip draw each named Kindling consumes — that is, who comes home.
+ * Narratively enormous, mathematically inert, and the strip says both in one
+ * line. Runners are exchangeable (`MATH.md` §5.4): no assignment of names to
+ * positions can move any moment of any distribution. What it changes is which
+ * committed slip draw each named Kindling consumes — that is, who comes home.
  */
 function limbPicker(frame: Frame): HTMLElement {
   const running = orderedRunners(frame);
@@ -869,15 +1061,13 @@ function limbPicker(frame: Frame): HTMLElement {
     render();
   };
 
-  const chip = (name: string) =>
+  const chip = (name: string, lane: 'broad' | 'thin') =>
     el(
       'button',
       {
-        class: 'chip',
-        onClick: (event: MouseEvent) => {
-          event.stopPropagation();
-          move(name);
-        },
+        class: `limb-chip ${lane}`,
+        'aria-label': `${name}, ${lane} limb — tap to move`,
+        onClick: () => move(name),
       },
       el('span', { class: 'dot' }),
       el('span', { class: 'runner-name', text: name }),
@@ -888,10 +1078,10 @@ function limbPicker(frame: Frame): HTMLElement {
     {},
     el(
       'div',
-      { class: 'limb-picker' },
-      el('div', { class: 'limb' }, el('h4', { text: 'Broad limb' }), ...order.slice(0, split).map(chip)),
-      el('div', { class: 'lane-gap' }),
-      el('div', { class: 'limb' }, el('h4', { text: 'Thin limb' }), ...order.slice(split).map(chip)),
+      { class: 'limb-row' },
+      ...order.slice(0, split).map((name) => chip(name, 'broad')),
+      el('div', { class: 'limb-divider' }),
+      ...order.slice(split).map((name) => chip(name, 'thin')),
     ),
     el('p', { class: 'tiny', text: COPY.whoGoesWhere }),
   );
@@ -904,6 +1094,9 @@ function limbPicker(frame: Frame): HTMLElement {
  * `SHELTER(n)` does not exist in the model, so the picker refuses it at input
  * time and says why. This is the single easiest rule for a build to get wrong,
  * and it is the reason the specification states it three separate times.
+ *
+ * The live readout sits under the row, where it can be read while the selection
+ * is being built — which is the whole point of a readout that changes as you tap.
  */
 function shelterPicker(entry: MenuEntry, frame: Frame): HTMLElement {
   const running = frame.squad.filter((member) => member.status === 'running');
@@ -911,20 +1104,19 @@ function shelterPicker(entry: MenuEntry, frame: Frame): HTMLElement {
   const wouldEmpty = chosen.length >= running.length - 1;
   return el(
     'div',
-    { class: 'fork' },
+    {},
     el(
       'div',
-      {},
+      { class: 'limb-row' },
       ...running.map((member) => {
         const picked = chosen.includes(member.slot);
         const inert = !picked && wouldEmpty;
         return el(
           'button',
           {
-            class: `chip${inert ? ' inert' : ''}`,
+            class: `limb-chip${inert ? ' inert' : ''}`,
             'aria-pressed': String(picked),
-            onClick: (event: MouseEvent) => {
-              event.stopPropagation();
+            onClick: () => {
               state.route = 'SHELTER';
               if (picked) state.shelter = chosen.filter((slot) => slot !== member.slot);
               else if (inert) {
@@ -940,7 +1132,7 @@ function shelterPicker(entry: MenuEntry, frame: Frame): HTMLElement {
       }),
     ),
     el('p', {
-      class: 'tiny',
+      class: 'readout money',
       text:
         chosen.length === 0
           ? 'Tap the ones to bring home.'
@@ -956,32 +1148,26 @@ function openCompare(entry: MenuEntry, frame: Frame, config: Config): void {
   const pick = (other: MenuEntry) => {
     const left = figuresFor(entry, entry.laneSplits[0] ?? null, 1);
     const right = figuresFor(other, other.laneSplits[0] ?? null, 1);
+    const column = (route: string, figures: Figures) =>
+      el(
+        'div',
+        { style: 'flex:1' },
+        el('div', { class: 'route-name', text: route }),
+        el('div', { class: 'multiplier money', text: figures.display.multiplier }),
+        distributionBars(figures, 46),
+        el('div', { class: 'bars-caption', text: `survivors, ${figures.running} running` }),
+        field('nobody', figures.display.wipePct),
+        field(`all ${figures.running}`, figures.display.allClearPct),
+        field('claim grows', figures.display.growsPct),
+      );
     state.sheet = {
       title: `${entry.route} against ${other.route}`,
       body: frag(
         el(
           'div',
           { class: 'row', style: 'align-items:flex-start;gap:12px' },
-          el(
-            'div',
-            { style: 'flex:1' },
-            el('div', { class: 'route-name', text: entry.route }),
-            el('div', { class: 'multiplier', text: left.display.multiplier }),
-            distributionBars(left),
-            field('nobody', left.display.wipePct),
-            field(`all ${left.running}`, left.display.allClearPct),
-            field('claim grows', left.display.growsPct),
-          ),
-          el(
-            'div',
-            { style: 'flex:1' },
-            el('div', { class: 'route-name', text: other.route }),
-            el('div', { class: 'multiplier', text: right.display.multiplier }),
-            distributionBars(right),
-            field('nobody', right.display.wipePct),
-            field(`all ${right.running}`, right.display.allClearPct),
-            field('claim grows', right.display.growsPct),
-          ),
+          column(entry.route, left),
+          column(other.route, right),
         ),
         el('p', {
           class: 'note',
@@ -1007,88 +1193,151 @@ function openCompare(entry: MenuEntry, frame: Frame, config: Config): void {
 
 /* --------------------------------------------------------------- side bets */
 
-function sideBetPanel(frame: Frame, session: Session, figures: Figures | null): Child {
-  // Hidden entirely, never disabled, when the remaining allowance is under the
-  // minimum — and a minimum-stake player therefore never sees it at all (§4).
+/**
+ * The side-bet control (`DESIGN.md` §4).
+ *
+ * Collapsed behind one control, off by default, stake reset to zero every arena,
+ * and **hidden entirely** — never shown disabled — when the round's remaining
+ * allowance is under the 1.00 minimum. A minimum-stake player therefore never
+ * sees it at all, which is the consequence §4 asks to be stated rather than
+ * discovered.
+ *
+ * The stakes are set in a sheet rather than inline. That is a layout decision
+ * with a money reason behind it: three stake steppers, their prices and their
+ * ceiling do not fit beside the route decision on a 390 pt screen, and the first
+ * build proved it by pushing an increment button eight pixels off the right edge
+ * of the viewport. A partly unreachable control on a stake field is a defect, so
+ * the control that needs the width gets the width.
+ */
+function sideBetStrip(frame: Frame, session: Session, figures: Figures | null): Child {
   if (!frame.sideBets.offered || !figures || figures.sideBets.length === 0) return null;
 
   if (!session.sideBetsOptedIn)
     return el(
       'div',
-      { class: 'sidebet' },
-      el('p', { class: 'note', text: COPY.sideBetOptIn }),
-      el('p', {
-        class: 'tiny',
-        text: `Worked example: ${figures.sideBets[0]?.label} on this geometry is ${figures.sideBets[0]?.probabilityPct} likely and pays ${figures.sideBets[0]?.multiplier.decimal}x — that is ${state.config?.money.rtpExact} divided by the probability, which is the only pricing rule there is.`,
-      }),
+      { class: 'sidebet-strip' },
       el('button', {
-        class: 'btn quiet',
-        text: '+ turn side bets on',
-        onClick: () =>
-          void guard(async () => {
-            adopt(await api('POST', '/api/session', { sideBetsOptedIn: true }));
-          }),
-      }),
+        class: 'strip-button',
+        onClick: () => openSideBetOptIn(figures),
+      }, el('span', { text: '+ side bet' }), el('span', { class: 'tiny', text: 'off until you turn them on' })),
     );
 
   const remaining = micro(frame.sideBets.remainingMicro);
-  const min = micro(frame.sideBets.minMicro);
   const staked = Object.values(state.sideBets).reduce((sum, value) => sum + value, 0n);
+  const placed = Object.entries(state.sideBets).filter(([, value]) => value > 0n);
 
   return el(
     'div',
-    { class: 'sidebet' },
+    { class: 'sidebet-strip' },
     el(
-      'div',
-      { class: 'spread' },
-      el('h3', { text: '+ side bet' }),
+      'button',
+      { class: 'strip-button', onClick: () => openSideBetSheet(frame, figures) },
+      el('span', { text: placed.length === 0 ? '+ side bet' : `${placed.length} side bet${placed.length > 1 ? 's' : ''}` }),
       el('span', {
-        class: 'tiny',
-        text: `up to ${credits(remaining, 2)} left this round — half your run`,
+        class: 'money',
+        text:
+          placed.length === 0
+            ? `up to ${credits(remaining, 2)}`
+            : `${credits(staked, 2)} of ${credits(remaining + staked, 2)}`,
       }),
     ),
-    ...figures.sideBets.map((offer) => {
-      const current = state.sideBets[offer.id] ?? 0n;
-      const step = min;
-      return el(
-        'div',
-        { class: 'sidebet-row' },
-        el(
-          'div',
-          {},
-          el('div', { text: offer.label }),
-          el('div', { class: 'tiny', text: `${offer.claim} ${offer.probabilityPct}` }),
-        ),
-        el('div', { class: 'money', text: `${offer.multiplier.decimal}x` }),
-        el(
-          'div',
-          { class: 'stepper' },
-          el('button', {
-            text: '−',
-            onClick: () => {
-              const next = current - step;
-              state.sideBets[offer.id] = next < 0n ? 0n : next;
-              render();
-            },
-          }),
-          el('span', { class: 'amount', text: credits(current, 2) }),
-          el('button', {
-            text: '+',
-            onClick: () => {
-              const next = current + step;
-              if (staked - current + next > remaining) {
-                toast('That is past this round’s side-bet allowance.', true);
-                return;
-              }
-              state.sideBets[offer.id] = next;
-              render();
-            },
-          }),
-        ),
-      );
-    }),
-    el('p', { class: 'tiny', text: COPY.lastLight }),
   );
+}
+
+/** The opt-in, once, with the pricing rule in words and one worked example (§5.2.5 rule 5). */
+function openSideBetOptIn(figures: Figures): void {
+  const offer = figures.sideBets[0];
+  state.sheet = {
+    title: 'Side bets',
+    body: frag(
+      el('p', { class: 'note', text: COPY.sideBetOptIn }),
+      el('p', {
+        class: 'note',
+        text: `Worked example: ${offer?.label} on this geometry is ${offer?.probabilityPct} likely and pays ${offer?.multiplier.decimal}x — that is ${state.config?.money.rtpExact} divided by the probability, which is the only pricing rule there is.`,
+      }),
+      el('button', {
+        class: 'btn',
+        text: 'Turn side bets on',
+        onClick: () =>
+          void guard(async () => {
+            adopt(await api('POST', '/api/session', { sideBetsOptedIn: true }));
+            state.sheet = null;
+          }),
+      }),
+    ),
+  };
+  render();
+}
+
+function openSideBetSheet(frame: Frame, figures: Figures): void {
+  const min = micro(frame.sideBets.minMicro);
+  const build = (): Child => {
+    const remaining = micro(frame.sideBets.remainingMicro);
+    const staked = Object.values(state.sideBets).reduce((sum, value) => sum + value, 0n);
+    return frag(
+      el('p', {
+        class: 'note',
+        text: `Up to ${credits(remaining, 2)} this round — half your run. One ticket per event, three in all. They reset to zero every arena.`,
+      }),
+      ...figures.sideBets.map((offer) => {
+        const current = state.sideBets[offer.id] ?? 0n;
+        return el(
+          'div',
+          { class: 'sidebet-row' },
+          el(
+            'div',
+            { class: 'spread' },
+            el('span', { text: offer.label }),
+            el('span', { class: 'money', text: shortMultiplier(offer.multiplier.decimal) }),
+          ),
+          el('div', { class: 'tiny', text: `${offer.claim} · ${offer.probabilityPct} likely` }),
+          el(
+            'div',
+            { class: 'stepper-row' },
+            el(
+              'div',
+              { class: 'stepper' },
+              el('button', {
+                'aria-label': `Lower the ${offer.label} stake`,
+                text: '−',
+                onClick: () => {
+                  const next = current - min;
+                  state.sideBets[offer.id] = next < 0n ? 0n : next;
+                  openSideBetSheet(frame, figures);
+                },
+              }),
+              el('span', { class: 'amount money', text: credits(current, 2) }),
+              el('button', {
+                'aria-label': `Raise the ${offer.label} stake`,
+                text: '+',
+                onClick: () => {
+                  const next = current + min;
+                  if (staked - current + next > remaining) {
+                    toast('That is past this round’s side-bet allowance.', true);
+                    return;
+                  }
+                  state.sideBets[offer.id] = next;
+                  openSideBetSheet(frame, figures);
+                },
+              }),
+            ),
+            el('span', { class: 'tiny', text: `exact price ${offer.multiplier.exact}` }),
+          ),
+        );
+      }),
+      el('p', { class: 'tiny', text: COPY.lastLight }),
+      el('button', {
+        class: 'btn',
+        text: 'Done',
+        onClick: () => {
+          state.sheet = null;
+          render();
+        },
+      }),
+    );
+  };
+  state.sheet = { title: 'Side bets, this arena', body: build() };
+  render();
 }
 
 /* ------------------------------------------------------------- commitment */
@@ -1230,7 +1479,6 @@ function resolveScreen(): HTMLElement {
       claim: frame.claim.display,
       caption: 'claim',
       squad: frame.squad,
-      perRunner: frame.claim.perRunnerDisplay,
       bankedNote: bankedNote(frame),
     }),
     el(
@@ -1304,27 +1552,30 @@ function resolveScreen(): HTMLElement {
  */
 function cycleBar(frame: Frame): Child {
   const skew = Date.now() - frame.speed.serverNowMs;
-  const remaining = frame.speed.earliestNextActionAtMs - (Date.now() - skew);
+  const deadline = frame.speed.earliestNextActionAtMs + skew;
+  const total = frame.speed.minGameCycleMs;
   // Nothing to draw once the floor has passed: a full bar that never empties
   // reads as a meter, and this is not a meter.
-  if (remaining <= 0) return null;
-  const total = frame.speed.minGameCycleMs;
-  const filled = Math.max(0, Math.min(1, 1 - remaining / total));
-  return el(
-    'div',
-    { class: 'cycle', 'aria-hidden': 'true' },
-    el('span', { style: `width:${(filled * 100).toFixed(1)}%` }),
-  );
-}
+  if (deadline - Date.now() <= 0) return null;
 
-function startCycleTicker(): void {
-  window.clearTimeout(cycleTimer);
-  const frame = state.frame;
-  if (!frame) return;
-  if (state.view !== 'resolve' && state.view !== 'route') return;
-  const remaining = frame.speed.earliestNextActionAtMs - Date.now();
-  if (remaining <= 0) return;
-  cycleTimer = window.setTimeout(() => render(), Math.min(400, remaining));
+  const fill = el('span', {});
+  /**
+   * The hairline advances itself, and does **not** re-render the screen.
+   *
+   * The first build ticked this with `render()` every 400 ms, which rebuilt the
+   * whole tree — including the card pager — four times a second while the player
+   * was reading it. A progress hairline is decoration over a server-enforced
+   * floor, so it mutates one element's width and nothing else, and it stops the
+   * moment it is detached.
+   */
+  const advance = () => {
+    const remaining = deadline - Date.now();
+    const filled = Math.max(0, Math.min(1, 1 - remaining / total));
+    fill.style.width = `${(filled * 100).toFixed(1)}%`;
+    if (remaining > 0 && fill.isConnected) window.setTimeout(advance, 200);
+  };
+  advance();
+  return el('div', { class: 'cycle', 'aria-hidden': 'true' }, fill);
 }
 
 async function bankRound(): Promise<void> {
@@ -1440,7 +1691,24 @@ function wipeScreen(): HTMLElement {
       'div',
       { class: 'footer' },
       !settled
-        ? el('button', { class: 'btn primary', text: 'Close the round', onClick: () => finishRound() })
+        ? // §S6 names one primary action, and it leads away from the stake
+          // field. Closing the round is bookkeeping the player should not have
+          // to ask for, so the button that says where it goes does both.
+          el('button', {
+            class: 'btn primary',
+            text: 'Back to the squad',
+            onClick: () =>
+              void guard(async () => {
+                const frame = state.frame as Frame;
+                const payload = await api<{ frame: Frame; session: Session; wallet: WalletView }>(
+                  'POST',
+                  `/api/rounds/${frame.roundId}/finish`,
+                  { idempotencyKey: idempotencyKey('finish') },
+                );
+                adopt(payload);
+                state.view = 'squad';
+              }),
+          })
         : frag(
             // The primary action leads *away* from the stake field (§10.2).
             el('button', {
@@ -1570,10 +1838,38 @@ async function openVerify(): Promise<void> {
       ghost: readonly GhostRow[];
     }>('GET', `/api/rounds/${frame.roundId}/verify`);
     state.verify = { checks: payload.report.checks, bundle: payload.bundle, ghost: payload.ghost };
+    // A fresh bundle is a fresh question: never show one round's re-derivation
+    // over another round's hashes.
+    state.rederived = null;
     state.view = 'verify';
   });
 }
 
+/**
+ * The verification screen (`DESIGN.md` §S8), and the distinction it is built on.
+ *
+ * The first build of this screen printed eleven green ticks under the heading
+ * *"Re-derived, here, now"* — and every one of them was a field the **server**
+ * computed and sent. The party being checked was supplying its own verdict, and
+ * nothing on the screen said so. §6.1 says the proof UI must not feel like a
+ * reward; a wall of green ticks from the counterparty is exactly that failure.
+ *
+ * So this screen now has three sections, and the boundary between them is the
+ * point:
+ *
+ * 1. **What this device recomputed.** `client/src/derive.ts` is a second
+ *    implementation of the engine's derivation, in the browser, with no import
+ *    of the engine or of anything the server sent except the seed and the
+ *    transcript. It re-derives the definition fingerprint, the seed
+ *    pre-commitment, the whole 300-draw tape and every arena's draws, and shows
+ *    each arena's numbers against the outcome. If it disagrees, it says so.
+ * 2. **What the server reports.** The ledger half — that every credit matches a
+ *    fresh re-derivation — is the server's own report, labelled as the server's
+ *    own report, because that is what it is.
+ * 3. **What you can check off this device.** The bundle export, which
+ *    `npm run verify:bundle` verifies on any machine, including the ledger the
+ *    browser does not recompute.
+ */
 function verifyScreen(): HTMLElement {
   const frame = state.frame as Frame;
   const verify = state.verify;
@@ -1583,6 +1879,8 @@ function verifyScreen(): HTMLElement {
     micro(frame.settlement?.totalCreditedMicro ?? '0') <
     micro(frame.settlement?.routeStakeMicro ?? '0');
   const ghostCooling = losing && Date.now() - frame.lastLossAtMs < 60_000;
+  const names = new Map(frame.squad.map((member) => [member.slot, member.name]));
+  const nameOf = (slot: number) => names.get(slot) ?? `runner ${slot}`;
 
   return el(
     'div',
@@ -1610,7 +1908,14 @@ function verifyScreen(): HTMLElement {
         hashRow('Revealed server seed', fairness.revealedServerSeed ?? '—', 'revealed at settlement'),
         hashRow('Adapter fingerprint', fairness.fingerprint, `${fairness.definitionId} ${fairness.definitionVersion}`),
       ),
-      el('h2', { text: 'Re-derived, here, now' }),
+      el('h2', { text: 'What this device recomputed' }),
+      rederiveBlock(nameOf),
+      el('hr', {}),
+      el('h2', { text: 'What the server reports' }),
+      el('p', {
+        class: 'note',
+        text: 'These are the server’s checks on its own settlement, and they are its own word for it. They are worth showing because anyone can repeat them somewhere else: the bundle below carries everything they are computed from.',
+      }),
       ...(verify?.checks ?? []).map((check) =>
         el(
           'div',
@@ -1632,6 +1937,10 @@ function verifyScreen(): HTMLElement {
             ?.writeText(JSON.stringify(verify?.bundle ?? {}, null, 2))
             .then(() => toast('Bundle copied. `npm run verify:bundle -- file.json` checks it anywhere.'));
         },
+      }),
+      el('p', {
+        class: 'tiny',
+        text: 'The bundle also carries the money: the ledger check re-derives every credit from the transcript and the stake, and it is the half this browser does not recompute.',
       }),
       el('hr', {}),
       el('h2', { text: 'The Ghost Line' }),
@@ -1677,6 +1986,160 @@ function verifyScreen(): HTMLElement {
   );
 }
 
+/** The on-device half: the button, the result, and every arena's draws. */
+function rederiveBlock(nameOf: (slot: number) => string): Child {
+  const frame = state.frame as Frame;
+  const result = state.rederived;
+
+  if (state.rederiving)
+    return el('p', { class: 'note', text: 'Recomputing the hazard table on this device…' });
+
+  if (!result)
+    return frag(
+      el('p', {
+        class: 'note',
+        text: 'Nothing here has been checked by this device yet. Re-derive recomputes the definition fingerprint, the seed commitment and the whole hazard table from the revealed seed — a second implementation of the engine’s derivation, running in your browser, which is only useful because it can disagree.',
+      }),
+      el('button', {
+        class: 'btn',
+        text: 'Re-derive on this device',
+        disabled: frame.fairness.revealedServerSeed === null,
+        onClick: () => void runRederivation(),
+      }),
+      frame.fairness.revealedServerSeed === null
+        ? el('p', { class: 'tiny', text: 'The server seed is revealed at settlement. Until then there is nothing to open.' })
+        : null,
+    );
+
+  if (!result.available)
+    return frag(
+      el(
+        'div',
+        { class: 'check' },
+        el('span', { class: 'mark unknown', text: '—' }),
+        el(
+          'div',
+          {},
+          el('div', { text: 'This device could not recompute the round' }),
+          el('div', { class: 'hash', text: result.reason ?? 'unknown reason' }),
+        ),
+      ),
+      el('p', {
+        class: 'tiny',
+        text: 'That is a statement about this browser, not a verdict on the round. The exported bundle still verifies anywhere.',
+      }),
+    );
+
+  const check = (ok: boolean, title: string, detail: string) =>
+    el(
+      'div',
+      { class: 'check' },
+      el('span', { class: `mark${ok ? '' : ' bad'}`, text: ok ? '✓' : '✕' }),
+      el('div', {}, el('div', { text: title }), el('div', { class: 'hash', text: detail })),
+    );
+
+  return frag(
+    el('p', {
+      class: 'note',
+      text: `${result.drawCount} draws recomputed here in ${Math.round(result.elapsedMs)} ms, from the revealed seed and this device’s own copy of the game’s declaration.`,
+    }),
+    check(
+      result.fingerprintMatches,
+      'The game played is the game this device holds',
+      `fingerprint ${result.fingerprint.slice(0, 24)}…`,
+    ),
+    check(
+      result.commitmentMatches,
+      'The revealed seed opens the commitment published before your seed existed',
+      `${result.seedCommitment.slice(0, 24)}…`,
+    ),
+    check(
+      result.digestMatches,
+      'The tape published when the round opened is the tape this device re-derives',
+      `digest ${result.tapeDigest.slice(0, 24)}…`,
+    ),
+    ...result.arenas.map((arena) =>
+      el(
+        'details',
+        { class: 'provenance' },
+        el(
+          'summary',
+          {},
+          el('span', {
+            class: `mark${arena.matchesTranscript ? '' : ' bad'}`,
+            text: arena.matchesTranscript ? '✓ ' : '✕ ',
+          }),
+          `Arena ${arena.index + 1} · ${arena.contractId} — ${arena.survivors.length} of ${arena.running.length} across`,
+        ),
+        ...arena.lanes.map((lane, index) =>
+          el(
+            'div',
+            { class: 'draw-row' },
+            el('span', {
+              text: `lane ${index + 1} (${lane.entities.map(nameOf).join(', ')})`,
+            }),
+            el('span', {
+              class: 'money',
+              text: `${lane.draw} / ${lane.modulus} vs ${lane.threshold} — ${lane.collapsed ? 'collapsed' : 'held'}`,
+            }),
+          ),
+        ),
+        ...arena.entities.map((entity) =>
+          el(
+            'div',
+            { class: 'draw-row' },
+            el('span', { class: 'runner-name', text: nameOf(entity.entity) }),
+            el('span', {
+              class: 'money',
+              text: `${entity.draw} vs ${entity.threshold} — ${entity.survived ? 'across' : 'fell'}`,
+            }),
+          ),
+        ),
+        el('p', { class: 'tiny', text: arena.note }),
+      ),
+    ),
+    result.ok
+      ? el('p', {
+          class: 'tiny',
+          text: 'Every draw this round consumed was in the tape sealed before you chose anything. That is what this device checked; it is not a certificate, and it says nothing about what you were paid — that is the ledger, below.',
+        })
+      : el('p', {
+          class: 'note',
+          text: 'This device does not agree with the published round. Export the bundle and check it elsewhere before believing either of us.',
+        }),
+    el('button', {
+      class: 'btn quiet',
+      text: 'Re-derive again',
+      onClick: () => void runRederivation(),
+    }),
+  );
+}
+
+async function runRederivation(): Promise<void> {
+  const frame = state.frame as Frame;
+  const bundle = state.verify?.bundle as
+    | { transcript?: unknown; revealedServerSeed?: string; definition?: { fingerprint?: string } }
+    | undefined;
+  if (!bundle || typeof bundle.revealedServerSeed !== 'string') {
+    toast('The bundle for this round has not been fetched yet.', true);
+    return;
+  }
+  state.rederiving = true;
+  state.rederived = null;
+  render();
+  try {
+    state.rederived = await rederive({
+      revealedServerSeed: bundle.revealedServerSeed,
+      transcript: bundle.transcript,
+      preCommitment: frame.fairness.preCommitment,
+      publishedFingerprint: bundle.definition?.fingerprint ?? frame.fairness.fingerprint,
+    });
+  } finally {
+    state.rederiving = false;
+    render();
+  }
+}
+
 function ghostRows(rows: readonly GhostRow[]): Child[] {
   const byArena = new Map<number, GhostRow[]>();
   for (const row of rows) byArena.set(row.arena, [...(byArena.get(row.arena) ?? []), row]);
@@ -1718,10 +2181,27 @@ function hashRow(label: string, value: string, note: string): HTMLElement {
 
 /* ------------------------------------------------------------------- S9 */
 
+/**
+ * Settings and responsible play (`DESIGN.md` §S9).
+ *
+ * Everything §10.2 calls a build requirement is a control here and is enforced
+ * on the server: the reality-check interval, a session time limit, a session
+ * loss limit and the self-exclusion hand-off. The rest of §S9 — the odds tables,
+ * §10 in plain language, the audio and motion toggles, the quality-tier override
+ * — is here too, with the honest note about what each one can do in a free-play
+ * prototype that has one in-memory session and no account behind it.
+ */
 function settingsScreen(): HTMLElement {
   const config = state.config as Config;
   const session = state.session as Session;
   const speed = config.speed;
+  const patch = (body: object) =>
+    void guard(async () => {
+      adopt(await api('POST', '/api/session', body));
+    });
+  const limitMinutes = session.sessionLimitMinutes;
+  const lossLimit = session.sessionLossLimitMicro;
+
   return el(
     'div',
     { class: 'screen fade-in' },
@@ -1729,10 +2209,140 @@ function settingsScreen(): HTMLElement {
       'div',
       { class: 'surface pad stack' },
       el('h1', { text: 'Settings and responsible play' }),
+
+      el('h2', { text: 'Limits' }),
+      session.stakingBlock
+        ? el('p', { class: 'note', text: `Staking is off for this session. ${session.stakingBlock.message}` })
+        : null,
+      el(
+        'div',
+        { class: 'spread' },
+        el('span', { text: 'Reality check' }),
+        el(
+          'div',
+          { class: 'row' },
+          ...[15, 30, 60].map((minutes) =>
+            el('button', {
+              class: 'chip',
+              'aria-pressed': String(session.realityCheckIntervalMs === minutes * 60_000),
+              text: `${minutes}m`,
+              onClick: () => patch({ realityCheckMinutes: minutes }),
+            }),
+          ),
+        ),
+      ),
+      el('p', {
+        class: 'tiny',
+        text: `It pauses the game and states the session in plain figures. Next one in ${Math.max(0, Math.ceil(session.realityCheckDueMs / 60000))} min.`,
+      }),
+      el(
+        'div',
+        { class: 'spread' },
+        el('span', { text: 'Session time limit' }),
+        el(
+          'div',
+          { class: 'row' },
+          ...[30, 60, 120].map((minutes) =>
+            el('button', {
+              class: 'chip',
+              'aria-pressed': String(limitMinutes === minutes),
+              text: `${minutes}m`,
+              onClick: () => patch({ sessionLimitMinutes: limitMinutes === minutes ? null : minutes }),
+            }),
+          ),
+        ),
+      ),
+      el(
+        'div',
+        { class: 'spread' },
+        el('span', { text: 'Session loss limit' }),
+        el(
+          'div',
+          { class: 'row' },
+          ...([
+            ['25.00', '25000000'],
+            ['50.00', '50000000'],
+            ['100.00', '100000000'],
+          ] as const).map(([label, value]) =>
+            el('button', {
+              class: 'chip',
+              'aria-pressed': String(lossLimit === value),
+              text: label,
+              onClick: () => patch({ sessionLossLimitMicro: lossLimit === value ? null : value }),
+            }),
+          ),
+        ),
+      ),
+      el('p', {
+        class: 'tiny',
+        text: 'When either limit is reached the game stops taking stakes for the rest of this session. A round already open still finishes — money already staked is never stranded by a limit.',
+      }),
+      el(
+        'div',
+        { class: 'spread' },
+        el('span', { text: 'Stop for this session' }),
+        el('button', {
+          class: 'chip',
+          'aria-pressed': String(session.selfExcluded),
+          text: session.selfExcluded ? 'stopped' : 'stop',
+          onClick: () => {
+            if (session.selfExcluded) return;
+            state.sheet = {
+              title: 'Stop for this session',
+              body: frag(
+                el('p', {
+                  class: 'note',
+                  text: 'This turns staking off for the rest of this session and cannot be turned back on here.',
+                }),
+                el('p', {
+                  class: 'note',
+                  text: 'In a real deployment this is where the operator’s self-exclusion flow takes over, and it survives closing the app, because it belongs to an account. This prototype has no account: the setting lasts as long as the server does, and saying otherwise would be the dishonest part.',
+                }),
+                el('button', {
+                  class: 'btn',
+                  text: 'Stop staking for this session',
+                  onClick: () => {
+                    state.sheet = null;
+                    patch({ selfExclude: true });
+                  },
+                }),
+              ),
+            };
+            render();
+          },
+        }),
+      ),
+
+      el('hr', {}),
+      el('h2', { text: 'The game' }),
       toggle('Reduced motion', session.reducedMotion, (value) => ({ reducedMotion: value })),
+      toggle('Sound', session.audioEnabled, (value) => ({ audioEnabled: value })),
+      el('p', { class: 'tiny', text: 'The graybox has no audio in it yet, so the switch is a preference the sound wave will read, not a mute.' }),
       toggle('Ghost Line', session.ghostLineEnabled, (value) => ({ ghostLineEnabled: value })),
       toggle('Side bets', session.sideBetsOptedIn, (value) => ({ sideBetsOptedIn: value })),
       toggle('Show every control', session.showEverything, (value) => ({ showEverything: value })),
+      el(
+        'div',
+        { class: 'spread' },
+        el('span', { text: 'Quality' }),
+        el(
+          'div',
+          { class: 'row' },
+          ...['auto', 'high', 'medium', 'low'].map((tier) =>
+            el('button', {
+              class: 'chip',
+              'aria-pressed': String(session.qualityTier === tier),
+              text: tier,
+              onClick: () => patch({ qualityTier: tier }),
+            }),
+          ),
+        ),
+      ),
+      el('p', {
+        class: 'tiny',
+        text: '§6.8’s quality ladder is for the build that has a renderer in it. Here every shape is a placeholder, so the override is recorded and changes nothing you can see.',
+      }),
+
       el('hr', {}),
       el('h2', { text: 'The numbers' }),
       field('Return to player', `${config.money.rtpPct4} (${config.money.rtpExact})`),
@@ -1742,14 +2352,45 @@ function settingsScreen(): HTMLElement {
       field('Side bet ceiling', `${config.money.sideBetRatio} of the route stake, per bet and per round`),
       field('Max-win cap', `${config.money.maxWinMultiple}x per ticket`),
       field('Minimum game cycle', `${speed.minGameCycleMs} ms per ${String(speed.cycleUnit)}`),
+      el('button', {
+        class: 'btn quiet',
+        text: 'Every route’s full odds ▸',
+        onClick: () => {
+          const squad = config.game.squadSize;
+          state.sheet = {
+            title: 'Full odds, every route',
+            body: frag(
+              ...['WIDE', 'SPLIT', 'NARROW']
+                .map((route) => {
+                  const key = route === 'SPLIT' ? `SPLIT:${squad}:${Math.ceil(squad / 2)}` : `${route}:${squad}`;
+                  const figures = config.paytable[key];
+                  return figures
+                    ? frag(
+                        el('h3', { text: `${route} — ${figures.display.multiplier}` }),
+                        oddsTable(figures),
+                      )
+                    : null;
+                })
+                .filter((node): node is DocumentFragment => node !== null),
+              el('p', {
+                class: 'tiny',
+                text: 'The odds are never gated: this table is reachable from the first frame, including for routes not yet on offer (§5.2.5 rule 4).',
+              }),
+            ),
+          };
+          render();
+        },
+      }),
       el('p', {
         class: 'tiny',
         text: `Speed of play declared against ${String(speed.standard)} ${String(speed.standardEdition)}, ${String(speed.provision)}. Verified against a certified copy: ${speed.provisionVerifiedAgainstCertifiedCopy ? 'yes' : 'no'}.`,
       }),
+
       el('hr', {}),
       el('h2', { text: 'What this game does not do' }),
       el('p', { class: 'note', text: 'No autoplay. No auto-rebet. No double-or-nothing. No offer after a losing round. No countdown on any decision, ever.' }),
       el('p', { class: 'note', text: 'Every route returns the same. There is no skill in this game and nothing here will tell you otherwise.' }),
+      el('p', { class: 'note', text: 'Cosmetics never change the odds. Choosing who runs where changes who comes home; it does not change the odds.' }),
       el('p', { class: 'tiny', text: 'Free-play prototype. No real money, no certification claimed.' }),
     ),
     el(
@@ -1865,49 +2506,90 @@ function rehearsalScreen(): HTMLElement {
     };
   });
 
-  const cards = offered
-    .map((route) => {
-      const key =
-        route === 'SPLIT'
-          ? `SPLIT:${running}:${Math.ceil(running / 2)}`
-          : route === 'SHELTER'
-            ? `WIDE:${Math.max(1, running - 1)}`
-            : `${route}:${running}`;
-      const figures = config.paytable[key];
-      if (!figures) return null;
-      return routeCard({
-        title: route,
-        route,
-        fiction: config.game.routeTitles[route] ?? '',
-        figures,
-        selected: state.route === route,
-        rtp: config.money.rtpPct,
-        onSelect: () => {
-          state.route = route as 'WIDE' | 'SPLIT' | 'NARROW' | 'SHELTER';
-          state.laneSplit = route === 'SPLIT' ? Math.ceil(running / 2) : null;
-          state.shelter = route === 'SHELTER' ? [0] : [];
-          render();
-        },
-        onOdds: () => {
-          state.sheet = { title: `${route} — every outcome, exactly`, body: oddsTable(figures) };
-          render();
-        },
-        onCompare: () => {
-          state.sheet = { title: 'Compare', body: distributionBars(figures) };
-          render();
-        },
-      });
-    })
-    .filter((card): card is HTMLElement => card !== null);
+  const figuresOfRoute = (route: string): Figures | null => {
+    const key =
+      route === 'SPLIT'
+        ? `SPLIT:${running}:${Math.ceil(running / 2)}`
+        : route === 'SHELTER'
+          ? `WIDE:${Math.max(1, running - 1)}`
+          : `${route}:${running}`;
+    return config.paytable[key] ?? null;
+  };
+  const onOffer = offered.filter((route) => figuresOfRoute(route) !== null);
+  const pickRehearsalRoute = (route: string): void => {
+    state.route = route as 'WIDE' | 'SPLIT' | 'NARROW' | 'SHELTER';
+    state.laneSplit = route === 'SPLIT' ? Math.ceil(running / 2) : null;
+    state.shelter = route === 'SHELTER' ? [0] : [];
+    render();
+  };
+  pagerPick = pickRehearsalRoute;
+  if (!onOffer.includes(state.route) && onOffer.length > 0)
+    state.route = onOffer[0] as 'WIDE' | 'SPLIT' | 'NARROW' | 'SHELTER';
+
+  const cards = onOffer.map((route) => {
+    const figures = figuresOfRoute(route) as Figures;
+    return routeCard({
+      route,
+      fiction: config.game.routeTitles[route] ?? '',
+      figures,
+      selected: state.route === route,
+      rtp: config.money.rtpPct,
+      onSelect: () => pickRehearsalRoute(route),
+      onOdds: () => {
+        state.sheet = { title: `${route} — every outcome, exactly`, body: oddsTable(figures) };
+        render();
+      },
+      onCompare: () => {
+        const other = onOffer.find((candidate) => candidate !== route);
+        const otherFigures = other ? figuresOfRoute(other) : null;
+        state.sheet = {
+          title: other ? `${route} against ${other}` : route,
+          body: frag(
+            el(
+              'div',
+              { class: 'row', style: 'align-items:flex-start;gap:12px' },
+              el(
+                'div',
+                { style: 'flex:1' },
+                el('div', { class: 'route-name', text: route }),
+                el('div', { class: 'multiplier money', text: figures.display.multiplier }),
+                distributionBars(figures, 46),
+                field('nobody', figures.display.wipePct),
+                field(`all ${figures.running}`, figures.display.allClearPct),
+              ),
+              otherFigures
+                ? el(
+                    'div',
+                    { style: 'flex:1' },
+                    el('div', { class: 'route-name', text: other as string }),
+                    el('div', { class: 'multiplier money', text: otherFigures.display.multiplier }),
+                    distributionBars(otherFigures, 46),
+                    field('nobody', otherFigures.display.wipePct),
+                    field(`all ${otherFigures.running}`, otherFigures.display.allClearPct),
+                  )
+                : null,
+            ),
+            el('p', {
+              class: 'note',
+              style: 'text-align:center',
+              text: `Both of these return ${config.money.rtpPct}. ${COPY.twoCardFooter}`,
+            }),
+          ),
+        };
+        render();
+      },
+    });
+  });
 
   return el(
     'div',
-    { class: 'screen fade-in' },
+    { class: 'screen route-screen fade-in' },
     viewport({
       title: over ? 'Rehearsal' : (config.game.arenaNames[stage] ?? ''),
       subtitle: over ? 'Three branches, no stake.' : (config.game.arenaSubtitles[stage] ?? ''),
       counter: `${Math.min(stage + 1, config.rehearsal.arenas)} / ${config.rehearsal.arenas}`,
       lanes: 1,
+      compact: true,
       runners: squad
         .filter((member) => member.status !== 'lost')
         .map((member) => ({ name: member.name, status: member.status, lane: 0 })),
@@ -1916,9 +2598,12 @@ function rehearsalScreen(): HTMLElement {
     el(
       'div',
       { class: 'claim-meter' },
-      el('div', { class: 'badge rehearsal', text: COPY.rehearsalChip }),
-      el('div', { class: 'claim-figure money', text: result.claim }),
-      el('div', { class: 'claim-caption', text: 'claim, as a multiple of a notional stake' }),
+      el(
+        'div',
+        { class: 'claim-line' },
+        el('div', { class: 'claim-figure money', text: result.claim }),
+        el('div', { class: 'claim-caption', text: 'claim, of a notional stake of 1.000' }),
+      ),
       el(
         'div',
         { class: 'pips' },
@@ -1931,50 +2616,59 @@ function rehearsalScreen(): HTMLElement {
           ),
         ),
       ),
+      el('div', { class: 'badge rehearsal', text: COPY.rehearsalChip }),
       Number(result.banked) > 0
         ? el('div', { class: 'banked-row money', text: `${result.banked} sheltered` })
         : null,
     ),
-    el(
-      'div',
-      { class: 'surface' },
-      el('p', { class: 'note pad', style: 'padding-bottom:0', text: played === 0 ? COPY.claimIntro : COPY.everyRoute }),
-      last
-        ? el(
-            'div',
-            { class: 'pad' },
-            el('p', { class: 'money', text: last.arithmetic }),
-            last.fallen.length > 0
-              ? el('p', {
-                  class: 'note lost-name',
-                  text: `${last.fallen.map((runner) => runner.name).join(', ')} did not make it.`,
-                })
-              : el('p', { class: 'note', text: 'Everyone is across.' }),
-            played === 1 ? el('p', { class: 'note', text: COPY.firstResolve }) : null,
-            played === 2 ? el('p', { class: 'note', text: COPY.splitAppears }) : null,
-          )
-        : null,
-      over
-        ? el(
-            'div',
-            { class: 'pad stack' },
-            el('h2', { text: result.wiped ? 'That is the other ending.' : COPY.rehearsalBanked }),
-            el('p', {
-              class: 'note',
-              text: result.wiped
-                ? `It is ${config.money.rtpPct} either way — the route only changes how often it looks like this.`
-                : `You would be holding ${result.total} of a notional stake of 1.000. ${COPY.noPayout}`,
-            }),
-            el('p', { class: 'note', text: COPY.practiceSeed }),
-            el('div', { class: 'hash', text: `server seed ${result.seedPair.serverSeed}` }),
-            el('div', { class: 'hash', text: `client seed ${result.seedPair.clientEntropy}` }),
-            el('div', { class: 'hash', text: `tape digest ${result.tapeDigest}` }),
-            el('h3', { text: 'The Ghost Line' }),
-            el('p', { class: 'note', text: COPY.ghostNote }),
-            ...ghostRows(result.ghost),
-          )
-        : el('div', { class: 'card-pager' }, ...cards),
-    ),
+    over
+      ? el(
+          'div',
+          { class: 'surface pad stack' },
+          el('h2', { text: result.wiped ? 'That is the other ending.' : COPY.rehearsalBanked }),
+          el('p', {
+            class: 'note',
+            text: result.wiped
+              ? `It is ${config.money.rtpPct} either way — the route only changes how often it looks like this.`
+              : `You would be holding ${result.total} of a notional stake of 1.000. ${COPY.noPayout}`,
+          }),
+          el('p', { class: 'note', text: COPY.practiceSeed }),
+          el('div', { class: 'hash', text: `server seed ${result.seedPair.serverSeed}` }),
+          el('div', { class: 'hash', text: `client seed ${result.seedPair.clientEntropy}` }),
+          el('div', { class: 'hash', text: `tape digest ${result.tapeDigest}` }),
+          el('h3', { text: 'The Ghost Line' }),
+          el('p', { class: 'note', text: COPY.ghostNote }),
+          ...ghostRows(result.ghost),
+        )
+      : frag(
+          routeTabs(
+            onOffer.map((route) => ({
+              route,
+              multiplier: (figuresOfRoute(route) as Figures).display.multiplier,
+            })),
+            state.route,
+            pickRehearsalRoute,
+          ),
+          el('p', {
+            class: 'thesis',
+            text: played === 0 ? COPY.claimIntro : COPY.everyRoute,
+          }),
+          last
+            ? el(
+                'div',
+                { class: 'resolve-line' },
+                el('p', { class: 'money', text: last.arithmetic }),
+                el('p', {
+                  class: last.fallen.length > 0 ? 'tiny lost-name' : 'tiny',
+                  text:
+                    last.fallen.length > 0
+                      ? `${last.fallen.map((runner) => runner.name).join(', ')} did not make it. ${played === 1 ? COPY.firstResolve : played === 2 ? COPY.splitAppears : ''}`
+                      : 'Everyone is across.',
+                }),
+              )
+            : null,
+          el('div', { class: 'card-pager', onScroll: onPagerScroll }, ...cards),
+        ),
     el(
       'div',
       { class: 'footer' },
@@ -2027,6 +2721,39 @@ function commitRehearsal(running: number): void {
 
 /* ------------------------------------------------------------------ boot */
 
+/**
+ * The idle poll, which exists for exactly one reason.
+ *
+ * The reality check is measured on the server's session clock, and a player who
+ * sits on the resolve screen for half an hour makes no requests — so without
+ * this, the pause §10.2 requires would wait for the next tap. The poll re-renders
+ * only when something the player can act on changed; the clock in the session
+ * strip is nudged in place, because a screen that rebuilds itself under a
+ * half-finished swipe is the defect this build spent its first round fixing.
+ */
+function startSessionPoll(): void {
+  window.setInterval(() => {
+    if (state.busy || state.rederiving || !state.session) return;
+    void (async () => {
+      const wasDue = realityCheckDue();
+      const wasBlocked = state.session?.stakingBlock?.code ?? null;
+      try {
+        const payload = await api<{ session: Session; wallet: WalletView }>('GET', '/api/session');
+        state.session = payload.session;
+        state.wallet = payload.wallet;
+      } catch {
+        return; // a stale strip for twenty seconds is not worth a toast
+      }
+      if (realityCheckDue() !== wasDue || (state.session.stakingBlock?.code ?? null) !== wasBlocked) {
+        render();
+        return;
+      }
+      const clock = root.querySelector('.session-strip span');
+      if (clock) clock.textContent = `session ${Math.floor(state.session.elapsedMs / 60000)}m`;
+    })();
+  }, 20_000);
+}
+
 async function boot(): Promise<void> {
   state.config = await api<Config>('GET', '/api/config');
   const session = await api<{ session: Session; wallet: WalletView; openRoundId: string | null }>(
@@ -2044,6 +2771,7 @@ async function boot(): Promise<void> {
     if (payload.frame.phase === 'RUNNING') void resolveArena();
   }
   render();
+  startSessionPoll();
 }
 
 void boot();

@@ -18,6 +18,7 @@ export interface Props {
   readonly onClick?: (event: MouseEvent) => void;
   readonly onInput?: (event: Event) => void;
   readonly onChange?: (event: Event) => void;
+  readonly onScroll?: (event: Event) => void;
   readonly [key: string]: unknown;
 }
 
@@ -31,9 +32,10 @@ export function el<K extends keyof HTMLElementTagNameMap>(
     if (value === undefined || value === null || value === false) continue;
     if (key === 'class') node.className = String(value);
     else if (key === 'text') node.textContent = String(value);
-    else if (key === 'onClick') node.addEventListener('click', value as EventListener);
-    else if (key === 'onInput') node.addEventListener('input', value as EventListener);
-    else if (key === 'onChange') node.addEventListener('change', value as EventListener);
+    // `onFoo` binds `foo`. One branch rather than one per event, so a screen that
+    // needs `scroll` or `pointerdown` does not have to edit this file to get it.
+    else if (key.startsWith('on') && key.length > 2 && typeof value === 'function')
+      node.addEventListener(key.slice(2).toLowerCase(), value as EventListener);
     else if (key === 'value' && node instanceof HTMLInputElement) node.value = String(value);
     else if (value === true) node.setAttribute(key, '');
     else node.setAttribute(key, String(value));

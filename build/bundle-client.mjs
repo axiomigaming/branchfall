@@ -8,6 +8,7 @@
  * for the build that has art in it, and nothing here is evidence about it.
  */
 import { context, build } from 'esbuild';
+import { watch as watchTree } from 'node:fs';
 import { cp, mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,6 +40,18 @@ export async function bundleClient({ watch = false } = {}) {
   const ctx = await context(options);
   await ctx.rebuild();
   await ctx.watch();
+  /**
+   * esbuild watches the module graph, which does not include the stylesheet or
+   * the shell. Without this, editing `client/public/styles.css` under
+   * `npm run dev` changes nothing until the server is restarted — which is a
+   * quiet way to spend an afternoon measuring a layout that is not the one on
+   * disk. Copies are cheap and debounced.
+   */
+  let pending = null;
+  watchTree(resolve(root, 'client/public'), { recursive: true }, () => {
+    clearTimeout(pending);
+    pending = setTimeout(() => void copyStatic(), 60);
+  });
   return ctx;
 }
 

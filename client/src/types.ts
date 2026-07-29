@@ -214,6 +214,15 @@ export interface Session {
   readonly elapsedMs: number;
   readonly stage: string;
   readonly runnerNames: readonly string[];
+  /** The responsible-play state (`DESIGN.md` §10.2, §S9), all server-owned. */
+  readonly realityCheckIntervalMs: number;
+  readonly realityCheckDueMs: number;
+  readonly sessionLimitMinutes: number | null;
+  readonly sessionLossLimitMicro: string | null;
+  readonly selfExcluded: boolean;
+  readonly audioEnabled: boolean;
+  readonly qualityTier: string;
+  readonly stakingBlock: { readonly code: string; readonly message: string } | null;
 }
 
 export interface WalletView {

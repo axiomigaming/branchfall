@@ -13,9 +13,17 @@
  * because a graybox that spends its font budget on a graybox is spending it
  * twice.
  *
- * Layout is portrait-first on a 390 x 844 baseline: viewport 0-58% of height,
- * decision surface 58-100%, every primary action inside the bottom thumb zone,
- * 44 pt targets.
+ * Two size rules are treated as hard limits rather than intentions, because §6.5
+ * writes them as limits: **15 px body, 13 px secondary, 28 px for the claim
+ * figure, and no numeral anywhere below 15 px** (one CSS pixel is one point on
+ * the 390 x 844 baseline). The `--floor-*` tokens below are those numbers, and
+ * every rule in this file that sets a size uses one of them. A money numeral at
+ * 10 px was the defect that made them tokens.
+ *
+ * Layout is portrait-first on a 390 x 844 baseline. The app is exactly one
+ * viewport tall and never scrolls as a page: each screen is a flex column whose
+ * one flexible region scrolls, so a primary action can never be pushed under the
+ * fold and a decision surface can never grow into a second screen.
  */
 
 :root {
@@ -47,6 +55,12 @@
   --body: ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, monospace;
 
+  /* §6.5, as limits. Nothing in this file may set a size below its floor. */
+  --floor-body: 15px;
+  --floor-secondary: 13px;
+  --floor-numeral: 15px;
+  --claim-figure: 28px;
+
   --gutter: 16px;
   --radius: 3px;
   --hairline: 1px solid rgba(138, 152, 160, 0.18);
@@ -64,19 +78,21 @@ body {
   background: var(--void);
   color: var(--mist);
   font-family: var(--body);
-  font-size: 15px;
+  font-size: var(--floor-body);
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
+  overflow: hidden;
 }
 
 #app {
-  min-height: 100%;
+  height: 100dvh;
   max-width: 460px;
   margin: 0 auto;
   background: var(--night);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   position: relative;
 }
 
@@ -106,7 +122,7 @@ h3 {
   text-transform: uppercase;
   letter-spacing: 0.14em;
   font-weight: 700;
-  font-size: 17px;
+  font-size: 16px;
 }
 
 .num,
@@ -114,21 +130,17 @@ h3 {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums lining-nums;
   font-feature-settings: "tnum" 1;
+  font-size: var(--floor-numeral);
 }
 
-.small {
-  font-size: 13px;
-  color: var(--fog-far);
-}
-
-.tiny {
-  font-size: 12px;
+.small,
+.tiny,
+.note {
+  font-size: var(--floor-secondary);
   color: var(--fog-far);
 }
 
 .note {
-  font-size: 13px;
-  color: var(--fog-far);
   line-height: 1.5;
 }
 
@@ -136,7 +148,7 @@ h3 {
   font-family: var(--display);
   font-style: italic;
   color: var(--fog-far);
-  font-size: 13px;
+  font-size: var(--floor-secondary);
 }
 
 .runner-name {
@@ -152,14 +164,17 @@ h3 {
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  padding: 8px var(--gutter);
+  padding: 4px var(--gutter);
   background: var(--void);
   border-bottom: var(--hairline);
-  font-size: 12px;
+  font-size: var(--floor-secondary);
   color: var(--fog-far);
-  position: sticky;
-  top: 0;
+  flex: none;
   z-index: 20;
+}
+
+.session-strip .link {
+  padding: 2px 0;
 }
 
 .session-strip .money {
@@ -241,8 +256,8 @@ button {
 .btn.quiet {
   border-color: transparent;
   color: var(--fog-far);
-  min-height: 40px;
-  font-size: 14px;
+  min-height: 44px;
+  font-size: var(--floor-body);
 }
 
 .btn-row {
@@ -255,7 +270,8 @@ button {
   color: var(--fog-far);
   text-decoration: underline;
   text-underline-offset: 3px;
-  font-size: 13px;
+  font-size: var(--floor-secondary);
+  padding: 3px 0;
 }
 
 /*
@@ -266,7 +282,7 @@ button {
 .cycle {
   height: 2px;
   background: rgba(138, 152, 160, 0.2);
-  margin-top: 8px;
+  margin-top: 6px;
   overflow: hidden;
 }
 
@@ -291,6 +307,23 @@ button {
   flex: none;
 }
 
+/*
+ * The decision screens get a band, not a stage.
+ *
+ * §5's 58/42 seam is the layout for the run, where the viewport expands to full
+ * bleed and the decision surface slides away. On S2 the decision *is* the
+ * screen: four cards, their controls and the commit action have to sit in one
+ * unscrolled viewport, and at graybox fidelity the world is a rectangle and a
+ * gradient. It shrinks first when the viewport is short, and never below the
+ * height that keeps the arena name and counter legible.
+ */
+.viewport.compact {
+  height: auto;
+  flex: 0 1 96px;
+  min-height: 72px;
+  max-height: 120px;
+}
+
 .viewport .fog {
   position: absolute;
   inset: auto 0 0 0;
@@ -301,7 +334,7 @@ button {
 
 .viewport .arena-label {
   position: absolute;
-  top: 12px;
+  top: 8px;
   left: var(--gutter);
   right: var(--gutter);
   display: flex;
@@ -313,8 +346,13 @@ button {
 .arena-label h2 {
   text-transform: uppercase;
   letter-spacing: 0.14em;
-  font-size: 15px;
+  font-size: var(--floor-body);
   color: var(--fossil);
+}
+
+.viewport.compact .fiction,
+.viewport.compact .kindling .tag {
+  display: none;
 }
 
 .branch {
@@ -341,7 +379,7 @@ button {
 .kindling {
   position: absolute;
   width: 11px;
-  height: 28px;
+  height: 26px;
   transform: translate(-50%, -100%);
   transition: left 400ms linear, opacity 400ms linear;
 }
@@ -382,69 +420,73 @@ button {
 
 .kindling .tag {
   position: absolute;
-  top: -16px;
+  top: -18px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 10px;
+  font-size: var(--floor-secondary);
   white-space: nowrap;
   color: var(--fog-far);
+  text-shadow: 0 1px 3px rgba(14, 17, 20, 0.9);
 }
 
 /* ------------------------------------------------------------ claim meter */
 
 /*
- * §5.2.2 — the teaching object *is* the HUD. Five pips, one per share, each
- * labelled with its own value. It is never dismissed and never graduates.
+ * §5.2.2 — the teaching object *is* the HUD. One pip per share, each labelled
+ * with its own value. It is never dismissed and never graduates.
  */
 .claim-meter {
   background: var(--void);
   border-top: var(--hairline);
   border-bottom: var(--hairline);
-  padding: 10px var(--gutter) 12px;
+  padding: 5px var(--gutter) 6px;
   text-align: center;
   flex: none;
+}
+
+.claim-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
 }
 
 .claim-figure {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums lining-nums;
-  font-size: 28px;
+  font-size: var(--claim-figure);
   line-height: 1.1;
   color: var(--money-running);
 }
 
 .claim-caption {
-  font-size: 12px;
+  font-size: var(--floor-secondary);
   color: var(--fog-far);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
 }
 
 .pips {
   display: flex;
   justify-content: center;
-  gap: 10px;
-  margin-top: 8px;
+  align-items: center;
+  gap: 9px;
+  margin-top: 3px;
   flex-wrap: wrap;
-}
-
-.pips.split-lanes {
-  gap: 10px;
 }
 
 .pip {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 3px;
-  min-width: 46px;
+  gap: 5px;
 }
 
 .pip .dot {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: var(--lamp);
   box-shadow: 0 0 10px 3px rgba(255, 165, 61, 0.3);
+  flex: none;
 }
 
 .pip.lost .dot {
@@ -459,58 +501,170 @@ button {
 
 .pip .value {
   font-family: var(--mono);
-  font-size: 11px;
-  color: var(--fog-far);
+  font-size: var(--floor-numeral);
+  color: var(--mist);
+}
+
+.pip.lost .value {
+  color: var(--extinguish);
+  text-decoration: line-through;
+}
+
+.pip.home .value {
+  color: var(--money-banked);
 }
 
 .pip .who {
-  font-size: 10px;
-  color: var(--fog-mid);
+  font-size: var(--floor-secondary);
+  color: var(--fog-far);
 }
 
 .lane-gap {
-  width: 18px;
+  width: 14px;
+  align-self: stretch;
   border-left: 1px dashed rgba(138, 152, 160, 0.35);
 }
 
 .banked-row {
-  margin-top: 8px;
-  padding-top: 8px;
+  margin-top: 6px;
+  padding-top: 6px;
   border-top: 1px dashed rgba(201, 162, 39, 0.3);
   color: var(--money-banked);
-  font-size: 12px;
+  font-size: var(--floor-secondary);
 }
 
 /* -------------------------------------------------------------- surfaces */
 
+/* The one scrolling region on a screen that has one. */
 .surface {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-bottom: 96px;
+  -webkit-overflow-scrolling: touch;
 }
 
+/* ------------------------------------------------------------ the S2 rail */
+
+/*
+ * §S2's page indicator, which is also how a page is reached.
+ *
+ * All four routes and all four prices are on screen at rest, in identical
+ * weight: no badge, no recommendation, no highlight of the higher multiplier.
+ * The selected tab is marked by the same fossil hairline the selected card
+ * carries, and by nothing else.
+ */
+.route-tabs {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 1px;
+  background: rgba(138, 152, 160, 0.14);
+  border-bottom: var(--hairline);
+  flex: none;
+}
+
+.route-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-height: 44px;
+  padding: 4px 2px;
+  background: var(--night);
+  color: var(--fog-far);
+  border-top: 2px solid transparent;
+}
+
+.route-tab .route-name {
+  font-size: var(--floor-secondary);
+  letter-spacing: 0.1em;
+}
+
+.route-tab .money {
+  font-size: var(--floor-numeral);
+  color: var(--fog-far);
+}
+
+.route-tab[aria-selected="true"] {
+  background: rgba(216, 207, 187, 0.06);
+  border-top-color: var(--fossil);
+  color: var(--fossil);
+}
+
+.route-tab[aria-selected="true"] .money {
+  color: var(--fossil);
+}
+
+/* The product's thesis, permanently on the route screen (§3). */
+.thesis {
+  margin: 0;
+  padding: 3px var(--gutter) 4px;
+  font-size: var(--floor-secondary);
+  line-height: 1.3;
+  color: var(--fog-far);
+  flex: none;
+}
+
+.thesis .link {
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+.resolve-line {
+  padding: 0 var(--gutter) 6px;
+  flex: none;
+}
+
+.resolve-line p {
+  margin: 2px 0;
+}
+
+/*
+ * The rail: one card per page, exactly the rail's width, so the scroll position
+ * of the selected card is `index x clientWidth` and nothing has to be measured.
+ * `syncPager()` in `main.ts` restores it after every render.
+ */
 .card-pager {
   display: flex;
-  gap: 12px;
+  flex: 1;
+  min-height: 0;
   overflow-x: auto;
+  overflow-y: hidden;
+  /*
+   * The rail holds its height and the band above it gives way, rather than the
+   * other way round: on the screen where money is committed the card is the
+   * thing that has to stay whole.
+   */
+  min-height: 296px;
   scroll-snap-type: x mandatory;
-  padding: 12px var(--gutter);
   scrollbar-width: none;
+  overscroll-behavior-x: contain;
 }
 
 .card-pager::-webkit-scrollbar {
   display: none;
 }
 
+.card-page {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  padding: 7px var(--gutter);
+  min-width: 0;
+}
+
 /* All four cards have identical visual weight (§S2). No badge, no highlight. */
 .card {
-  flex: 0 0 88%;
-  scroll-snap-align: center;
+  height: 100%;
+  overflow-y: auto;
   border: var(--hairline);
   border-radius: var(--radius);
   background: linear-gradient(180deg, rgba(56, 67, 75, 0.28) 0%, rgba(26, 32, 38, 0.28) 100%);
-  padding: 14px;
+  padding: 7px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .card.selected {
@@ -524,18 +678,37 @@ button {
   gap: 8px;
 }
 
+.card-price {
+  text-align: right;
+  flex: none;
+}
+
 .multiplier {
   font-family: var(--mono);
-  font-size: 24px;
+  font-size: 20px;
   color: var(--fossil);
+  line-height: 1.1;
+}
+
+.head-note {
+  font-size: var(--floor-secondary);
+  line-height: 1.3;
+  color: var(--mist);
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
 }
 
 .field {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
   gap: 8px;
-  padding: 3px 0;
-  font-size: 14px;
+  padding: 1px 0;
+  line-height: 1.2;
+  font-size: var(--floor-secondary);
 }
 
 .field .label {
@@ -545,6 +718,8 @@ button {
 .field .value {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
+  font-size: var(--floor-numeral);
+  text-align: right;
 }
 
 .field.emphasis .value {
@@ -552,10 +727,11 @@ button {
 }
 
 .card-footer {
-  margin-top: 10px;
-  padding-top: 8px;
+  margin-top: auto;
+  padding-top: 4px;
   border-top: var(--hairline);
-  font-size: 12px;
+  line-height: 1.25;
+  font-size: var(--floor-secondary);
   color: var(--fog-far);
   display: flex;
   justify-content: space-between;
@@ -575,9 +751,10 @@ button {
   display: flex;
   align-items: flex-end;
   gap: 4px;
-  height: 56px;
-  margin: 10px 0 2px;
   position: relative;
+  flex: 1 1 auto;
+  min-height: 28px;
+  max-height: 84px;
 }
 
 .bar {
@@ -587,12 +764,21 @@ button {
   justify-content: flex-end;
   align-items: center;
   height: 100%;
-  gap: 3px;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bar .track {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
 }
 
 .bar .fill {
   width: 100%;
-  min-height: 1px;
+  min-height: 2px;
   background: var(--falls);
   border-radius: 1px 1px 0 0;
 }
@@ -609,53 +795,157 @@ button {
   background: var(--extinguish);
 }
 
+.bars-block {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.bars-block .bars {
+  margin-bottom: 2px;
+}
+
+.card-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.bars-pair {
+  flex: 1 1 auto;
+  min-height: 46px;
+}
+
 .bar .axis {
-  font-size: 10px;
-  color: var(--fog-mid);
+  font-size: var(--floor-numeral);
+  line-height: 1.1;
+  color: var(--fog-far);
   font-family: var(--mono);
+  flex: none;
 }
 
 .bar.breakeven .axis {
   color: var(--fossil);
 }
 
-.bar.breakeven .axis::before {
+/*
+ * Every bar reserves the tick's line and only the break-even bar paints it.
+ * When the marker took its space on one bar alone, that bar's fill had less
+ * room than its neighbours and two identical probabilities were drawn at two
+ * different heights — a distribution chart lying about the only thing it is for.
+ */
+.bar .axis::before {
   content: "▲";
   display: block;
-  font-size: 7px;
+  font-size: 8px;
   line-height: 1;
+  color: transparent;
+}
+
+.bar.breakeven .axis::before {
   color: var(--fossil);
 }
 
 .bars-caption {
-  font-size: 11px;
-  color: var(--fog-mid);
+  font-size: var(--floor-secondary);
+  line-height: 1.25;
+  color: var(--fog-far);
+  text-align: center;
+  flex: none;
+}
+
+/* The fork's shared axis: both balances, side by side, neither highlighted. */
+.bars-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.bars-half {
+  border-bottom: 2px solid transparent;
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.bars-half.on {
+  border-bottom-color: var(--fossil);
 }
 
 /* -------------------------------------------------------------- fork ctl */
 
-.fork {
-  margin-top: 10px;
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--floor-secondary);
+}
+
+.compare-table th,
+.compare-table td {
+  padding: 0 2px;
+  text-align: right;
+  border-bottom: 1px solid rgba(138, 152, 160, 0.1);
+  font-weight: 400;
+  line-height: 1.25;
+  color: var(--fog-far);
+}
+
+.compare-table th:first-child,
+.compare-table td:first-child {
+  text-align: left;
+  color: var(--fog-far);
+}
+
+.compare-table td {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--floor-numeral);
+  color: var(--mist);
+}
+
+.compare-table th.on,
+.compare-table td.on {
+  color: var(--fossil);
+}
+
+/* ------------------------------------------------ the controls, thumb zone */
+
+/*
+ * Everything that names a Kindling sits here, between the card and the button
+ * that commits it: the fork balance, who takes the thin limb, who comes home.
+ * §5 puts every primary action in the bottom 280 pt, and a control whose live
+ * readout the player is meant to watch has to be visible while they tap it.
+ */
+.control-strip {
+  flex: none;
+  padding: 5px var(--gutter) 4px;
   border-top: var(--hairline);
-  padding-top: 10px;
+  background: rgba(14, 17, 20, 0.5);
+}
+
+.control-strip p {
+  margin: 3px 0 0;
+  line-height: 1.25;
 }
 
 .balance-tabs {
   display: grid;
   grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   gap: 8px;
 }
 
 .balance-tab {
   border: var(--hairline);
   border-radius: var(--radius);
-  padding: 8px 6px;
+  padding: 6px;
   text-align: center;
   font-family: var(--mono);
-  font-size: 15px;
+  font-size: var(--floor-numeral);
   min-height: 44px;
+  color: var(--fog-far);
 }
 
 .balance-tab[aria-pressed="true"] {
@@ -663,54 +953,79 @@ button {
   color: var(--fossil);
 }
 
-.compare-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 8px;
-  font-size: 13px;
+.limb-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  margin-top: 4px;
 }
 
-.compare-table th,
-.compare-table td {
-  padding: 4px 2px;
-  text-align: right;
-  border-bottom: 1px solid rgba(138, 152, 160, 0.1);
-}
-
-.compare-table th:first-child,
-.compare-table td:first-child {
-  text-align: left;
-  color: var(--fog-far);
-  font-weight: 400;
-}
-
-.compare-table td {
-  font-family: var(--mono);
-  font-variant-numeric: tabular-nums;
-}
-
-.limb-picker {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  gap: 8px;
-  margin-top: 10px;
-  align-items: start;
-}
-
-.limb {
-  border: 1px dashed rgba(138, 152, 160, 0.3);
+.limb-chip {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: var(--hairline);
   border-radius: var(--radius);
-  padding: 8px;
-  min-height: 64px;
+  padding: 4px 2px;
+  min-height: 40px;
+  font-size: var(--floor-secondary);
+  color: var(--fog-far);
+  overflow: hidden;
 }
 
-.limb h4 {
-  margin: 0 0 6px;
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+.limb-chip .runner-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.limb-chip .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--lamp);
+  flex: none;
+}
+
+.limb-chip.thin {
+  border-style: dashed;
+}
+
+.limb-chip.inert {
+  opacity: 0.4;
+}
+
+.limb-chip[aria-pressed="true"] {
+  border-color: var(--brass);
+  color: var(--lamp-core);
+}
+
+.limb-chip[aria-pressed="true"] .dot {
+  background: var(--brass);
+}
+
+.limb-divider {
+  width: 0;
+  border-left: 1px dashed rgba(138, 152, 160, 0.5);
+  margin: 0 3px;
+  flex: none;
+}
+
+.strip-legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--floor-secondary);
   color: var(--fog-mid);
-  font-weight: 500;
+  margin-top: 3px;
+}
+
+.readout {
+  font-size: var(--floor-numeral);
+  color: var(--mist);
+  margin: 6px 0 0;
 }
 
 .chip {
@@ -719,10 +1034,10 @@ button {
   gap: 5px;
   border: var(--hairline);
   border-radius: 999px;
-  padding: 5px 10px;
+  padding: 6px 12px;
   margin: 0 4px 4px 0;
-  font-size: 13px;
-  min-height: 32px;
+  font-size: var(--floor-secondary);
+  min-height: 36px;
 }
 
 .chip .dot {
@@ -732,10 +1047,6 @@ button {
   background: var(--lamp);
 }
 
-.chip.inert {
-  opacity: 0.45;
-}
-
 .chip[aria-pressed="true"] {
   border-color: var(--brass);
   color: var(--lamp-core);
@@ -743,20 +1054,37 @@ button {
 
 /* ------------------------------------------------------------- side bets */
 
-.sidebet {
+.sidebet-strip {
+  flex: none;
+  padding: 3px var(--gutter) 0;
+}
+
+.strip-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 12px;
   border: var(--hairline);
   border-radius: var(--radius);
-  padding: 10px;
-  margin: 0 var(--gutter);
+  color: var(--fog-far);
+  font-size: var(--floor-body);
 }
 
 .sidebet-row {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(138, 152, 160, 0.12);
+}
+
+.stepper-row {
+  display: flex;
   align-items: center;
-  padding: 6px 0;
-  border-bottom: 1px solid rgba(138, 152, 160, 0.1);
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+  flex-wrap: wrap;
 }
 
 .stepper {
@@ -764,40 +1092,44 @@ button {
   align-items: center;
   border: var(--hairline);
   border-radius: var(--radius);
+  flex: none;
 }
 
 .stepper button {
-  width: 44px;
-  height: 44px;
-  font-size: 18px;
+  width: 48px;
+  height: 48px;
+  font-size: 20px;
   color: var(--mist);
 }
 
 .stepper .amount {
-  min-width: 92px;
+  min-width: 76px;
   text-align: center;
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
+  font-size: var(--floor-numeral);
 }
 
 /* ---------------------------------------------------------------- footer */
 
 .footer {
-  position: sticky;
-  bottom: 0;
+  flex: none;
   background: var(--night);
   box-shadow: 0 -14px 18px -12px rgba(14, 17, 20, 0.9);
-  padding: 10px var(--gutter) calc(12px + env(safe-area-inset-bottom));
+  padding: 7px var(--gutter) calc(8px + env(safe-area-inset-bottom));
   border-top: var(--hairline);
-  z-index: 10;
 }
 
 .footer .status {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: var(--floor-secondary);
   color: var(--fog-far);
   margin-bottom: 8px;
+}
+
+.footer p {
+  margin: 6px 0 0;
 }
 
 /* ----------------------------------------------------------------- sheet */
@@ -815,7 +1147,7 @@ button {
 .sheet {
   width: 100%;
   max-width: 460px;
-  max-height: 86vh;
+  max-height: 86dvh;
   overflow-y: auto;
   background: var(--night);
   border-top: 1px solid var(--fog-mid);
@@ -830,7 +1162,7 @@ button {
 .odds-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--floor-secondary);
 }
 
 .odds-table th,
@@ -848,8 +1180,15 @@ button {
 .odds-table td {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
-  font-size: 12px;
+  font-size: var(--floor-secondary);
 }
+
+/*
+ * The one place a numeral is allowed under the floor, and it is not a money
+ * figure: the exact fractions in the full-odds table are 13 px so a 12-digit
+ * denominator fits on one line without reflowing. The figures a player acts on —
+ * every credit, claim, multiplier and stake — are at or above 15 px everywhere.
+ */
 
 /* ----------------------------------------------------------- verify (S8) */
 
@@ -886,9 +1225,13 @@ button {
   color: var(--alert);
 }
 
-.verify .hash {
+.verify .mark.unknown {
+  color: var(--fog-far);
+}
+
+.hash {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--floor-secondary);
   color: #86a7bd;
   word-break: break-all;
 }
@@ -898,15 +1241,34 @@ button {
   color: var(--verify);
 }
 
+.provenance {
+  border: 1px solid rgba(127, 212, 255, 0.25);
+  border-radius: var(--radius);
+  padding: 10px;
+  margin: 10px 0;
+}
+
+.draw-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 3px 0;
+  font-size: var(--floor-secondary);
+}
+
+.draw-row .money {
+  font-size: var(--floor-numeral);
+}
+
 /* ---------------------------------------------------------------- chips */
 
 .badge {
   display: inline-block;
   border: var(--hairline);
   border-radius: 999px;
-  padding: 3px 9px;
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  padding: 2px 9px;
+  font-size: var(--floor-secondary);
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--fog-far);
 }
@@ -914,6 +1276,7 @@ button {
 .badge.rehearsal {
   border-color: var(--brass);
   color: var(--brass);
+  margin-top: 6px;
 }
 
 .banked-figure {
@@ -933,7 +1296,7 @@ button {
   border: 1px solid var(--fog-mid);
   border-radius: var(--radius);
   padding: 10px 14px;
-  font-size: 13px;
+  font-size: var(--floor-body);
   max-width: 90%;
   z-index: 50;
 }
@@ -943,12 +1306,44 @@ button {
   color: #ffd9d3;
 }
 
+/* ------------------------------------------------- the reality check (S9) */
+
+/*
+ * §10.2: *"A reality check fires at the operator's interval, default 30 min, and
+ * pauses the game."* It is a pause, not a nag: it covers the screen, states the
+ * session plainly, and the only way past it is a deliberate tap.
+ */
+.reality-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(14, 17, 20, 0.94);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--gutter);
+  z-index: 60;
+}
+
+.reality {
+  width: 100%;
+  max-width: 420px;
+  border: 1px solid var(--fog-mid);
+  border-radius: var(--radius);
+  background: var(--night);
+  padding: 20px var(--gutter);
+}
+
+.reality .figures {
+  margin: 14px 0;
+}
+
 /* ------------------------------------------------------------ animation */
 
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
@@ -972,5 +1367,5 @@ button {
   align-items: center;
   justify-content: center;
   color: var(--fog-mid);
-  font-size: 13px;
+  font-size: var(--floor-secondary);
 }
