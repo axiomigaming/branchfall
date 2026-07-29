@@ -502,6 +502,13 @@ credit(side bet i)          = payableWithinCap(won ? mult_i x s_i : 0, s_i,  cap
 - Money unit: micro-credits. Bounded rounding loss of 5 uc per round on the route
   ticket and 1 uc per side bet (`MATH.md` §10).
 
+**Live-frame wire units are explicit.** Monetary fields named `micro` or ending
+in `Micro` are integer micro-credits. Their `exact` rational and `display` or
+`decimal` companions are credits: this includes `frame.claim.exact`,
+`frame.claim.perRunnerExact`, and `history[].claimBefore/claimAfter.exact`.
+`frame.squad[].valueExact` follows the same rule. Dimensionless `exact` fields
+such as probabilities, multipliers and claim factors remain dimensionless.
+
 ### 6.1 Expiry — the one resolution the player did not choose
 
 A round abandoned past the operator's expiry window has to be closed, and

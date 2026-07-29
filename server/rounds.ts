@@ -82,7 +82,6 @@ import {
   settleTickets,
   type PricedTicket,
   type SettledTicket,
-  type TicketInput,
 } from './sidebets.js';
 import { InsufficientFunds, Wallet } from './wallet.js';
 import { BUNDLE_SCHEMA, type CreditEvent, type VerificationBundle } from './verify.js';
@@ -276,6 +275,7 @@ export interface CommandEnvelope {
 export class RoundStore {
   readonly #rounds = new Map<string, Round>();
   #counter = 0;
+  #openingRoundId: string | null = null;
 
   /**
    * Where server seeds come from.
@@ -317,11 +317,27 @@ export class RoundStore {
     return [...this.#rounds.values()];
   }
 
-  /** The open round, if there is one. A player has at most one at a time here. */
+  /**
+   * The open round, if there is one.
+   *
+   * The store refuses a second one below, so the reverse scan is normally
+   * observationally identical to any scan. Choosing the newest is defence in
+   * depth for a restored or hand-built store that already violates the invariant:
+   * the session and the refusal then point at the same round a client should
+   * resume, rather than quietly exposing an older stranded liability.
+   */
   get openRound(): Round | undefined {
-    return this.all.find(
-      (round) => round.phase !== 'SETTLED' && round.phase !== 'VOID' && round.phase !== 'PRECOMMIT',
-    );
+    if (this.#openingRoundId) {
+      const opening = this.#rounds.get(this.#openingRoundId);
+      if (opening) return opening;
+    }
+    const rounds = this.all;
+    for (let index = rounds.length - 1; index >= 0; index -= 1) {
+      const round = rounds[index] as Round;
+      if (round.phase !== 'SETTLED' && round.phase !== 'VOID' && round.phase !== 'PRECOMMIT')
+        return round;
+    }
+    return undefined;
   }
 
   // ---------------------------------------------------------------- step 0
@@ -385,6 +401,20 @@ export class RoundStore {
     const round = this.get(roundId);
     if (round.phase !== 'PRECOMMIT')
       throw new RoundError('ILLEGAL_ACTION', 'That round is already open', 409);
+    if (this.#openingRoundId === round.roundId)
+      throw new RoundError('ILLEGAL_ACTION', 'That round is already open', 409);
+    // The shipped client resumes `openRoundId` and never offers a second OPEN,
+    // so this is defence in depth for direct API callers and future integrations,
+    // not a claim that the present UI can strand liabilities by itself.
+    const alreadyOpen = this.openRound;
+    if (alreadyOpen && alreadyOpen !== round)
+      throw new RoundError(
+        'ROUND_ALREADY_OPEN',
+        'This session already has a round in progress',
+        409,
+        '$.roundId',
+        { openRoundId: alreadyOpen.roundId },
+      );
 
     // The client binds its seed to the commitment it saw (`ENGINE.md` §5). An
     // honest client stores exactly one commitment before revealing its entropy
@@ -413,7 +443,7 @@ export class RoundStore {
         400,
         '$.clientSeed',
       );
-    if (/[ -]/u.test(seedText))
+    if (/[\x00-\x1f\x7f]/u.test(seedText))
       throw new RoundError('INVALID_ARGUMENT', 'A client seed is printable text', 400, '$.clientSeed');
     const clientEntropy = /^[0-9a-f]{64}$/u.test(seedText)
       ? seedText
@@ -451,44 +481,53 @@ export class RoundStore {
         '$.stakeMicro',
       );
 
+    // Reserve the session synchronously before the first engine await. Without a
+    // reservation, two direct API calls can both observe PRECOMMIT, both debit,
+    // and only later publish their DECISION phases. The ordinary client cannot
+    // issue that race, but the server invariant must survive callers that can.
+    this.#openingRoundId = round.roundId;
     try {
-      this.wallet.debit(stake, 'Route ticket', round.roundId);
-    } catch (error) {
-      if (error instanceof InsufficientFunds)
-        throw new RoundError('INSUFFICIENT_FUNDS', error.message, 402, '$.stakeMicro');
-      throw error;
-    }
+      try {
+        this.wallet.debit(stake, 'Route ticket', round.roundId);
+      } catch (error) {
+        if (error instanceof InsufficientFunds)
+          throw new RoundError('INSUFFICIENT_FUNDS', error.message, 402, '$.stakeMicro');
+        throw error;
+      }
 
-    const book = new SurvivalBook(BRANCHFALL);
-    const perRunner = stake / BigInt(SQUAD_SIZE);
-    for (let slot = 0; slot < SQUAD_SIZE; slot += 1)
-      await book.enter(`${round.roundId}:enter:${slot}`, slot, perRunner);
+      const book = new SurvivalBook(BRANCHFALL);
+      const perRunner = stake / BigInt(SQUAD_SIZE);
+      for (let slot = 0; slot < SQUAD_SIZE; slot += 1)
+        await book.enter(`${round.roundId}:enter:${slot}`, slot, perRunner);
 
-    round.clientEntropy = clientEntropy;
-    round.clientSeedText = seedText;
-    round.stakeMicro = stake;
-    round.entityStakeMicro = perRunner;
-    round.book = book;
+      round.clientEntropy = clientEntropy;
+      round.clientSeedText = seedText;
+      round.stakeMicro = stake;
+      round.entityStakeMicro = perRunner;
+      round.book = book;
 
-    // The commitment published in step 0 must be the commitment of this pair.
-    const recomputed = seedCommitment(
-      round.serverSeed,
-      BRANCHFALL,
-      roundIdentityOf(BRANCHFALL, round.roundRef),
-    );
-    if (!constantTimeHexEqual(recomputed, round.preCommitment))
-      throw new RoundError(
-        'COMMITMENT_MISMATCH',
-        'The published pre-commitment is not this round’s commitment',
-        500,
+      // The commitment published in step 0 must be the commitment of this pair.
+      const recomputed = seedCommitment(
+        round.serverSeed,
+        BRANCHFALL,
+        roundIdentityOf(BRANCHFALL, round.roundRef),
       );
+      if (!constantTimeHexEqual(recomputed, round.preCommitment))
+        throw new RoundError(
+          'COMMITMENT_MISMATCH',
+          'The published pre-commitment is not this round’s commitment',
+          500,
+        );
 
-    // Only now, and never before, is the tape derived — from both halves.
-    round.truth = deriveTruth(round.serverSeed, BRANCHFALL, round.roundRef);
-    round.tapeDigest = round.truth.digest;
-    round.phase = 'DECISION';
-    round.earliestNextActionAtMs = this.clock.now();
-    return round;
+      // Only now, and never before, is the tape derived — from both halves.
+      round.truth = deriveTruth(round.serverSeed, BRANCHFALL, round.roundRef);
+      round.tapeDigest = round.truth.digest;
+      round.phase = 'DECISION';
+      round.earliestNextActionAtMs = this.clock.now();
+      return round;
+    } finally {
+      if (this.#openingRoundId === round.roundId) this.#openingRoundId = null;
+    }
   }
 
   // ---------------------------------------------------------------- step 2
@@ -503,6 +542,8 @@ export class RoundStore {
       sideBets?: unknown;
     },
   ): Promise<unknown> {
+    if (body === null || typeof body !== 'object' || Array.isArray(body))
+      throw new RoundError('INVALID_ARGUMENT', 'A command body is a JSON object', 400, '$');
     const round = this.get(roundId);
     const key = idempotencyKey(body);
     const stored = round.commands.get(key);
@@ -546,8 +587,10 @@ export class RoundStore {
     // mathematically inert (`MATH.md` §5.4 — runners are exchangeable), and the
     // whole emotional content of the fork. It selects which pre-committed slip
     // draw each named Kindling consumes, and nothing else in the model moves.
-    if (body.laneOrder !== undefined && body.laneOrder !== null)
-      this.#reseat(round, runningSlots, body.laneOrder);
+    const laneOrder =
+      body.laneOrder === undefined || body.laneOrder === null
+        ? null
+        : this.#validateLaneOrder(round, runningSlots, body.laneOrder);
 
     const distribution = survivorDistribution(
       BRANCHFALL,
@@ -557,12 +600,12 @@ export class RoundStore {
 
     let tickets: readonly PricedTicket[] = [];
     const rawTickets = body.sideBets;
-    if (rawTickets !== undefined && rawTickets !== null) {
+    if (rawTickets !== undefined) {
       if (!Array.isArray(rawTickets))
         throw new RoundError('INVALID_SIDE_BET', 'Side bets are a list of tickets', 400, '$.sideBets');
       try {
         tickets = priceTickets(
-          rawTickets as TicketInput[],
+          rawTickets,
           distribution,
           round.stakeMicro,
           round.sideBetStakedMicro,
@@ -583,6 +626,7 @@ export class RoundStore {
     // One transaction, in this order: bank the shelter, debit the tickets, log
     // the decision. Everything above this line is validation; nothing below it
     // may fail on player input.
+    if (laneOrder) this.#reseat(round, runningSlots, laneOrder);
     let shelterCredited = 0n;
     if (action.shelter.length > 0) {
       const receipt = await book.bank(`${key}:shelter`, [...action.shelter]);
@@ -1017,6 +1061,17 @@ export class RoundStore {
   #assertFrame(round: Round, body: CommandEnvelope): void {
     const book = round.book as SurvivalBook;
     if (body.expectedFrameRevision === undefined || body.expectedFrameRevision === null) return;
+    if (
+      typeof body.expectedFrameRevision !== 'number' ||
+      !Number.isSafeInteger(body.expectedFrameRevision) ||
+      body.expectedFrameRevision < 0
+    )
+      throw new RoundError(
+        'INVALID_ARGUMENT',
+        'A frame revision is a non-negative integer',
+        400,
+        '$.expectedFrameRevision',
+      );
     if (body.expectedFrameRevision !== book.stageRevision)
       throw new RoundError(
         'STALE_FRAME',
@@ -1043,8 +1098,16 @@ export class RoundStore {
       );
   }
 
-  #reseat(round: Round, runningSlots: readonly number[], laneOrder: unknown): void {
-    if (!Array.isArray(laneOrder) || laneOrder.length !== runningSlots.length)
+  #validateLaneOrder(
+    round: Round,
+    runningSlots: readonly number[],
+    laneOrder: unknown,
+  ): readonly string[] {
+    if (
+      !Array.isArray(laneOrder) ||
+      laneOrder.length !== runningSlots.length ||
+      !laneOrder.every((value) => typeof value === 'string')
+    )
       throw new RoundError(
         'ILLEGAL_ACTION',
         'A lane order names every running Kindling exactly once',
@@ -1052,7 +1115,7 @@ export class RoundStore {
         '$.laneOrder',
       );
     const names = runningSlots.map((slot) => slotName(round.runners, slot));
-    const wanted = laneOrder.map((value) => String(value));
+    const wanted = laneOrder as string[];
     const sorted = (list: readonly string[]) => [...list].sort();
     if (JSON.stringify(sorted(names)) !== JSON.stringify(sorted(wanted)))
       throw new RoundError(
@@ -1061,6 +1124,10 @@ export class RoundStore {
         400,
         '$.laneOrder',
       );
+    return Object.freeze([...wanted]);
+  }
+
+  #reseat(round: Round, runningSlots: readonly number[], wanted: readonly string[]): void {
     runningSlots.forEach((slot, index) => {
       const runner = round.runners.find((candidate) => candidate.slot === slot);
       if (runner) runner.name = wanted[index] as string;
@@ -1225,9 +1292,10 @@ export function frameOf(round: Round, store: RoundStore) {
     entityStakeMicro: round.entityStakeMicro.toString(),
     claim: {
       micro: floor(claim).toString(),
-      exact: fraction(claim),
+      exact: fraction(inCredits(claim)),
       display: decimals(inCredits(claim), 3),
       perRunnerMicro: floor(perRunner).toString(),
+      perRunnerExact: fraction(inCredits(perRunner)),
       perRunnerDisplay: decimals(inCredits(perRunner), 3),
     },
     squad: round.runners.map((runner) => {
@@ -1237,6 +1305,7 @@ export function frameOf(round: Round, store: RoundStore) {
         name: runner.name,
         status: runner.status,
         valueMicro: held ? floor(held.value).toString() : '0',
+        valueExact: held ? fraction(inCredits(held.value)) : '0/1',
         valueDisplay: held ? decimals(inCredits(held.value), 3) : '0.000',
       };
     }),

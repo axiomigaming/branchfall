@@ -117,7 +117,7 @@ function parseStake(raw: unknown, path: string): bigint {
  * the cap proof and not a courtesy (`ENGINE.md` §6).
  */
 export function priceTickets(
-  input: readonly TicketInput[],
+  input: readonly unknown[],
   distribution: readonly Rational[],
   routeStakeMicro: bigint,
   alreadyStakedMicro: bigint,
@@ -138,8 +138,29 @@ export function priceTickets(
   let total = 0n;
   const priced: PricedTicket[] = [];
 
-  input.forEach((ticket, index) => {
+  input.forEach((rawTicket, index) => {
     const path = `$.sideBets[${index}]`;
+    // Tickets cross the HTTP boundary as `unknown`. Arrays and `null` both have
+    // object-like behaviour in JavaScript, but neither is a ticket; checking the
+    // complete leaf shape here keeps every later property read on trusted data
+    // and, more importantly, keeps a malformed ticket above the debit line.
+    if (rawTicket === null || typeof rawTicket !== 'object' || Array.isArray(rawTicket))
+      throw new SideBetError('INVALID_SIDE_BET', 'A side bet is a ticket object', path);
+    const ticket = rawTicket as Partial<TicketInput>;
+    if (typeof ticket.bet !== 'string')
+      throw new SideBetError('INVALID_SIDE_BET', 'Unknown side bet', `${path}.bet`);
+    if (typeof ticket.stakeMicro !== 'string')
+      throw new SideBetError(
+        'INVALID_SIDE_BET',
+        'A side-bet stake is an integer of micro-credits',
+        `${path}.stakeMicro`,
+      );
+    if (ticket.quotedMultiplier !== undefined && typeof ticket.quotedMultiplier !== 'string')
+      throw new SideBetError(
+        'INVALID_SIDE_BET',
+        'A quoted multiplier is an exact rational string',
+        `${path}.quotedMultiplier`,
+      );
     const known = SIDE_BETS.find((candidate) => candidate.id === ticket.bet);
     if (!known) throw new SideBetError('INVALID_SIDE_BET', 'Unknown side bet', `${path}.bet`);
     if (seen.has(known.id))

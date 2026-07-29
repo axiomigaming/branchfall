@@ -252,6 +252,9 @@ abandoned round closes.
 | `GET /api/rounds/:id/verify` | the published record, plus a re-derivation of every credited figure |
 | `POST /api/verify` | the same check on any bundle, from any source |
 
+In every live frame, monetary `exact` and display rationals are denominated in
+credits; fields named `micro` or ending in `Micro` remain integer micro-credits.
+
 **Where the graybox differs from `docs/ENGINE.md`, stated rather than smoothed
 over.** That document specified a module before one existed; the module that
 shipped is generic, and two things landed differently.

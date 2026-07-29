@@ -175,8 +175,15 @@ export function validateRoute(
         'One has to run. You can bank the rest after this branch.',
         '$.shelter',
       );
-  } else if (input.shelter !== undefined && (input.shelter as unknown[]).length !== 0) {
-    throw new RouteError('ILLEGAL_ACTION', 'Only a shelter withdraws runners', '$.shelter');
+  } else {
+    const raw = input.shelter;
+    // JSON has one natural spelling for “no shelter”: `null`. Treat it like an
+    // omitted field, just as the sibling lane-balance guard does below. Anything
+    // else still has to be the one harmless explicit representation, an empty
+    // list; reading `.length` before proving the value is an array turned a
+    // malformed player command into an operator 500.
+    if (raw !== null && raw !== undefined && (!Array.isArray(raw) || raw.length !== 0))
+      throw new RouteError('ILLEGAL_ACTION', 'Only a shelter withdraws runners', '$.shelter');
   }
 
   const running = runningFieldSize(route as RouteId, n, shelter.length);
