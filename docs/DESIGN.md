@@ -1067,7 +1067,9 @@ illuminate nothing (§6.7).
 - **Camera.** Default a 35 mm-equivalent tracking rig at chest height, slight
   handheld noise. On The Reach it drops to 24 mm, closer and shakier. On a Split
   it pulls back to 50 mm to hold both limbs. On a wipe it stops moving entirely
-  and lets the subject leave frame.
+  and lets the subject leave frame. The Reach's close follow means a lane
+  collapse drops all five figures inside the frame at once, which is an authored
+  five-body beat and not a physics one — §6.9 bounds what that costs.
 - **UI motion.** Nothing bounces, nothing overshoots. 240 ms cubic-out on
   everything. Money counts up on a tabular roll — never a slot-machine spin,
   never a rising pitch sweep. Celebration is light and sound, not kinetics.
@@ -1315,7 +1317,7 @@ mid-round.
 | Lantern lights | 2 nearest, vertex-lit | 5, per-pixel, unshadowed | 5, per-pixel, unshadowed |
 | Lantern glass | fresnel rim + emissive core, no probe | + 64² baked per-arena probe | + 128² baked probe |
 | Stone translucency | off | baked thickness, wrapped diffuse | baked thickness + fresnel warm tint |
-| Ragdoll | off — authored clips only | 1 concurrent, off-frustum only | 3 concurrent, off-frustum only |
+| Ragdoll — an off-frustum *continuation*, never a visible fall (§6.9) | off — authored clips only | 1 concurrent, off-frustum only | 3 concurrent, off-frustum only |
 | Post | tonemap only | tonemap + keyed bloom (lanterns only) + sharpened Catmull-Rom upsample | + subtle chromatic falloff at the frame border |
 
 #### Per-frame budgets
@@ -1445,20 +1447,100 @@ achieved. Three things are identical on every tier, because they are the product
 The renderer is a **player, not a judge**.
 
 1. The server resolves the arena from the committed hazard table: the survivor
-   set, and for each fallen runner the lane, the cause (`collapse` or `slip`) and
-   a flavour draw.
-2. The client receives that resolution and *stages* it. Fall animations are
-   authored clips selected by the flavour draw — not free-running simulation —
-   so the same transcript produces the same clip on every device and every tier.
-   Ragdoll blends in only after the figure has left the camera frustum, where
-   divergence cannot be observed and cannot matter, and is disabled entirely on
-   T0 with no visible difference inside the frame.
+   set, and for each runner the lane, the slot, the cause (`collapse` or `slip`)
+   and the **margin band** — see rule 4, where the margin comes from.
+2. The client receives that resolution and *stages* it. **Every fall the camera
+   can see is an authored clip.** Clips are selected by the committed data — the
+   cause, the margin band and a flavour draw — not by free-running simulation, so
+   the same transcript produces the same clip on every device and every tier.
+   **Ragdoll is not a fall system.** It is a *continuation*: it may blend in only
+   after the figure has left the camera frustum, where divergence cannot be
+   observed and cannot matter, and it is disabled entirely on T0 with no visible
+   difference inside the frame.
 3. If the client's physics ever disagrees with the transcript, the transcript
    wins and the client is wrong. There is no path by which a frame drop, a
    thermal throttle, a quality tier, or a modified client changes a credit.
 4. **We never author a near-miss that is not in the data.** If a runner cleared
    by a wide margin, the clip shows a wide margin. Manufacturing "so close!"
    moments is the oldest manipulation in this industry and we do not do it.
+
+#### The margin is already in the committed table
+
+Rule 4 is only dischargeable if the data has a margin in it, and it does. A slip
+check is a rejection-sampled draw against a modulus (`ENGINE.md` §4): WIDE draws
+`0..7` and clears on `< 7`, SPLIT draws `0..5` and clears on `< 5`, NARROW draws
+`0..1` and clears on `< 1`. The **value** of a clearing draw is a committed,
+revealed, re-derivable ordinal, so the margin band is a pure function of the
+hazard table and needs no new data, no new draw and no client-side choice:
+
+| Contract | Clearing draw values | Margin bands | What the player sees |
+| --- | --- | --- | --- |
+| WIDE | 7 (`0..6`) | 3 — `0–2` comfortable, `3–4` clean, `5–6` close | the full range |
+| SPLIT | 5 (`0..4`) | 3 — `0–1`, `2–3`, `4` | the full range |
+| NARROW | 1 (`0`) | **1** | every clear looks identical, because the data says nothing more |
+
+That last row is not a gap to be filled. On The Reach the model has exactly one
+way to clear, so authoring three flavours of "only just made it" would be
+manufacturing a margin — rule 4 in the other direction. The single band is the
+honest read, and it happens to suit the card that is about the drop rather than
+the crossing.
+
+A failing slip draw has one value in every contract (`7`, `5`, `1`), so **falls
+have no margin resolution at all** and fall clips vary by cause, class and
+flavour only. The `flavour` draw is a *presentation* draw under its own label,
+derived from the same seed pair, re-derivable by the player at settlement and
+deliberately **not** part of the hazard table — it cannot move money, and adding
+it to the table would change the <!-- fig:hazardDraws -->120<!-- /fig -->-draw
+figure `ENGINE.md` §4 publishes for something that decides nothing.
+
+#### The clip library, bounded
+
+The library is combinatorial only if a clip depends on the whole outcome. Ours
+does not, and that is a hard authoring rule:
+
+**Clips are per runner, never per outcome.** A five-body collapse on The Reach —
+`c = 1/2`, so <!-- fig:narrowWipe5 -->51.56%<!-- /fig --> of NARROW arenas at five
+runners, all of it inside a 24 mm handheld frame (§6.4) — is five instances of one
+per-runner collapse clip, triggered with the slot's own root offset and a phase
+offset from the flavour draw. Slot position is therefore a **transform**, not a
+clip axis, which is what keeps the count linear. Two rules make that composition
+safe: no fall clip may reference another figure's position, and falling figures
+never interact — no contact, no collision, no simulation between them.
+
+| Family | Axes | Clips |
+| --- | --- | --- |
+| Locomotion | 4 lane classes (broad bough, fork broad limb, fork thin limb, the reach) x 2 (travel, brace) | 8 |
+| Idle | mouth of branch, shelter door, crown | 3 |
+| Clear / arrival | per lane class x its own margin bands (3 + 3 + 3 + 1) | 10 |
+| Fall — slip | 4 lane classes x 2 flavours | 8 |
+| Fall — collapse | 4 lane classes x 2 flavours | 8 |
+| **Fall — hero (The Last Lamp)** | 5 arenas x 1, camera-tracked, full descent | 5 |
+| Shelter | enter the door, door closes, interior settle | 3 |
+| Squad reaction | a neighbour goes; the last one alone | 2 |
+| Crown arrival | 1 | 1 |
+| **Total authored clips** | | **48** |
+
+48 clips at 34 bones, retargeted across 3 LODs, plus the per-slot transforms.
+§11 books the hours. A build that needs a 49th clip needs a §11 revision, which
+is the point of publishing the number: a library with no count is a library that
+grows until the schedule notices.
+
+#### The Last Lamp does not use ragdoll, and that is the rule working
+
+§9's signature shot keeps the falling lantern in frame all the way down: *"We
+stay with it, not with the branch, all the way down until the glass gives out and
+the light goes."* The figure never leaves the frustum, so by rule 2 the entire
+descent must be authored — and it is: one **hero fall clip per arena**, 3.5–4.5 s,
+camera-tracked against that arena's own silhouette and fog, the most expensive
+animation asset in the game.
+
+Earlier drafts left this as a contradiction — a ragdoll rule that fired only
+off-frustum beside a signature shot that never leaves frame — and the resolution
+is not an exemption for §9. It is that ragdoll was never the fall system. The
+ragdoll line is simply not exercised in the one shot that matters, exactly as a
+rule that says *nothing simulated is ever visible* implies. Ragdoll's whole job is
+to keep a figure moving plausibly in the four seconds after the camera has stopped
+caring, on one tier, one body at a time.
 
 ---
 
@@ -1572,6 +1654,16 @@ create that possibility, which is what makes it land.
 watermarked with the round id and a short verification code. No score overlay, no
 "I WON" sticker, no auto-generated hype caption. The clip is the moment; the
 verification code is the proof that it really happened that way.
+
+**And the thing the export actually is, named.** A player-shared clip of a
+gambling product is **marketing material**, whatever we call it in the menu. In
+the UK it falls under the CAP Code and the ASA's rulings on gambling advertising
+— including the rules on content likely to appeal to under-18s, on age-gating
+where a platform allows it, and on not portraying gambling as a way to solve
+anything — and comparable regimes apply elsewhere. §10 is otherwise exhaustive on
+responsible design and said nothing about the one artefact this product asks
+players to distribute, which is the gap this paragraph closes. See §10.7 for the
+requirements; they are build requirements, not a caveat.
 
 ---
 
@@ -1708,7 +1800,50 @@ in advance. So:
 - it covers unchosen **contracts** and unchosen **fork balances** alike, because
   the committed table covers both.
 
-### 10.7 Accessibility
+### 10.7 The clip export is an advertising surface
+
+§9's `Save the clip` hands a player a produced, watermarked video of a gambling
+product and invites them to post it. That artefact is advertising material the
+moment it leaves the device, and by construction it is the game's **peak dramatic
+moment** — the spec chose the beat for exactly that reason. Naming that is the
+first requirement; the rest follow from it.
+
+- **It is marketing, and it goes through marketing compliance.** In the UK that
+  means the CAP Code and the ASA's gambling rulings apply to it; comparable
+  advertising regimes apply elsewhere. The export is reviewed under the
+  operator's advertising-compliance process for each jurisdiction before the
+  feature is enabled there, on the same footing as a paid creative. Where player-generated gambling content cannot be made compliant in a
+  market, the feature ships **off** in that market. This is a per-jurisdiction
+  switch, not a global one.
+- **Content rules, applied to the artefact itself.** Nothing in the export may
+  have strong appeal to under-18s — which is a live question for a game whose
+  characters are hand-made figures with lanterns, and the answer is not "they are
+  not cartoons". The Kindlings' silhouette language, the palette and the register
+  (§1, §6) are part of the compliance review, not exempt from it because they are
+  art direction.
+- **It carries an age mark and a safer-gambling reference, and no money.** The
+  watermark is the round id, the verification code, the game name, an 18+ mark
+  and the operator's safer-gambling URL. It never carries a stake, a claim, a
+  multiplier, a balance or a result figure — §10.5's rule that money is always
+  stated against the stake cannot survive a 6-second clip, so money is not in the
+  clip at all.
+- **Both endings export.** The offer appears after any round containing a Last
+  Lamp beat, won or lost, and the losing export is not degraded, delayed or
+  hidden. A share feature that only fires on wins is a highlight reel of a
+  distribution that does not exist — the same objection §5.2.3 makes to a
+  rehearsal that pays.
+- **No incentive, ever.** No bonus, no free round, no cosmetic, no progress and no
+  in-game acknowledgement for exporting or sharing. The moment sharing is paid
+  for, the player is an affiliate and the clip is an ad they were not told they
+  were making.
+- **Off by default, one tap to disable permanently**, and never re-prompted.
+
+**What this repository does not do:** the compliance review itself, the
+jurisdictional analysis, or the age-appeal assessment. Those are §12 work. What is
+in scope here is refusing to ship a distribution surface whose regulatory status
+was never written down.
+
+### 10.8 Accessibility
 
 - Full parity with audio off (§7) and with reduced motion (stepped animation and
   handheld camera noise both disable; the transcript readout remains).
@@ -1732,6 +1867,151 @@ in advance. So:
 - **Localisation:** all money strings tabular and RTL-safe; route names are
   translated but stay ALL CAPS with equal weight. The banned-vocabulary list
   (§10.3) is maintained per locale, not machine-translated.
+
+### 11.1 Asset inventory
+
+Everything else in this document is itemised to the byte and the millisecond, and
+§6.8 splits the engine bundle into three line items specifically because "booking
+it in one is how the cost gets understated". The art was the one budget with no
+number in it, which for a brief that asks whether a small team can ship this is
+the binding one. Here it is, on the same terms: **estimates, not measurements**,
+and the estimating method is stated so the numbers can be argued with.
+
+**Geometry.** Triangle figures are the T1 authoring target; T0 and T2 are derived
+by the LOD ladder in §6.8, not authored separately.
+
+| Asset | Unit budget | Units | Notes |
+| --- | --- | --- | --- |
+| Fossil module kit (shared) | 1.5–3.0 k tris | 14 modules | straight, rise, taper, narrow, fracture, junction, buttress, terminus + variants |
+| Per-arena module variants | +6 reskinned modules | 5 arenas | wear direction, moisture, char and pallor passes per §6.7 |
+| Fork assembly — hand-built, never procedural | ~9 k tris | 5 arenas | broad limb, thin limb, the landmark that separates them |
+| Dressing props | 0.4–1.4 k tris | 12 per arena, 60 total | vine cable, burl, splinter, root ledge, grit drift, ember vent |
+| Lamp House | ~7 k tris | 1 + 5 dressings | exterior, interior, door, bell, brass |
+| Crown Lamp | ~5 k tris | 1 | the only object visible from the first frame of arena 5 |
+| Kindling | 8 k tris, 3 LODs, 34 bones | 1 base | §6.8's row, unchanged |
+| Cosmetics | 0.1–0.6 k tris | 19 | 5 lantern glasses, 6 cloths, 8 charms |
+
+**What that puts on screen at once, against §6.8's 120 k T1 ceiling:**
+
+| In frame, T1 | Triangles |
+| --- | --- |
+| 5 Kindlings at 8 k | 40,000 |
+| 18 visible fossil modules, LOD-mixed, average 2.4 k | 43,200 |
+| Fork assembly, arena-unique | 9,000 |
+| Dressing props in view, ~14 at 900 | 12,600 |
+| Lamp House or Crown Lamp, when in view | 7,000 |
+| Fog cards, contact decals, world-space UI | 2,000 |
+| **Total** | **113,800** of 120,000 — 5.2% spare |
+
+**Textures**, counted the way §6.8 counts them: ASTC 8x8 at 2 bpp, KB = 1,000
+bytes, every figure including the full mip chain (+33%).
+
+| Set | Atlases | With mips |
+| --- | --- | --- |
+| Per arena | 1 x 2048 + 1 x 1024 | 1,748 KB |
+| Five arenas | | 8,740 KB |
+| Character set (Kindling, cosmetics, lantern) | 1 x 2048 | 1,398 KB |
+| **Total texture payload** | | **10,138 KB** |
+
+**And the ≤ 16 MB round trip, itemised** — §6.8 declares that ceiling and never
+broke it down, which is the same defect the first-load table was written to fix:
+
+| Item | KB |
+| --- | --- |
+| Engine: three.js core + addons + Basis transcoder (§6.8) | 295 |
+| Our renderer, replay driver, lifecycle module, UI | 380 |
+| Fonts, WOFF2, full ranges | 190 |
+| Kindling mesh set, rig, 48-clip library | 240 |
+| Arena geometry, 5 x 420 | 2,100 |
+| Textures, full set with mips | 10,138 |
+| Audio, Opus, all beds and one-shots (§7) | 1,600 |
+| Shaders, baked probes, manifest | 140 |
+| **Total round trip** | **15,083** |
+| **Reserve against the 16 MB ceiling** | **917 — 5.7%** |
+
+**Animation.** 48 authored clips, enumerated and bounded in §6.9. The count is a
+budget line, not a description: a 49th clip is a §11 revision.
+
+### 11.2 Art hours, headcount and schedule
+
+Estimated bottom-up per work package, at an authoring rate a mid-weight artist
+holds on a stylised, hand-made target with a fixed palette and three material
+families. **Rate assumption: 30 productive hours per person-week**, not 40 —
+booking 40 is how an art schedule slips by a quarter without anyone changing an
+estimate.
+
+| Work package | Unit | Units | Hours |
+| --- | --- | --- | --- |
+| Style frames and look-dev, 2 iterations | 40 h | 3 | 120 |
+| Kindling: sculpt, retopo, UV, 3 LODs | | 1 | 90 |
+| Kindling: rig, 34 bones, skinning, reed/cloth setup | | 1 | 70 |
+| Kindling: 5 material families to look-dev | 16 h | 5 | 80 |
+| Cosmetics: glasses, cloths, charms | 4 h | 19 | 76 |
+| Fossil module kit | 8 h | 14 | 112 |
+| Per-arena module variants and wear passes | 30 h | 5 | 150 |
+| Fork assemblies, hand-built | 26 h | 5 | 130 |
+| Dressing props | 3 h | 60 | 180 |
+| Arena assembly: spline layout, camera paths, blockout to final | 24 h | 5 | 120 |
+| Lighting pass and hand-placed bounce | 16 h | 5 | 80 |
+| Fog authoring and per-arena behaviour | 12 h | 5 | 60 |
+| Lamp House: exterior, interior, door, bell | | 1 | 60 |
+| Crown Lamp | | 1 | 30 |
+| Texture atlas authoring and packing | 20 h | 6 sets | 120 |
+| Baked maps: thickness, cavity, contact decals, probes | 10 h | 5 | 50 |
+| Animation: 43 standard clips | 5 h | 43 | 215 |
+| Animation: 5 hero Last Lamp descents, camera-tracked | 18 h | 5 | 90 |
+| Ragdoll joint limits and blend-out tuning | | 1 | 40 |
+| UI art: route cards, claim meter, distribution bars, iconography | | 1 | 120 |
+| Verification screen, cold family (§6.1) | | 1 | 30 |
+| Tier and LOD passes, integration, optimisation | | | 160 |
+| **Subtotal** | | | **2,183** |
+| **Revision and contingency, 20%** | | | **437** |
+| **Total art hours** | | | **2,620** |
+
+**Headcount and calendar.** 2,620 hours at 30 h/person-week is **87 person-weeks
+of art**, which at **3.5 art FTE** — art director / environment lead, environment
+artist, character-and-technical artist, half an animator ramping to full — is
+**25 weeks**.
+
+| Phase | Weeks | What lands |
+| --- | --- | --- |
+| Pre-production | 1–5 | style frames, Kindling to look-dev, module kit, arena 1 blockout |
+| Vertical slice | 6–10 | LOWBRANCH complete at T1, one hero descent, the first real device trace |
+| Arenas 2–3 | 11–17 | THE GRAIN, WINDROW |
+| Arenas 4–5 | 18–23 | THE CHAR, CROWN |
+| Tier passes and polish | 24–25 | T0/T2 ladders, atlas repack, soak profiling |
+
+**The vertical slice is a gate, not a milestone.** Every figure in §6.8 is a
+budget with no renderer behind it; arenas 2–5 must not start until arena 1 has
+been measured on a Galaxy A54 under the §11 performance harness. Starting five
+arenas against an unmeasured budget is how a 25-week schedule becomes a 40-week
+one.
+
+**The binding number is per-arena work, not total work.** Module variants, fork,
+dressing, assembly, lighting and fog come to 720 hours across the five arenas —
+**144 hours, or roughly five person-weeks, per arena.** That is the figure to
+argue with, and it is the figure that decides whether this ships.
+
+**What can be cut, and what cannot.**
+
+| Lever | Saving | What it costs |
+| --- | --- | --- |
+| Flavour variants 2 → 1 (§6.9) | 8 clips, ~40 h | a player sees the same fall twice in a round |
+| Cosmetics 19 → 8 | ~44 h | less attachment, which is the hook in §10.1 |
+| Dressing props 12 → 8 per arena | ~60 h | arenas read as a kit rather than as places |
+| Hero descents 5 → 2, re-dressed | ~54 h | the signature moment repeats, and §9 is the shared clip |
+| **Arena count 5 → 3** | ~460 h with contingency | **not an art lever.** `arenas` is a fingerprinted model constant: the cap becomes `4^3`, every figure in `MATH.md` §7 and §9 is re-derived, and the adapter version changes. Art may not cut it |
+| **Squad size 5 → 4** | ~0 h in art | same: it is the whole paytable |
+
+That last pair is the reason this section is in the design document rather than in
+a schedule spreadsheet. Two of the most obvious ways to make an art budget fit are
+changes to the mathematics, and neither is available to the people holding the
+art budget.
+
+**What these hours do not include:** engineering (client, renderer, lifecycle
+module, RGS integration), audio production (§7's budget is separate and is
+contract work), UI implementation as opposed to UI art, localisation, marketing
+and store art, QA, and the comprehension testing in §5.2.8.
 **Harnesses the client build must have.** These do not exist yet, because the
 client does not exist yet; they are acceptance criteria for it, not descriptions
 of this repository's CI:

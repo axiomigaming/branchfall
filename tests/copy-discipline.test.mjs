@@ -294,6 +294,158 @@ describe('art direction is specific enough to build from', () => {
 });
 
 /**
+ * §6.9 rule 2 required ragdoll to blend in only off-frustum, and §9's signature
+ * shot stays with the falling lantern all the way down. So the one shot that
+ * matters never exercised the ragdoll line, and the clip library — combinatorial
+ * across arena, lane geometry, slot, cause and margin — had no published bound.
+ */
+describe('the presentation contract resolves against the signature shot', () => {
+  const section = designDoc.slice(designDoc.indexOf('### 6.9'), designDoc.indexOf('## 7. Sound direction'));
+
+  it('states that every visible fall is authored and ragdoll is a continuation', () => {
+    expect(section).toMatch(flowed('Every fall the camera can see is an authored clip'));
+    expect(section).toMatch(flowed('Ragdoll is not a fall system'));
+    expect(section).toMatch(flowed('after the figure has left the camera frustum'));
+    // The tier table must not read as if ragdoll produced visible falls.
+    expect(designDoc).toMatch(flowed('an off-frustum *continuation*, never a visible fall'));
+  });
+
+  it('resolves the Last Lamp contradiction explicitly rather than exempting it', () => {
+    expect(section).toMatch(flowed('The Last Lamp does not use ragdoll, and that is the rule working'));
+    expect(section).toMatch(/hero fall clip per arena/);
+    expect(section).toMatch(flowed('the resolution is not an exemption'));
+  });
+
+  it('derives the near-miss margin from the committed table instead of inventing it', () => {
+    // Rule 4 is only dischargeable if the data carries a margin. It does: the
+    // VALUE of a clearing slip draw. NARROW has one clearing value, so it has
+    // one band, and authoring three would be manufacturing a margin.
+    expect(section).toMatch(flowed('The margin is already in the committed table'));
+    expect(section).toMatch(/\| NARROW \| 1 \(`0`\) \| \*\*1\*\* \|/);
+    expect(section).toMatch(flowed('falls have no margin resolution at all'));
+  });
+
+  it('bounds the clip library with a published count and a rule that keeps it linear', () => {
+    expect(section).toMatch(flowed('Clips are per runner, never per outcome'));
+    expect(section).toMatch(flowed('Slot position is therefore a **transform**, not a clip axis'));
+    expect(section).toMatch(/\| \*\*Total authored clips\*\* \| \| \*\*48\*\* \|/);
+    expect(section).toMatch(flowed('A build that needs a 49th clip'));
+  });
+});
+
+/**
+ * Everything in this specification is itemised except the one budget that
+ * decides whether a small team ships it. §11 had three bullets and no number.
+ */
+describe('art production is sized, not assumed', () => {
+  const section = designDoc.slice(designDoc.indexOf('### 11.1 Asset inventory'), designDoc.indexOf('## 12.'));
+
+  /**
+   * Parse a markdown table of `| label | number |` rows, tolerating bold markers,
+   * thousands separators and trailing prose in the number cell. Rows the parser
+   * cannot read are the ones that could carry an unbudgeted cost past the sum, so
+   * each caller asserts a row count as well as a total.
+   */
+  const numbered = (table) =>
+    [...table.matchAll(/^\| *(?:\*\*)?([^|]+?)(?:\*\*)? *\| *(?:\*\*)?([\d,]+)/gm)].map((m) => ({
+      label: m[1].trim().toLowerCase(),
+      value: Number(m[2].replace(/,/g, '')),
+    }));
+
+  it('publishes an asset inventory, a clip count and a per-asset geometry budget', () => {
+    expect(section).toContain('Fossil module kit');
+    expect(section).toContain('Fork assembly');
+    expect(section).toContain('Dressing props');
+    expect(section).toContain('48 authored clips');
+  });
+
+  it('keeps the on-screen triangle budget under the T1 ceiling it cites', () => {
+    const table = section.slice(section.indexOf('In frame, T1'), section.indexOf('**Textures**'));
+    const parsed = numbered(table);
+    const total = parsed.filter((r) => r.label === 'total');
+    const items = parsed.filter((r) => r.label !== 'total');
+    expect(total).toHaveLength(1);
+    expect(items.length).toBeGreaterThanOrEqual(5);
+    expect(items.reduce((a, r) => a + r.value, 0)).toBe(total[0].value);
+    expect(total[0].value).toBeLessThan(120000);
+  });
+
+  it('itemises the 16 MB round trip the runtime section only ever declared', () => {
+    const table = section.slice(section.indexOf('| Item | KB |'), section.indexOf('**Animation.**'));
+    const parsed = numbered(table);
+    const total = parsed.filter((r) => r.label === 'total round trip');
+    const reserve = parsed.filter((r) => r.label.startsWith('reserve'));
+    const items = parsed.filter((r) => !/total round trip|^reserve/.test(r.label));
+    expect(total).toHaveLength(1);
+    expect(reserve).toHaveLength(1);
+    expect(items.length).toBeGreaterThanOrEqual(7);
+    expect(items.reduce((a, r) => a + r.value, 0)).toBe(total[0].value);
+    expect(total[0].value + reserve[0].value).toBe(16000);
+    expect(reserve[0].value / 16000).toBeGreaterThanOrEqual(0.05);
+  });
+
+  it('books art hours bottom-up, with contingency, and the arithmetic holds', () => {
+    // Four columns here: work package, unit, units, hours. Hours is the last
+    // cell of every row, and a row the parser cannot read is a row that could
+    // carry unbudgeted work past the sum, so every row must parse.
+    const table = section.slice(section.indexOf('| Work package |'), section.indexOf('**Headcount'));
+    const parsed = table
+      .split('\n')
+      .filter((l) => l.startsWith('|') && !/^\|\s*-+/.test(l) && !/^\| *Work package/.test(l))
+      .map((line) => {
+        const cells = line.split('|').slice(1, -1).map((c) => c.replace(/\*/g, '').trim());
+        return { label: cells[0].toLowerCase(), hours: Number(cells[cells.length - 1].replace(/,/g, '')) };
+      });
+    expect(parsed.every((r) => Number.isFinite(r.hours)), 'an hours row the parser cannot read').toBe(true);
+    const pick = (re) => parsed.filter((r) => re.test(r.label));
+    const subtotal = pick(/^subtotal$/);
+    const contingency = pick(/^revision and contingency/);
+    const total = pick(/^total art hours$/);
+    const items = parsed.filter((r) => !/^subtotal$|^revision and contingency|^total art hours$/.test(r.label));
+    expect(subtotal).toHaveLength(1);
+    expect(contingency).toHaveLength(1);
+    expect(total).toHaveLength(1);
+    expect(items.length).toBeGreaterThanOrEqual(20);
+    expect(items.reduce((a, r) => a + r.hours, 0)).toBe(subtotal[0].hours);
+    expect(contingency[0].hours).toBe(Math.round(subtotal[0].hours * 0.2));
+    expect(subtotal[0].hours + contingency[0].hours).toBe(total[0].hours);
+    // 30 productive hours per person-week, stated rather than assumed at 40.
+    expect(section).toMatch(flowed('30 productive hours per person-week'));
+  });
+
+  it('gives a headcount, a calendar and a gate rather than a total', () => {
+    expect(section).toMatch(/3\.5 art FTE/);
+    expect(section).toMatch(/\*\*25 weeks\*\*/);
+    expect(section).toMatch(flowed('The vertical slice is a gate, not a milestone'));
+    expect(section).toMatch(flowed('roughly five person-weeks, per arena'));
+  });
+
+  it('states which cuts are art decisions and which are model decisions', () => {
+    expect(section).toMatch(flowed('not an art lever'));
+    expect(section).toContain('`arenas` is a fingerprinted model constant');
+    expect(section).toMatch(flowed('What these hours do not include'));
+  });
+});
+
+describe('the shared clip is treated as the advertising surface it is', () => {
+  it('names its regulatory status instead of only banning hype captions', () => {
+    const section = designDoc.slice(
+      designDoc.indexOf('### 10.7 The clip export'),
+      designDoc.indexOf('### 10.8 Accessibility'),
+    );
+    expect(section).toMatch(flowed('That artefact is advertising material'));
+    expect(section).toContain('CAP Code');
+    expect(section).toContain('ASA');
+    expect(section).toMatch(flowed('strong appeal to under-18s'));
+    expect(section).toMatch(flowed('the feature ships **off** in that market'));
+    expect(section).toMatch(flowed('Both endings export'));
+    expect(section).toMatch(flowed('No incentive, ever'));
+    // And the money rule the clip cannot carry.
+    expect(section).toMatch(flowed('never carries a stake, a claim, a multiplier'));
+  });
+});
+
+/**
  * The v1 per-frame budget summed to 16.0 ms of a 16.6 ms frame — 3.6% headroom —
  * and this file enforced that tightness with `total <= 16.7`, which made the
  * spec's own harness a guaranteed failure on the device it named. The budget is
