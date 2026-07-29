@@ -545,6 +545,18 @@ export function runInvariants() {
     CONFIG.minGameCycleMs >= 2500,
     'minimum game cycle also satisfies the slots floor (UKGC RTS 14D) if the game were ever classified as one',
   );
+  //     And the citation itself: a provision quoted with no edition can be
+  //     neither checked nor falsified, which is the defect the edition removes.
+  for (const field of ['standard', 'edition', 'provision']) {
+    check(
+      typeof CONFIG.speedStandard[field] === 'string' && CONFIG.speedStandard[field].length > 0,
+      `the declared speed-of-play citation names a ${field}`,
+    );
+  }
+  check(
+    typeof CONFIG.speedStandard.verifiedAgainstCertifiedCopy === 'boolean',
+    'the declaration states whether the provision was checked against a certified copy',
+  );
 
   // 17. WHERE THE CLAIM TURNS. The break-even survivor count is the number that
   //     makes the money rule legible, it varies by contract and squad size, and

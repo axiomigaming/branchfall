@@ -600,7 +600,7 @@ Mechanical, adapter-agnostic, and evidence — not certification.
 
 Checks 1–6, 9, 12 and 13 are already implemented and run on every CI run here by
 [`../tools/enumerate.mjs`](../tools/enumerate.mjs)
-(<!-- fig:invariantCount -->1805<!-- /fig --> exact invariants).
+(<!-- fig:invariantCount -->1809<!-- /fig --> exact invariants).
 
 ---
 

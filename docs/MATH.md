@@ -951,7 +951,7 @@ of playing has the same edge. They emphatically do not have the same experience.
 ### 8.4 Exhaustive verification, not just a proof
 
 `tools/enumerate.mjs` verifies the theorems mechanically rather than trusting
-them, checking <!-- fig:invariantCount -->1805<!-- /fig --> exact invariants:
+them, checking <!-- fig:invariantCount -->1809<!-- /fig --> exact invariants:
 
 1. **Per-action check.** For every state `(a, n)` and every legal action —
    including every lane balance — it computes

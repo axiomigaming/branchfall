@@ -139,7 +139,7 @@ and fail-closed handling of hostile input.
 ### The paytable is proved, not asserted
 
 `tools/enumerate.mjs` enumerates the entire outcome space in exact fractions and
-checks **<!-- fig:invariantCount -->1805<!-- /fig --> invariants** on every CI
+checks **<!-- fig:invariantCount -->1809<!-- /fig --> invariants** on every CI
 run — including the one that matters:
 
 > **No decision policy beats the target RTP.** The house margin is charged once
