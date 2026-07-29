@@ -41,8 +41,11 @@ import {
   actionExpectedFactor,
   actionsFor,
   branches,
+  breakEvenSurvivors,
   capAnalysis,
   claimFactorDistribution,
+  claimMovement,
+  claimMovementRows,
   committedConfiguration,
   configKey,
   distributionMean,
@@ -520,7 +523,63 @@ export function runInvariants() {
     'minimum game cycle also satisfies the slots floor (UKGC RTS 14D) if the game were ever classified as one',
   );
 
-  // 17. DOMINANCE — which choices are trades and which are volatility dials.
+  // 17. WHERE THE CLAIM TURNS. The break-even survivor count is the number that
+  //     makes the money rule legible, it varies by contract and squad size, and
+  //     the route card carried none of it. Published in DESIGN.md §3.2 and
+  //     MATH.md §5.2.1 — so it is computed here rather than reasoned about.
+  for (const row of claimMovementRows()) {
+    const mu = routeMultiplier(row.contract);
+    const factorAt = (m) => F(BigInt(m), BigInt(row.runners)).mul(mu);
+    check(
+      row.breakEven >= 1 && row.breakEven <= row.runners,
+      `${row.key}: break-even survivor count ${row.breakEven} is a legal survivor count`,
+    );
+    check(
+      factorAt(row.breakEven).gte(Frac.ONE),
+      `${row.key}: the claim holds or grows at ${row.breakEven} survivors`,
+    );
+    check(
+      factorAt(row.breakEven - 1).lt(Frac.ONE),
+      `${row.key}: the claim falls at ${row.breakEven - 1} survivors, so the break-even is the smallest one`,
+    );
+    checkEqual(
+      row.rises.add(row.holds).add(row.fallsNonZero).add(row.wipe),
+      Frac.ONE,
+      `${row.key}: grows / holds / falls / wipes partition the outcome space`,
+    );
+    checkEqual(row.breakEvenFactor, factorAt(row.breakEven), `${row.key}: break-even claim factor is exact`);
+    checkEqual(
+      row.atLeastHolds,
+      probabilityOfAtLeast(survivorDistribution(row.contract, row.runners, row.laneSplit), row.breakEven),
+      `${row.key}: P(claim does not fall) is P(m >= break-even)`,
+    );
+  }
+
+  //     Two published statements about how the break-even behaves, which are the
+  //     reason the card cannot reuse an existing field for it.
+  for (let n = 1; n <= CONFIG.squadSize; n += 1) {
+    check(
+      breakEvenSurvivors('WIDE', n) === n,
+      `WIDE/${n}: the claim only grows when the whole running group clears`,
+    );
+    checkEqual(
+      claimMovement('WIDE', n).rises,
+      survivorDistribution('WIDE', n)[n],
+      `WIDE/${n}: P(claim grows) coincides with P(all clear) — and only on WIDE`,
+    );
+  }
+  for (const [id, n, laneSplit] of [
+    ['SPLIT', 5, 3],
+    ['SPLIT', 5, 4],
+    ['NARROW', 5, null],
+  ]) {
+    check(
+      !claimMovement(id, n, laneSplit).rises.eq(survivorDistribution(id, n, laneSplit)[n]),
+      `${configKey(id, n, laneSplit)}: P(claim grows) is NOT P(all clear), so the two fields are different fields`,
+    );
+  }
+
+  // 18. DOMINANCE — which choices are trades and which are volatility dials.
   //     The v2 draft asserted in prose that neither SPLIT balance dominates the
   //     other. That was false: the lopsided fork is an exact mean-preserving
   //     spread of the balanced one, so the balanced fork is preferred by every
@@ -623,6 +682,32 @@ export function buildTables() {
         balanced.lt(wide) ? 'SPLIT' : 'WIDE',
       ];
     }),
+  );
+
+  // Where the claim turns: the number the route card was missing.
+  const breakeven = table(
+    [
+      'Contract',
+      'Runners `n`',
+      'Lane balance',
+      'Claim holds or grows at',
+      'Claim factor there',
+      'P(claim grows)',
+      'P(claim holds)',
+      'P(claim falls, above zero)',
+      'P(total wipe)',
+    ],
+    claimMovementRows().map((r) => [
+      r.contract,
+      String(r.runners),
+      geometryLabel(r.laneSplit, r.runners),
+      `**${r.breakEven}** of ${r.runners}`,
+      `\`${r.breakEvenFactor}\``,
+      pct(r.rises),
+      pct(r.holds),
+      pct(r.fallsNonZero),
+      pct(r.wipe),
+    ]),
   );
 
   // Which of the choices offered at one squad size is a genuine trade and which
@@ -754,6 +839,7 @@ export function buildTables() {
   return Object.freeze({
     contracts,
     wipes,
+    breakeven,
     dominance,
     geometries,
     outcomes,
@@ -847,6 +933,19 @@ export function buildFigures() {
     scoutKeep3Plus4: pct(probabilityOfAtLeast(scout4, 3)),
     balancedSole4: pct(balanced4[1]),
     scoutSole4: pct(scout4[1]),
+
+    /* where the claim turns */
+    wideBreakEven5: String(breakEvenSurvivors('WIDE', 5)),
+    splitBreakEven5: String(breakEvenSurvivors('SPLIT', 5)),
+    splitBreakEven4: String(breakEvenSurvivors('SPLIT', 4)),
+    narrowBreakEven5: String(breakEvenSurvivors('NARROW', 5)),
+    wideRises5: pct(claimMovement('WIDE', 5).rises),
+    balancedRises5: pct(claimMovement('SPLIT', 5, 3).rises),
+    scoutRises5: pct(claimMovement('SPLIT', 5, 4).rises),
+    narrowRises5: pct(claimMovement('NARROW', 5).rises),
+    wideFallsNonZero5: pct(claimMovement('WIDE', 5).fallsNonZero),
+    narrowFallsNonZero5: pct(claimMovement('NARROW', 5).fallsNonZero),
+    balancedHolds4: pct(claimMovement('SPLIT', 4, 2).holds),
 
     /* side bets */
     cleanSweepMin: mult(lo(byBet('CLEAN_SWEEP')), 2),
@@ -950,7 +1049,20 @@ function humanReport() {
   }
   push('');
 
-  push('2.1 DOMINANCE — which choices are trades, and which are volatility dials');
+  push('2.1 WHERE THE CLAIM TURNS — the break-even survivor count');
+  push('----------------------------------------------------------');
+  push('   the claim holds or grows only from ceil(n*p) survivors up; below it the');
+  push('   claim falls without the round ending, which is the opposite of the genre');
+  for (const r of claimMovementRows()) {
+    push(
+      `  ${r.key.padEnd(14)} break-even m>=${r.breakEven} (factor ${String(r.breakEvenFactor).padEnd(6)})  ` +
+        `grows=${pct(r.rises).padStart(7)}  holds=${pct(r.holds).padStart(7)}  ` +
+        `falls=${pct(r.fallsNonZero).padStart(7)}  wipe=${pct(r.wipe).padStart(7)}`,
+    );
+  }
+  push('');
+
+  push('2.2 DOMINANCE — which choices are trades, and which are volatility dials');
   push('----------------------------------------------------------------------');
   push('   second-order stochastic dominance over the exact claim-factor distribution');
   push('   (all means are exactly 1, so this is the standard reading for the comparison)');

@@ -103,6 +103,7 @@ describe('generated tables', () => {
 
   it('publishes every table slot the docs consume', () => {
     expect(Object.keys(tables).sort()).toEqual([
+      'breakeven',
       'contracts',
       'dominance',
       'geometries',

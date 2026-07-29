@@ -213,6 +213,9 @@ enumerator publishes:
 │ [multiplier]  per runner who clears  │
 │                                      │
 │ ▁▁▂▅▅▂  survivors, 5 runners         │  ← exact distribution bars
+│      ┊▲ claim grows from here        │  ← break-even marker on the axis
+│ your claim grows if   [ m ] get back │
+│ chance of that           [ % ]       │
 │ nobody makes it          [ % ]       │
 │ all five make it         [ % ]       │
 │ expected survivors       [ n ]       │
@@ -227,6 +230,8 @@ Filled in for NARROW at five runners, from the generated tables:
 | Field | Value |
 | --- | --- |
 | Multiplier | <!-- fig:narrowMult -->4.000x<!-- /fig --> |
+| Your claim grows if | <!-- fig:narrowBreakEven5 -->2<!-- /fig --> or more get back |
+| Chance of that | <!-- fig:narrowRises5 -->40.63%<!-- /fig --> |
 | Nobody makes it | <!-- fig:narrowWipe5 -->51.56%<!-- /fig --> |
 | All five make it | <!-- fig:narrowAllClear5 -->1.56%<!-- /fig --> |
 | Expected survivors | <!-- fig:narrowExpectedSurvivors5 -->1.25<!-- /fig --> |
@@ -235,6 +240,45 @@ Filled in for NARROW at five runners, from the generated tables:
 `full odds ▸` opens the exact per-outcome table — the same rows as `MATH.md`
 §5.2, as fractions, in the game. A player who wants the paytable gets the
 paytable.
+
+**The two new fields, and why the card is wrong without them.** A crash game has
+one number that only rises until it dies. A lane game has one binary state. This
+card has a *fraction of a claim* multiplied by a *route price*, and the number a
+player actually needs — how many runners have to come back for the claim to be
+worth more than it was — appears in none of the other five fields and cannot be
+inferred from them. It is different on every card (`MATH.md` §5.2.1):
+
+| Card, five runners | Claim grows if | Chance it grows | Chance it falls but the round continues |
+| --- | --- | --- | --- |
+| WIDE | <!-- fig:wideBreakEven5 -->5<!-- /fig --> of 5 | <!-- fig:wideRises5 -->49.24%<!-- /fig --> | <!-- fig:wideFallsNonZero5 -->46.76%<!-- /fig --> |
+| SPLIT 3+2 | <!-- fig:splitBreakEven5 -->4<!-- /fig --> of 5 | <!-- fig:balancedRises5 -->65.10%<!-- /fig --> | — |
+| SPLIT 4+1 | <!-- fig:splitBreakEven5 -->4<!-- /fig --> of 5 | <!-- fig:scoutRises5 -->69.44%<!-- /fig --> | — |
+| NARROW | <!-- fig:narrowBreakEven5 -->2<!-- /fig --> of 5 | <!-- fig:narrowRises5 -->40.63%<!-- /fig --> | <!-- fig:narrowFallsNonZero5 -->7.81%<!-- /fig --> |
+
+Read the WIDE row: on the safest, most-taken card, the claim falls almost as
+often as it grows — and it falls *while the run continues*, which is the outcome
+the genre has trained every player to believe cannot happen. §5.2's whole
+argument is that a player who does not hold the money rule "will do the only
+safe-looking thing" and turn the game into a cash-out ladder. This is the exact
+number that stops that, and the v2 card did not carry it.
+
+Three build requirements follow:
+
+1. **Both fields are on the card face**, in the same weight as the others, on
+   every card, at every squad size — never behind `full odds ▸`.
+2. **The distribution bars mark the break-even.** A tick on the survivor axis at
+   the break-even count, with everything below it drawn in the falling family and
+   everything at or above it in the growing family (§6.1's money colours). A
+   player should be able to see which side of the line the mass sits on before
+   reading a digit.
+3. **"All five make it" is never reused for it.** On WIDE the two happen to
+   coincide; on SPLIT and NARROW they do not, so a card that showed one field for
+   both would mean two different things on two different cards — which is worse
+   than showing neither.
+
+`SHELTER` is the exception that proves the rule: it is the only card where part
+of the claim stops moving at all, and its readout already states the banked
+figure directly (S2).
 
 ### 3.3 The fork balance (a volatility dial with a name on it)
 
@@ -463,6 +507,17 @@ Three facts. Nothing else is first.
 | 2 | A share whose runner clears is multiplied by the route price. A share whose runner falls is gone. That is the entire money rule. | The first resolve, with the arithmetic printed | The arithmetic line on S4 |
 | 3 | Every route returns <!-- fig:rtpPct -->95.5%<!-- /fig -->. Routes differ in **shape**, not in return. | The Two-Card Moment (§5.2.4) — by comparison, not by assertion | The route-card footer and the compare control on S2 |
 
+**Fact 2 has a number, and the number is where it is taught.** "A share whose
+runner clears is multiplied by the route price" is only actionable once a player
+knows how many shares have to survive for the claim to be worth more than it was
+— <!-- fig:wideBreakEven5 -->5<!-- /fig --> of five on WIDE,
+<!-- fig:splitBreakEven5 -->4<!-- /fig --> on SPLIT,
+<!-- fig:narrowBreakEven5 -->2<!-- /fig --> on NARROW at a full squad
+(`MATH.md` §5.2.1). That is not a fourth thing to learn; it is fact 2 with its
+number attached, and it is taught in the two places fact 2 already lives: the
+card field (§3.2) and the printed arithmetic on the first resolve. §5.2.8 Q4
+gates the build on it.
+
 Fork balance, shelter sizing, side bets, the seed pair and the Ghost Line are all
 **deferred**. None of them is required to play a correct round, and all of them
 compete for attention with fact 3, which is the one that makes this game a
@@ -671,6 +726,8 @@ All of these are subject to §10.3 and `tests/copy-discipline.test.mjs`.
 | 10 | Rehearsal, permanent chip | *"REHEARSAL — public seed, no stake, no payout."* |
 | 11 | Any gated screen | *"Show me everything."* |
 | 12 | Side-bet opt-in, once | *"Side bets are separate money on one arena's result, at the same <!-- fig:rtpPct -->95.5%<!-- /fig -->. They stay off until you turn them on."* |
+| 13 | First resolve where the claim fell and the run continued | *"One did not make it, so their share is gone. On the Broad Bough the claim only grows when all five get back."* |
+| 14 | On every route card, under the bars | *"Your claim grows if [n] get back."* |
 
 #### 5.2.7 What the first run must never do
 
@@ -689,18 +746,31 @@ All of these are subject to §10.3 and `tests/copy-discipline.test.mjs`.
 
 Comprehension is testable, so we test it rather than assume it. Eight or more
 unmoderated first-time testers, after the rehearsal and before any staked round,
-answer three questions with the odds table closed:
+answer four questions with the odds table closed:
 
 | | Question | Correct answer | Bar |
 | --- | --- | --- | --- |
 | Q1 | "Three of your five runners cleared, the route paid 1.190, and your claim was 4.775. Bigger or smaller now, and roughly what?" | Smaller, ≈3.41 | 6 of 8 |
 | Q2 | "Which route gives you back more over time — Wide or Narrow?" | Neither. Both <!-- fig:rtpPct -->95.5%<!-- /fig --> | 7 of 8 |
 | Q3 | "You banked after arena 2. Can anything that happens later take that money?" | No | 7 of 8 |
+| Q4 | "You are about to send five runners down the Broad Bough. How many have to come back for your claim to be worth more than it is now?" | All five | 7 of 8 |
 
-Q2 is the one that matters. If Q2 fails, the Two-Card Moment is wrong and no
-amount of copy anywhere else will repair it — that is precisely the failure mode
-where the game degenerates into a cash-out ladder. This is an acceptance
-criterion for the client build (§11), not something this repository discharges.
+**Q2 and Q4 are both release gates**, and they fail in opposite directions.
+
+* If **Q2** fails, the Two-Card Moment is wrong and no amount of copy anywhere
+  else will repair it — that is the failure mode where the game degenerates into
+  a cash-out ladder.
+* If **Q4** fails, the player believes the number only goes up until they die,
+  which is what every other game in this category has taught them. They will read
+  a four-of-five WIDE arena as a win. It is not one: the claim fell. A build that
+  ships that misreading has a route card that lies by omission, which is why the
+  break-even is a card field (§3.2) and not a tooltip.
+
+Q1's bar stays at 6 of 8 because it tests arithmetic under recall; Q2, Q3 and Q4
+test whether the player holds the model at all.
+
+This is an acceptance criterion for the client build (§11), not something this
+repository discharges.
 
 ---
 
@@ -1622,11 +1692,13 @@ of this repository's CI:
   number. Until this harness exists, every figure in §6.8 is a *budget* — a
   target the build is held to — and not a measurement. There is no renderer, no
   asset set and no device trace behind them.
-- **Comprehension harness:** the three-question test in §5.2.8, run on eight or
+- **Comprehension harness:** the four-question test in §5.2.8, run on eight or
   more unmoderated first-time testers per significant change to S2 or to the
-  rehearsal. Q2 is a release gate: a build where fewer than 7 of 8 testers know
-  that Wide and Narrow return the same amount has broken the product's thesis,
-  whatever else it has achieved.
+  rehearsal. Q2 and Q4 are release gates: a build where fewer than 7 of 8 testers
+  know that Wide and Narrow return the same amount has broken the product's
+  thesis, and a build where fewer than 7 of 8 know that a WIDE arena needs the
+  whole squad back before the claim grows has shipped a route card that lies by
+  omission — whatever else either build has achieved.
 
 **What does not ship without the math:** the route cards and the fork control
 read their numbers from the same tables `tools/enumerate.mjs` publishes. If the

@@ -567,13 +567,35 @@ describe('first-run onboarding is specified, not assumed', () => {
 
   it('makes comprehension a measurable release gate, not a hope', () => {
     expect(section).toMatch(flowed('How we will know it worked'));
-    expect(section).toMatch(/\| Q1 \|/);
-    expect(section).toMatch(/\| Q2 \|/);
-    expect(section).toMatch(/\| Q3 \|/);
-    expect(section).toMatch(flowed('Q2 is the one that matters'));
+    for (const question of ['Q1', 'Q2', 'Q3', 'Q4']) {
+      expect(section, `${question} is missing from the harness`).toMatch(
+        new RegExp(`\\| ${question} \\|`),
+      );
+    }
+    expect(section).toMatch(flowed('Q2 and Q4 are both release gates'));
     expect(section).toContain('cash-out ladder');
     expect(designDoc).toContain('**Comprehension harness:**');
-    expect(designDoc).toContain('Q2 is a release gate');
+    expect(designDoc).toContain('Q2 and Q4 are release gates');
+  });
+
+  /**
+   * The route card specified four fields and none of them was the break-even
+   * survivor count — the only number that says which way the claim moves. It is
+   * different on every card, and on WIDE the claim falls, non-zero, almost as
+   * often as it grows.
+   */
+  it('puts the break-even survivor count on the card, not in a tooltip', () => {
+    const card = designDoc.slice(designDoc.indexOf('### 3.2 The route card'), designDoc.indexOf('### 3.3'));
+    expect(card).toContain('Your claim grows if');
+    expect(card).toContain('Chance of that');
+    expect(card).toMatch(flowed('Both fields are on the card face'));
+    expect(card).toMatch(flowed('The distribution bars mark the break-even'));
+    expect(card).toMatch(flowed('"All five make it" is never reused for it'));
+    // The card's own filled example must carry the two new fields as figures.
+    for (const name of ['narrowBreakEven5', 'narrowRises5', 'wideRises5', 'wideFallsNonZero5']) {
+      expect(card, `the card should bind ${name}`).toContain(`fig:${name}`);
+    }
+    expect(IN_CLIENT_COPY).toContain('Your claim grows if [n] get back.');
   });
 });
 

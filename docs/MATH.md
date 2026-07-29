@@ -465,6 +465,67 @@ The full outcome space, geometry by geometry:
 "Stage RTP" above is `sum_m P(m) * (m/n) * mu`, which must be exactly `1/1` for
 every geometry — that is the fair-continuation property, checked per row.
 
+### 5.2.1 Where the claim turns
+
+The claim is multiplied by `(m/n) * mu`, so it holds or grows exactly when
+
+```
+m >= n / mu = n p       break-even survivor count = ceil(n p)
+```
+
+This is the single number that makes the money rule legible, and it is the one
+number the route card in `DESIGN.md` §3.2 did not carry. It is not derivable by a
+player from anything else on the card, and it is different for every contract:
+
+<!-- table:breakeven -->
+| Contract | Runners `n` | Lane balance | Claim holds or grows at | Claim factor there | P(claim grows) | P(claim holds) | P(claim falls, above zero) | P(total wipe) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| WIDE | 1 | 1 | **1** of 1 | `25/21` | 84.00% | 0.00% | 0.00% | 16.00% |
+| WIDE | 2 | 2 | **2** of 2 | `25/21` | 73.50% | 0.00% | 21.00% | 5.50% |
+| WIDE | 3 | 3 | **3** of 3 | `25/21` | 64.31% | 0.00% | 31.50% | 4.19% |
+| WIDE | 4 | 4 | **4** of 4 | `25/21` | 56.27% | 0.00% | 39.70% | 4.02% |
+| WIDE | 5 | 5 | **5** of 5 | `25/21` | 49.24% | 0.00% | 46.76% | 4.00% |
+| SPLIT | 2 | 1+1 | **2** of 2 | `4/3` | 56.25% | 0.00% | 37.50% | 6.25% |
+| SPLIT | 3 | 2+1 | **3** of 3 | `4/3` | 46.88% | 0.00% | 50.00% | 3.13% |
+| SPLIT | 4 | 2+2 | **3** of 4 | `1/1` | 39.06% | 31.25% | 28.13% | 1.56% |
+| SPLIT | 4 | 3+1 | **3** of 4 | `1/1` | 39.06% | 36.46% | 21.88% | 2.60% |
+| SPLIT | 5 | 3+2 | **4** of 5 | `16/15` | 65.10% | 0.00% | 33.59% | 1.30% |
+| SPLIT | 5 | 4+1 | **4** of 5 | `16/15` | 69.44% | 0.00% | 28.04% | 2.52% |
+| NARROW | 1 | 1 | **1** of 1 | `4/1` | 25.00% | 0.00% | 0.00% | 75.00% |
+| NARROW | 2 | 2 | **1** of 2 | `2/1` | 37.50% | 0.00% | 0.00% | 62.50% |
+| NARROW | 3 | 3 | **1** of 3 | `4/3` | 43.75% | 0.00% | 0.00% | 56.25% |
+| NARROW | 4 | 4 | **1** of 4 | `1/1` | 34.38% | 12.50% | 0.00% | 53.13% |
+| NARROW | 5 | 5 | **2** of 5 | `8/5` | 40.63% | 0.00% | 7.81% | 51.56% |
+
+Four facts a designer has to hold, all of them checked in CI:
+
+1. **WIDE needs the whole running group, at every squad size.** `n p = 0.84 n`,
+   whose ceiling is `n` for every `n` in `1..5`. So on a full WIDE squad the
+   claim grows <!-- fig:wideRises5 -->49.24%<!-- /fig --> of the time and
+   **falls without the round ending**
+   <!-- fig:wideFallsNonZero5 -->46.76%<!-- /fig --> of the time. Those two
+   numbers are nearly equal, and only the first has ever been on the card.
+2. **P(claim grows) equals P(all clear) on WIDE and nowhere else.** That
+   coincidence is exactly why the card cannot reuse the "all five make it" field
+   for it: on SPLIT and NARROW the same field would mean a different thing.
+3. **The break-even can be hit exactly.** At `SPLIT/4` the factor at three
+   survivors is `1/1`, so <!-- fig:balancedHolds4 -->31.25%<!-- /fig --> of `2+2`
+   arenas return the claim unchanged. "Grows" and "does not fall" are therefore
+   two different questions, and the model answers both separately.
+4. **NARROW inverts the shape.** Below five runners its break-even is one
+   survivor, so at `n <= 3` the claim never shrinks: it grows or the round is
+   over. At five runners the break-even moves to
+   <!-- fig:narrowBreakEven5 -->2<!-- /fig --> and a
+   <!-- fig:narrowFallsNonZero5 -->7.81%<!-- /fig --> sliver of shrinking-but-
+   alive appears.
+
+The genre expectation this measures against is "the number only goes up until you
+die", which is true of a crash curve and of a lane ladder and is false here for
+every contract in this table. A player who carries the genre expectation into
+BRANCHFALL will misread the most common outcome of the most popular card, which
+is why `DESIGN.md` §3.2 puts the break-even on the card face and §5.2.8 gates the
+build on a player being able to state it.
+
 ### 5.3 Shelter
 
 `SHELTER(j)` for `1 <= j <= n-1`, available whenever `n >= 2`. Banks `j/n` of the
@@ -837,7 +898,7 @@ of playing has the same edge. They emphatically do not have the same experience.
 ### 8.4 Exhaustive verification, not just a proof
 
 `tools/enumerate.mjs` verifies the theorems mechanically rather than trusting
-them, checking <!-- fig:invariantCount -->1658<!-- /fig --> exact invariants:
+them, checking <!-- fig:invariantCount -->1767<!-- /fig --> exact invariants:
 
 1. **Per-action check.** For every state `(a, n)` and every legal action —
    including every lane balance — it computes

@@ -328,6 +328,95 @@ export function routeMultiplier(id) {
 }
 
 /* ------------------------------------------------------------------ *
+ * where the claim turns — the break-even survivor count
+ * ------------------------------------------------------------------ */
+
+/**
+ * The smallest survivor count at which the claim does **not** fall.
+ *
+ * The claim is multiplied by `(m/n) * mu`, so it holds or grows exactly when
+ * `m >= n / mu = n p`, and the break-even count is `ceil(n p)`. It is a property
+ * of the contract and the squad size together, and it varies between contracts
+ * in a way no player can infer from a multiplier: WIDE needs the whole squad at
+ * every size, SPLIT needs four of five, NARROW needs two of five.
+ *
+ * This is the number that makes the money rule legible, and the route card
+ * carried none of it until now (`DESIGN.md` §3.2).
+ *
+ * Computed as the definition rather than as the closed form: the smallest `m`
+ * whose exact claim factor is not below `1`. `ceil(n p)` is the same number, and
+ * the enumerator asserts the two agree by checking that the claim falls at
+ * `breakEven - 1` and does not at `breakEven`. Doing it this way keeps every
+ * comparison inside exact rational arithmetic — deriving it from `ceil` would
+ * mean converting a BigInt to a `Number`, which nothing in this module does.
+ *
+ * @param {ContractId} id
+ * @param {number} runners
+ * @returns {number} an integer in [1, runners]
+ */
+export function breakEvenSurvivors(id, runners) {
+  contract(id);
+  assertRunnerCount(runners, 'runners');
+  if (runners < 1) fail('INVALID_SQUAD', 'break-even is undefined with no runners');
+  const mu = routeMultiplier(id);
+  const n = F(BigInt(runners));
+  for (let m = 1; m <= runners; m += 1) {
+    if (F(BigInt(m)).div(n).mul(mu).gte(Frac.ONE)) return m;
+  }
+  // Unreachable: at m = n the factor is mu = 1/p > 1 for every contract.
+  return fail('INVALID_CONFIG', `${id}/${runners}: no survivor count holds the claim`);
+}
+
+/**
+ * Exactly what the claim does in one arena, as four disjoint probabilities that
+ * sum to 1: it grows, it holds at its exact current value, it falls without
+ * reaching zero, or the squad is wiped and it is gone.
+ *
+ * The genre expectation this measures against is "the number only goes up until
+ * you die". That is false here for every contract, and false in a different
+ * place for each of them, which is precisely why the card has to say it.
+ *
+ * @param {ContractId} id
+ * @param {number} runners
+ * @param {number|null} [laneSplit]
+ */
+export function claimMovement(id, runners, laneSplit = null) {
+  const dist = survivorDistribution(id, runners, laneSplit);
+  const mu = routeMultiplier(id);
+  const n = F(BigInt(runners));
+  let rises = Frac.ZERO;
+  let holds = Frac.ZERO;
+  let fallsNonZero = Frac.ZERO;
+  for (let m = 1; m <= runners; m += 1) {
+    const factor = F(BigInt(m)).div(n).mul(mu);
+    if (factor.gt(Frac.ONE)) rises = rises.add(dist[m]);
+    else if (factor.eq(Frac.ONE)) holds = holds.add(dist[m]);
+    else fallsNonZero = fallsNonZero.add(dist[m]);
+  }
+  const breakEven = breakEvenSurvivors(id, runners);
+  return Object.freeze({
+    breakEven,
+    /** The exact claim factor at the break-even count: `>= 1`, and sometimes exactly 1. */
+    breakEvenFactor: F(BigInt(breakEven)).div(n).mul(mu),
+    rises,
+    holds,
+    fallsNonZero,
+    wipe: dist[0],
+    /** `rises + holds` — the chance the claim does not fall. */
+    atLeastHolds: rises.add(holds),
+  });
+}
+
+/** Every geometry's claim movement, in the enumerator's stable order. */
+export function claimMovementRows() {
+  return Object.freeze(
+    routeConfigurations().map((config) =>
+      Object.freeze({ ...config, ...claimMovement(config.contract, config.runners, config.laneSplit) }),
+    ),
+  );
+}
+
+/* ------------------------------------------------------------------ *
  * dominance — which choices are trades, and which are volatility dials
  * ------------------------------------------------------------------ */
 
