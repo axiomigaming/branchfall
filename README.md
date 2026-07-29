@@ -178,6 +178,8 @@ npm run enumerate          # the proof: exact fractions, every invariant
 npm run montecarlo         # independent simulation, sanity cross-check only
 npm run transcript         # a reference round: commit, play, reveal, verify
 npm run transcript -- --chain 8   # a pre-committed server-seed chain
+npm run rehearsal          # the published first-run rehearsal, and its teaching beats
+npm run rehearsal:search   # re-derive the seed pair choice from scratch
 npm test                   # everything above, as assertions
 npm run docs:check         # fails if any document has drifted from the model
 ```
@@ -204,6 +206,7 @@ max-win cap analysis — all as exact fractions.
 | `tools/enumerate.mjs` | The proof. Exhaustive exact enumeration of the outcome space |
 | `tools/transcript.mjs` | Reference two-sided commit-reveal derivation, replay and verification |
 | `tools/montecarlo.mjs` | Forward simulation from first principles; cross-check only |
+| `tools/rehearsal.mjs` | The published first-run rehearsal: the seed pair, the search that chose it, and the teaching beats it has to land |
 | `tools/sync-docs.mjs` | Publishes every generated table and figure into the docs |
 | `src/staged-survival.ts` | The engine lifecycle contract, compilable |
 | `src/branchfall.adapter.ts` | The BRANCHFALL adapter declaration, compilable |

@@ -1,6 +1,6 @@
 {
   "name": "@axiom-games/branchfall",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "BRANCHFALL — squad staged-survival runner on the Axiom Games Reveal Engine",
@@ -18,11 +18,14 @@
     "chain": "node tools/transcript.mjs --chain 8",
     "fixture": "node tools/transcript.mjs --fixture",
     "fixture:check": "node tools/transcript.mjs --fixture | diff -u tests/fixtures/round-transcript-v2.json - && echo 'wire fixture is current'",
+    "rehearsal": "node tools/rehearsal.mjs",
+    "rehearsal:search": "node tools/rehearsal.mjs --search",
+    "rehearsal:check": "node tools/rehearsal.mjs --json | diff -u tests/fixtures/rehearsal-v1.json - && echo 'rehearsal fixture is current'",
     "docs:sync": "node tools/sync-docs.mjs",
     "docs:check": "node tools/sync-docs.mjs --check",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "verify": "npm run typecheck && node tools/enumerate.mjs --quiet && npm run docs:check && npm run fixture:check && npm test && npm run montecarlo -- --rounds 100000"
+    "verify": "npm run typecheck && node tools/enumerate.mjs --quiet && npm run docs:check && npm run fixture:check && npm run rehearsal:check && npm test && npm run montecarlo -- --rounds 100000"
   },
   "devDependencies": {
     "typescript": "^5.6.0",

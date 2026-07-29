@@ -82,11 +82,18 @@ src/protocol/staged-survival/
   sidebets.ts      event probabilities, pricing, stake limits
   book.ts          StagedSurvivalBook: frames, actions, receipts, cap, snapshot
   conformance.ts   mechanical adapter checks
+  rehearsal.ts     unstaked teaching path — imports resolve.ts, never book.ts
 ```
 
 Same discipline as the existing layers: `core` has no player balance,
 `protocol` has no presentation, `serialization` is the untrusted boundary,
 `conformance` produces evidence and never certification.
+
+`rehearsal.ts` is a deliberate one-way dependency and the arrow direction is the
+whole point: it may read the derivation and the resolver, and it must not be able
+to reach the book, the wallet or a receipt. See §10.2 — it is the only component
+that legitimately holds a hazard table client-side, and it earns that only by
+having no money in it.
 
 ---
 
@@ -536,6 +543,16 @@ Mechanical, adapter-agnostic, and evidence — not certification.
 16. Every declarative field is frozen; the fingerprint is stable across
     re-construction and changes when any declarative field changes — including
     when only a `laneSizes()` output changes (§8).
+17. **Rehearsal quarantine.** `rehearsal.ts` exports no function taking a wallet
+    handle, a stake or a side-bet ticket; no rehearsal-derived object can reach
+    `book.ts`; and the published rehearsal seed pair is on the operator's
+    deny-list for live server seeds. Enforced by the module graph rather than by
+    a runtime flag (§10.2, `DESIGN.md` §5.2.3). The reference tooling here holds
+    the same shape one level down — `tools/rehearsal.mjs` imports
+    `tools/transcript.mjs` and never the reverse, which
+    `tests/rehearsal.test.mjs` asserts — and it has no wallet to protect, which
+    is why this row is a requirement on the engine and not a claim about this
+    repository.
 
 Checks 1–6, 9, 12 and 13 are already implemented and run on every CI run here by
 [`../tools/enumerate.mjs`](../tools/enumerate.mjs)
@@ -758,6 +775,33 @@ The `MATH.md` §8.2 theorem is unaffected as mathematics — it assumes the tick
 stake and event are chosen *before* the arena resolves — but that assumption is a
 protocol obligation, and this is what breaks when the protocol does not keep it.
 Which is why the table is sealed structurally rather than by convention.
+
+**The one place a client legitimately holds a table: the rehearsal.**
+`DESIGN.md` §5.2.3 specifies an unstaked first-run rehearsal that derives the
+whole table locally from a published seed pair. Everything above says why that
+would be catastrophic in a real round, and the difference is not the table — it
+is that the rehearsal has no stake, no side bet, no wallet handle and no ledger
+entry, so foreknowledge is worth nothing. The obligation this places on the
+implementation is specific and it is the kind of thing that gets got wrong:
+
+* the rehearsal is a **separate entry point** with its own module boundary, not
+  a `rehearsal: true` flag on the money path. A boolean threaded through
+  `openRound`/`advance`/`settle` is one mis-branch away from handing a live
+  round's table to a client;
+* the rehearsal entry point takes no wallet handle and no RGS round id, and is
+  structurally incapable of emitting a credit event;
+* the published rehearsal pair (`tests/fixtures/rehearsal-v1.json`) is on a
+  deny-list for real rounds. Its server seed is a repeating pattern precisely so
+  that a live seed can never be confused with it, and
+  `tests/rehearsal.test.mjs` asserts both the pattern and the separation;
+* conformance (§7) must include a check that no rehearsal-derived object can
+  reach the book.
+
+Note the honest tension: that pair was *chosen for its outcome*, which is seed
+grinding — §10.1's top-row attack — done deliberately. It is acceptable only
+because the rehearsal pays nothing and the pair is published before anyone plays
+it. If a future change ever gives the rehearsal a payout of any kind, this
+paragraph becomes a vulnerability report.
 
 ---
 

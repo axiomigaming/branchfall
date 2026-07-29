@@ -49,6 +49,12 @@ jobs:
       - name: Check the frozen wire fixture is current
         run: npm run fixture:check
 
+      # The first-run rehearsal is a published seed pair chosen for the teaching
+      # beats in docs/DESIGN.md §5.2.3. If the derivation, the model or the
+      # chosen pair ever stops producing them, onboarding is silently broken.
+      - name: Check the frozen rehearsal fixture is current
+        run: npm run rehearsal:check
+
       - name: Tests
         run: npm test
 
@@ -79,6 +85,14 @@ jobs:
 
       - name: Pre-committed server-seed chain
         run: npm run chain
+
+      - name: The published first-run rehearsal
+        run: npm run rehearsal
+
+      # The chosen pair must be the first one the declared search finds, so the
+      # choice is reproducible by anyone rather than asserted by us.
+      - name: Re-run the rehearsal seed search
+        run: npm run rehearsal:search
 
       - name: Emit the enumeration artefacts
         run: |
