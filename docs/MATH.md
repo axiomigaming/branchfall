@@ -513,8 +513,8 @@ Four facts a designer has to hold, all of them checked in CI:
    arenas return the claim unchanged. "Grows" and "does not fall" are therefore
    two different questions, and the model answers both separately.
 4. **NARROW inverts the shape.** Below five runners its break-even is one
-   survivor, so at `n <= 3` the claim never shrinks: it grows or the round is
-   over. At five runners the break-even moves to
+   survivor, so at `n <= 4` the claim never shrinks: it grows, it holds, or the
+   round is over. At five runners the break-even moves to
    <!-- fig:narrowBreakEven5 -->2<!-- /fig --> and a
    <!-- fig:narrowFallsNonZero5 -->7.81%<!-- /fig --> sliver of shrinking-but-
    alive appears.

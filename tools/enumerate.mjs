@@ -994,6 +994,8 @@ export function buildFigures() {
     scoutRises5: pct(claimMovement('SPLIT', 5, 4).rises),
     narrowRises5: pct(claimMovement('NARROW', 5).rises),
     wideFallsNonZero5: pct(claimMovement('WIDE', 5).fallsNonZero),
+    balancedFallsNonZero5: pct(claimMovement('SPLIT', 5, 3).fallsNonZero),
+    scoutFallsNonZero5: pct(claimMovement('SPLIT', 5, 4).fallsNonZero),
     narrowFallsNonZero5: pct(claimMovement('NARROW', 5).fallsNonZero),
     balancedHolds4: pct(claimMovement('SPLIT', 4, 2).holds),
 

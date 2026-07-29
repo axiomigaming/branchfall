@@ -251,8 +251,8 @@ inferred from them. It is different on every card (`MATH.md` §5.2.1):
 | Card, five runners | Claim grows if | Chance it grows | Chance it falls but the round continues |
 | --- | --- | --- | --- |
 | WIDE | <!-- fig:wideBreakEven5 -->5<!-- /fig --> of 5 | <!-- fig:wideRises5 -->49.24%<!-- /fig --> | <!-- fig:wideFallsNonZero5 -->46.76%<!-- /fig --> |
-| SPLIT 3+2 | <!-- fig:splitBreakEven5 -->4<!-- /fig --> of 5 | <!-- fig:balancedRises5 -->65.10%<!-- /fig --> | — |
-| SPLIT 4+1 | <!-- fig:splitBreakEven5 -->4<!-- /fig --> of 5 | <!-- fig:scoutRises5 -->69.44%<!-- /fig --> | — |
+| SPLIT 3+2 | <!-- fig:splitBreakEven5 -->4<!-- /fig --> of 5 | <!-- fig:balancedRises5 -->65.10%<!-- /fig --> | <!-- fig:balancedFallsNonZero5 -->33.59%<!-- /fig --> |
+| SPLIT 4+1 | <!-- fig:splitBreakEven5 -->4<!-- /fig --> of 5 | <!-- fig:scoutRises5 -->69.44%<!-- /fig --> | <!-- fig:scoutFallsNonZero5 -->28.04%<!-- /fig --> |
 | NARROW | <!-- fig:narrowBreakEven5 -->2<!-- /fig --> of 5 | <!-- fig:narrowRises5 -->40.63%<!-- /fig --> | <!-- fig:narrowFallsNonZero5 -->7.81%<!-- /fig --> |
 
 Read the WIDE row: on the safest, most-taken card, the claim falls almost as
@@ -276,9 +276,12 @@ Three build requirements follow:
    both would mean two different things on two different cards — which is worse
    than showing neither.
 
-`SHELTER` is the exception that proves the rule: it is the only card where part
-of the claim stops moving at all, and its readout already states the banked
-figure directly (S2).
+`SHELTER` gets the same two fields, computed on the group that actually runs: a
+shelter of `k` from `n` runs the remainder on the WIDE profile, and WIDE's
+break-even is the whole running group at every size — so **every runner who
+stays out has to come back** for the running half of the claim to grow. The
+sheltered half is already home and does not move. That is a harder sentence than
+the shelter card used to carry, and it is the true one.
 
 ### 3.3 The fork balance (a volatility dial with a name on it)
 
