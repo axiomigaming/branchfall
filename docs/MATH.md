@@ -40,9 +40,11 @@ enforces it.
 | `V_a` | claim carried into arena `a`, as a multiple of the route stake |
 
 Money is denominated in **micro-credits**: `1 credit = 1 000 000 uc`. Credits are
-floored to whole micro-credits, so the entire round's rounding loss is bounded by
-5 uc — five millionths of one credit. This is the only reason the unit is that
-small, and it is why floor rounding is economically invisible here (§10).
+floored to whole micro-credits, so the route ticket's rounding loss is bounded by
+5 uc and a whole round's — including every side bet it can legally carry — by
+<!-- fig:maxRoundingLossRoundUc -->20<!-- /fig --> uc. Twenty millionths of one
+credit. This is the only reason the unit is that small, and it is why floor
+rounding is economically invisible here (§10).
 
 ---
 
@@ -767,7 +769,8 @@ That basis is the correction the v1 draft needed and §9.5 records why.
 | Side-bet stake limit, per round | `1/1` | 1.00 x route stake |
 | Minimum game cycle | `5000` ms | 5.0 s per arena |
 | Money unit | `1/1000000` credit | 0.000001 |
-| Max floor-rounding loss per round | `5/1000000` credit | 0.000005 |
+| Max floor-rounding loss, route ticket | `5/1000000` credit | 0.000005 |
+| Max floor-rounding loss, whole round incl. side bets | `20/1000000` credit | 0.000020 |
 
 ### 9.2 No ticket can reach the cap
 

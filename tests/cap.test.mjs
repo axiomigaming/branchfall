@@ -12,6 +12,9 @@
  * one in a billion.
  */
 
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openRound, preCommit, replayRound } from '../tools/transcript.mjs';
 import {
@@ -24,6 +27,7 @@ import {
 } from '../tools/lib/model.mjs';
 import { F } from '../tools/lib/exact.mjs';
 
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const STAKE = 1_000_000n;
 
 /**
@@ -243,5 +247,56 @@ describe('the exhaustive reachable-maximum search', () => {
     // ... and yet nothing is capped, because it staked 2x the route stake for it
     // and no ticket came near its own ceiling.
     expect(reachable.roundRatioMax.lt(F(CONFIG.maxWinMultiple))).toBe(true);
+  });
+});
+
+describe('the exhaustive search states its own precondition', () => {
+  it('assumes one side bet can absorb the whole round allowance, and says so', () => {
+    // The stake optimisation puts the entire side allowance on the single
+    // best-paying winning bet on the path. That is optimal only while one ticket
+    // may legally absorb it. If the per-bet limit were ever set below the round
+    // limit the optimum would spread, and this walk would UNDER-report the
+    // maximum — the one direction a cap proof must never be wrong in.
+    expect(CONFIG.sideBet.maxStakeRatioPerBet.gte(CONFIG.sideBet.maxTotalStakeRatio)).toBe(true);
+    const source = readFileSync(resolve(root, 'tools/lib/model.mjs'), 'utf8');
+    expect(source).toContain('INVALID_CONFIG');
+    expect(source).toContain('assumes one side bet can absorb the whole round allowance');
+  });
+});
+
+describe('no float ever touches a money or probability path', () => {
+  // docs/ENGINE.md 10 lists this as a control. A control nobody runs is a claim.
+  /** Strip comments and string literals: prose and version strings are not arithmetic. */
+  const codeOnly = (source) =>
+    source
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/\/\/[^\n]*/g, ' ')
+      .replace(/'(?:[^'\\]|\\.)*'/g, "''")
+      .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+      .replace(/`(?:[^`\\]|\\.)*`/g, '``');
+
+  for (const file of ['tools/lib/exact.mjs', 'tools/lib/model.mjs']) {
+    it(`${file} has no float literal and no float arithmetic`, () => {
+      const code = codeOnly(readFileSync(resolve(root, file), 'utf8'));
+      // A decimal literal anywhere in executable code would be a float.
+      expect(code.match(/(?<![\w.])\d+\.\d+/g) ?? [], `${file}: float literal`).toEqual([]);
+      // parseFloat and the float-returning Math surface have no business here.
+      expect(code.match(/\bparseFloat\s*\(/g) ?? [], `${file}: parseFloat`).toEqual([]);
+      expect(
+        code.match(/\bMath\.(?!ceil\b|floor\b|min\b|max\b)[A-Za-z]+\s*\(/g) ?? [],
+        `${file}: float Math`,
+      ).toEqual([]);
+    });
+  }
+
+  it('confines Number() in the model to integer squad arithmetic', () => {
+    const code = codeOnly(readFileSync(resolve(root, 'tools/lib/model.mjs'), 'utf8'));
+    // The model converts BigInt squad counts, never a money or probability value.
+    expect(code.match(/\bNumber\s*\(/g) ?? []).toEqual([]);
+  });
+
+  it('keeps the one documented float exit clearly marked', () => {
+    const exact = readFileSync(resolve(root, 'tools/lib/exact.mjs'), 'utf8');
+    expect(exact).toContain('Presentation only. Never feed this back into a money or probability path.');
   });
 });

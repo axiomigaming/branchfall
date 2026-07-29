@@ -329,6 +329,21 @@ describe('policy enumeration', () => {
     expect(probabilityOfZero(keeper.distribution).toString()).toBe('0/1');
   });
 
+  it('enforces the side-bet stake limit ACROSS arenas, not once per arena', () => {
+    // 1x on every eligible arena is five side units on a five-arena path, not
+    // one. The first draft reset the accumulator each arena and accepted it.
+    const everyArenaMax = (_a, _b, _c, config) =>
+      config.runners >= CONFIG.sideBet.minRunners
+        ? [{ bet: 'CLEAN_SWEEP', weight: CONFIG.sideBet.maxStakeRatioPerBet }]
+        : [];
+    expect(() => enumeratePolicy(POLICIES.ALL_WIDE.fn, everyArenaMax)).toThrow(ModelError);
+
+    // And a plan that fits stays legal, with the round total actually bounded.
+    const legal = enumeratePolicy(POLICIES.ALL_WIDE.fn, SIDE_BET_PLANS.SWEEP_EVERY_ARENA.fn);
+    expect(legal.expectedStake.lte(Frac.ONE.add(CONFIG.sideBet.maxTotalStakeRatio))).toBe(true);
+    expect(legal.rtp.toString()).toBe(CONFIG.rtp.toString());
+  });
+
   it('rejects a plan that stakes outside the published limits', () => {
     const overweight = () => [{ bet: 'CLEAN_SWEEP', weight: F(2n, 1n) }];
     expect(() => enumeratePolicy(POLICIES.ALL_WIDE.fn, overweight)).toThrow(ModelError);
@@ -406,5 +421,31 @@ describe('configuration surface', () => {
   it('rejects an unknown contract', () => {
     expect(() => contract('LADDER')).toThrow(ModelError);
     expect(() => routeMultiplier('LADDER')).toThrow(ModelError);
+  });
+
+  it('fails closed with a code and a path on hostile input', () => {
+    const probes = [
+      ['routeConfigurations(null)', () => routeConfigurations(null)],
+      ['routeConfigurations({minRunners:-1})', () => routeConfigurations({ minRunners: -1 })],
+      ['committedConfiguration(null)', () => committedConfiguration(null, 5)],
+      ['committedConfiguration([])', () => committedConfiguration([], 5)],
+      ['branches(null)', () => branches(null, 5)],
+      ['branches("BANK")', () => branches('BANK', 5)],
+      ['sideBetOffers(unknown)', () => sideBetOffers('LADDER', 5)],
+      ['sideBetOffers(bad n)', () => sideBetOffers('WIDE', 99)],
+      ['laneSplitsFor(null)', () => laneSplitsFor(null, 5)],
+      ['assertLegalAction(undefined)', () => assertLegalAction(undefined, 2, 5)],
+    ];
+    for (const [label, fn] of probes) {
+      let thrown = null;
+      try {
+        fn();
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown, `${label} did not throw`).toBeInstanceOf(ModelError);
+      expect(typeof thrown.code, label).toBe('string');
+      expect(typeof thrown.path, label).toBe('string');
+    }
   });
 });

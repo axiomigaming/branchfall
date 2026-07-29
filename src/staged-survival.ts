@@ -143,9 +143,17 @@ export interface HazardSchedule {
 export interface ServerPreCommitment {
   readonly version: typeof COMMITMENT_VERSION;
   readonly roundId: string;
-  /** `SHA256(encodeFields(['server commitment', version, ids, roundId, seedBytes]))`. */
+  /**
+   * `SHA256(encodeFields(['server commitment', version, ids, roundId, seedBytes,
+   * ...chain position if any]))`.
+   */
   readonly commitment: string;
-  readonly publishedAtMs: number;
+  /**
+   * The operator's claim about when this was published. Optional, because no
+   * verifier can check a timestamp cryptographically — it exists so the claim is
+   * in the record and an auditor can check it against delivery logs (§9).
+   */
+  readonly publishedAtMs?: number;
   /**
    * When the operator runs a pre-committed seed chain, the POSITION this round
    * consumes. Binding the index — not merely the next hash — is what makes link
@@ -207,7 +215,7 @@ export interface SideBetSpec {
 export interface SideBetOffer {
   readonly id: string;
   readonly label: string;
-  readonly contractId: string;
+  readonly contract: string;
   readonly runners: number;
   readonly laneSplit: number | null;
   /** Exact probability under the committed contract, group size and lane balance. */
@@ -385,7 +393,7 @@ export interface SideBetResolution {
 
 export interface ArenaResolution {
   readonly arena: number;
-  readonly contractId: string;
+  readonly contract: string;
   readonly laneSplit: number | null;
   readonly lanes: readonly (readonly SquadSlot[])[];
   readonly collapsed: readonly boolean[];
@@ -424,15 +432,24 @@ export interface StagedSurvivalReceipt {
  */
 export interface StagedSurvivalTranscript {
   readonly schema: typeof TRANSCRIPT_SCHEMA;
+  readonly gameId: string;
   readonly adapterVersion: string;
   readonly modelVersion: string;
-  readonly context: RoundContext;
+  readonly roundId: string;
+  /** Echoed so a player can see the seed they chose was the seed that was used. */
+  readonly clientSeed: string;
   readonly preCommitment: ServerPreCommitment;
   /** SHA-256 over the canonical hazard bytes, published once both seeds are fixed. */
   readonly hazardDigest: string;
-  readonly actions: readonly StagedSurvivalAction[];
-  readonly resolutions: readonly ArenaResolution[];
-  readonly receipts: readonly StagedSurvivalReceipt[];
+  /**
+   * The engine's round record accumulates these as the round progresses. The
+   * reference implementation in `tools/transcript.mjs` publishes the fields
+   * above and keeps the action list beside the round rather than inside it; the
+   * two are the same message plus the engine's own bookkeeping.
+   */
+  readonly actions?: readonly StagedSurvivalAction[];
+  readonly resolutions?: readonly ArenaResolution[];
+  readonly receipts?: readonly StagedSurvivalReceipt[];
   /** The table is never a field of the published record. */
   readonly hazard?: never;
   readonly revealedServerSeed?: never;
@@ -448,16 +465,26 @@ export interface SealedRound {
   readonly serverSeedHex: string;
 }
 
-/** What settlement publishes. `verify()` re-derives it and compares field by field. */
+/**
+ * What settlement publishes. `verify()` re-derives it and compares field by
+ * field, and EVERY field is required: an optional comparison is not a
+ * comparison, and a partial settlement that came back `ok` would be the most
+ * dangerous output this API could produce.
+ */
 export interface StagedSurvivalSettlement {
-  readonly published: StagedSurvivalTranscript;
   readonly revealedServerSeed: string;
   readonly stakeMicro: Micro;
   readonly sideStakeMicro: Micro;
+  readonly totalStakeMicro: Micro;
   readonly routeCreditedMicro: Micro;
   readonly sideCreditedMicro: Micro;
   readonly creditedMicro: Micro;
+  readonly finalClaim: string;
+  readonly returnMultiple: string;
   readonly capped: boolean;
+  readonly survivorsBanked: readonly SquadSlot[];
+  readonly resolutions: readonly ArenaResolution[];
+  readonly sideBets: readonly SideBetResolution[];
 }
 
 export type VerificationFailureCode =
@@ -473,7 +500,10 @@ export type VerificationFailureCode =
   | 'INVALID_LANE_SPLIT'
   | 'INVALID_SIDE_BET'
   | 'QUOTE_MISMATCH'
-  | 'LEDGER_MISMATCH';
+  | 'LEDGER_MISMATCH'
+  | 'INVALID_CHAIN'
+  | 'INVALID_ARGUMENT'
+  | 'VERIFICATION_FAILED';
 
 export type CommandFailureCode = VerificationFailureCode | 'TOO_SOON' | 'IDEMPOTENCY_CONFLICT';
 
@@ -536,7 +566,7 @@ export interface StagedSurvivalModule {
   sideBetProbability(
     game: StagedSurvivalDefinition,
     spec: SideBetSpec,
-    contractId: string,
+    contract: string,
     runners: number,
     laneSplit: number | null,
   ): Rational;

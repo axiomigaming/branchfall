@@ -660,7 +660,15 @@ export function buildTables() {
       ['Side-bet stake limit, per round', `\`${CONFIG.sideBet.maxTotalStakeRatio}\``, `${toFixedExact(CONFIG.sideBet.maxTotalStakeRatio, 2)} x route stake`],
       ['Minimum game cycle', `\`${CONFIG.minGameCycleMs}\` ms`, `${(CONFIG.minGameCycleMs / 1000).toFixed(1)} s per arena`],
       ['Money unit', '`1/1000000` credit', '0.000001'],
-      ['Max floor-rounding loss per round', '`5/1000000` credit', '0.000005'],
+      ['Max floor-rounding loss, route ticket', '`5/1000000` credit', '0.000005'],
+      [
+        'Max floor-rounding loss, whole round incl. side bets',
+        `\`${CONFIG.arenas * (1 + CONFIG.sideBet.maxTicketsPerArena)}/1000000\` credit`,
+        toFixedExact(
+          F(BigInt(CONFIG.arenas * (1 + CONFIG.sideBet.maxTicketsPerArena)), CONFIG.microCreditsPerCredit),
+          6,
+        ),
+      ],
     ],
   );
 

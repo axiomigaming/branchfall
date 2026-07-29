@@ -81,6 +81,32 @@ function fail(code, message, path) {
   throw new TranscriptError(code, message, path);
 }
 
+/**
+ * Timing-safe comparison of two lowercase hex strings of equal length.
+ * Commitments and digests are compared with this rather than `===`, because a
+ * verifier is sometimes an online service and an early-exit compare on a secret
+ * is a habit worth not having.
+ */
+export function constantTimeHexEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/**
+ * Order-independent canonical JSON. Ledger equality is about content, not about
+ * the key order a foreign implementation happened to emit.
+ */
+export function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value).sort();
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(value === undefined ? null : value);
+}
+
 /* ------------------------------------------------------------------ *
  * canonical encoding — unambiguous, length-prefixed, type-tagged
  * ------------------------------------------------------------------ */
@@ -168,22 +194,25 @@ export function normalizeRoundId(roundId) {
  * @param {string} serverSeedHex
  * @param {string} roundId
  */
-export function serverCommitment(serverSeedHex, roundId) {
+export function serverCommitment(serverSeedHex, roundId, chain = undefined) {
   const seed = normalizeSeed(serverSeedHex);
   const round = normalizeRoundId(roundId);
-  return createHash('sha256')
-    .update(
-      encodeFields([
-        'server commitment',
-        COMMITMENT_VERSION,
-        CONFIG.gameId,
-        CONFIG.adapterVersion,
-        CONFIG.modelVersion,
-        round,
-        Buffer.from(seed, 'hex'),
-      ]),
-    )
-    .digest('hex');
+  const fields = [
+    'server commitment',
+    COMMITMENT_VERSION,
+    CONFIG.gameId,
+    CONFIG.adapterVersion,
+    CONFIG.modelVersion,
+    round,
+    Buffer.from(seed, 'hex'),
+  ];
+  // The chain position is part of what is committed, so an operator cannot
+  // retro-fit a different index to an already-revealed seed.
+  if (chain !== undefined) {
+    const position = normalizeChainPosition(chain);
+    fields.push('chain', position.version, Buffer.from(position.terminal, 'hex'), position.length, position.index);
+  }
+  return createHash('sha256').update(encodeFields(fields)).digest('hex');
 }
 
 /**
@@ -440,9 +469,16 @@ export function hazardDigest(roundId, clientSeed, hazard) {
  * instead of seeds and recover the whole attack the client seed exists to
  * close — with the same silent, fully-verifiable result.
  *
+ * A library cannot enforce wall-clock ordering: `openRound()` can check that a
+ * seed opens a commitment, not that the commitment reached the player first.
+ * That last step is an RGS obligation (docs/ENGINE.md §9), and the strongest
+ * thing the API can do is let the client BIND its seed to the commitment it
+ * actually saw — see `openRound()`'s `respondingTo`. `publishedAtMs` records the
+ * operator's claim so an auditor can check it against delivery logs.
+ *
  * @param {string} serverSeedHex
  * @param {string} roundId
- * @param {{chain?: {terminal: string, length: number, index: number}}} [options]
+ * @param {{chain?: {terminal: string, length: number, index: number}, publishedAtMs?: number}} [options]
  */
 export function preCommit(serverSeedHex, roundId, options = {}) {
   const seed = normalizeSeed(serverSeedHex);
@@ -456,7 +492,7 @@ export function preCommit(serverSeedHex, roundId, options = {}) {
     adapterVersion: CONFIG.adapterVersion,
     modelVersion: CONFIG.modelVersion,
     roundId: round,
-    commitment: serverCommitment(seed, round),
+    commitment: '',
   };
   if (options.chain !== undefined) {
     record.chain = normalizeChainPosition(options.chain, '$.options.chain');
@@ -464,6 +500,13 @@ export function preCommit(serverSeedHex, roundId, options = {}) {
       fail('CHAIN_MISMATCH', 'server seed is not at the declared chain position', '$.options.chain');
     }
   }
+  if (options.publishedAtMs !== undefined) {
+    if (!Number.isSafeInteger(options.publishedAtMs) || options.publishedAtMs < 0) {
+      fail('INVALID_ARGUMENT', 'publishedAtMs must be a non-negative safe integer', '$.options.publishedAtMs');
+    }
+    record.publishedAtMs = options.publishedAtMs;
+  }
+  record.commitment = serverCommitment(seed, round, record.chain);
   return Object.freeze(record);
 }
 
@@ -483,6 +526,9 @@ export function assertPreCommitment(pre, path = '$.preCommitment') {
     fail('INVALID_TRANSCRIPT', 'commitment must be 32 bytes of lowercase hexadecimal', `${path}.commitment`);
   }
   if (pre.chain !== undefined) normalizeChainPosition(pre.chain, `${path}.chain`);
+  if (pre.publishedAtMs !== undefined && (!Number.isSafeInteger(pre.publishedAtMs) || pre.publishedAtMs < 0)) {
+    fail('INVALID_TRANSCRIPT', 'publishedAtMs must be a non-negative safe integer', `${path}.publishedAtMs`);
+  }
   return pre;
 }
 
@@ -508,12 +554,33 @@ export function assertPreCommitment(pre, path = '$.preCommitment') {
  * @param {ReturnType<typeof preCommit>} preCommitment
  * @returns {{published: object, hazard: ReturnType<typeof deriveHazardTable>}}
  */
-export function openRound(serverSeedHex, clientSeed, preCommitment) {
+export function openRound(serverSeedHex, clientContribution, preCommitment) {
   const seed = normalizeSeed(serverSeedHex);
-  const client = normalizeClientSeed(clientSeed);
   const pre = assertPreCommitment(preCommitment);
 
-  if (serverCommitment(seed, pre.roundId) !== pre.commitment) {
+  // The client seed may arrive bare, or bound to the commitment the client
+  // actually saw. The bound form is what an honest client sends: it makes a seed
+  // collected BEFORE a commitment was published unusable with any other
+  // commitment, which is the strongest thing an API can do about an ordering
+  // obligation it cannot itself observe (docs/ENGINE.md §9).
+  let client;
+  if (typeof clientContribution === 'string') {
+    client = normalizeClientSeed(clientContribution);
+  } else if (clientContribution && typeof clientContribution === 'object' && !Array.isArray(clientContribution)) {
+    client = normalizeClientSeed(clientContribution.seed);
+    if (clientContribution.respondingTo !== undefined &&
+        !constantTimeHexEqual(String(clientContribution.respondingTo), pre.commitment)) {
+      fail(
+        'COMMITMENT_MISMATCH',
+        'the client seed was bound to a different pre-commitment than the one supplied',
+        '$.clientContribution.respondingTo',
+      );
+    }
+  } else {
+    fail('INVALID_CLIENT_SEED', 'clientContribution must be a string or {seed, respondingTo}', '$.clientContribution');
+  }
+
+  if (!constantTimeHexEqual(serverCommitment(seed, pre.roundId, pre.chain), pre.commitment)) {
     fail(
       'COMMITMENT_MISMATCH',
       'the server seed does not open the published pre-commitment',
@@ -909,20 +976,39 @@ export function verifyRound(serverSeedHex, published, play, settlement = undefin
       return { ok: false, code: 'ADAPTER_MISMATCH', message: 'Transcript was produced by a different adapter', path: '$.adapterVersion' };
     }
     // A published round that carries draws has already leaked its outcomes.
-    if (published.hazard !== undefined) {
+    // CLOSED SCHEMA. Rejecting only a key called `hazard` rejects one spelling of
+    // the mistake; an integration smuggling the table under `hazardTable`,
+    // `draws` or `sealed` — or attaching the server seed — would have verified.
+    const allowed = [
+      'schema',
+      'gameId',
+      'adapterVersion',
+      'modelVersion',
+      'roundId',
+      'clientSeed',
+      'preCommitment',
+      'hazardDigest',
+    ];
+    const extra = Object.keys(published).filter((k) => !allowed.includes(k));
+    if (extra.length > 0) {
       return {
         ok: false,
         code: 'INVALID_TRANSCRIPT',
-        message: 'A published round must carry the hazard digest, never the table',
-        path: '$.hazard',
+        message: `A published round carries exactly the sealed-safe fields; found ${extra.join(', ')}`,
+        path: `$.${extra[0]}`,
       };
+    }
+    for (const key of allowed) {
+      if (published[key] === undefined) {
+        return { ok: false, code: 'INVALID_TRANSCRIPT', message: `published.${key} is required`, path: `$.${key}` };
+      }
     }
     const pre = assertPreCommitment(published.preCommitment);
     if (pre.roundId !== published.roundId) {
       return { ok: false, code: 'TRANSCRIPT_MISMATCH', message: 'Round id does not match the pre-commitment', path: '$.roundId' };
     }
-    const expectedCommitment = serverCommitment(seed, pre.roundId);
-    if (expectedCommitment !== pre.commitment) {
+    const expectedCommitment = serverCommitment(seed, pre.roundId, pre.chain);
+    if (!constantTimeHexEqual(expectedCommitment, pre.commitment)) {
       return { ok: false, code: 'COMMITMENT_MISMATCH', message: 'Pre-commitment does not match the revealed server seed', path: '$.preCommitment.commitment' };
     }
     if (pre.chain !== undefined && !verifyChainPosition(seed, pre.chain)) {
@@ -930,7 +1016,7 @@ export function verifyRound(serverSeedHex, published, play, settlement = undefin
     }
     const hazard = deriveHazardTable(seed, published.clientSeed, published.roundId);
     const digest = hazardDigest(published.roundId, published.clientSeed, hazard);
-    if (digest !== published.hazardDigest) {
+    if (!constantTimeHexEqual(digest, published.hazardDigest)) {
       return { ok: false, code: 'TRANSCRIPT_MISMATCH', message: 'Hazard digest does not match the published table', path: '$.hazardDigest' };
     }
     const replay = replayRound({ hazard }, play);
@@ -939,20 +1025,24 @@ export function verifyRound(serverSeedHex, published, play, settlement = undefin
     // equal the one re-derived here. Without this comparison a verifier proves
     // the table was honest and says nothing about what the player was paid.
     if (settlement !== undefined) {
-      if (!settlement || typeof settlement !== 'object') {
+      if (!settlement || typeof settlement !== 'object' || Array.isArray(settlement)) {
         return { ok: false, code: 'LEDGER_MISMATCH', message: 'settlement must be an object', path: '$.settlement' };
       }
-      for (const field of [
-        'stakeMicro',
-        'sideStakeMicro',
-        'totalStakeMicro',
-        'routeCreditedMicro',
-        'sideCreditedMicro',
-        'creditedMicro',
-        'finalClaim',
-        'returnMultiple',
-      ]) {
-        if (settlement[field] !== undefined && String(settlement[field]) !== replay[field]) {
+      // Every field is REQUIRED. An optional comparison is not a comparison: an
+      // empty settlement would otherwise come back ok, which is precisely the
+      // reassurance a verifier must never give.
+      for (const field of SETTLEMENT_FIELDS) {
+        if (settlement[field] === undefined) {
+          return {
+            ok: false,
+            code: 'LEDGER_MISMATCH',
+            message: `settlement is missing ${field}; a partial settlement cannot be verified`,
+            path: `$.settlement.${field}`,
+          };
+        }
+      }
+      for (const field of SETTLEMENT_SCALARS) {
+        if (String(settlement[field]) !== replay[field]) {
           return {
             ok: false,
             code: 'LEDGER_MISMATCH',
@@ -961,20 +1051,20 @@ export function verifyRound(serverSeedHex, published, play, settlement = undefin
           };
         }
       }
-      if (settlement.capped !== undefined && Boolean(settlement.capped) !== replay.capped) {
+      if (Boolean(settlement.capped) !== replay.capped) {
         return { ok: false, code: 'LEDGER_MISMATCH', message: 'published cap flag does not match', path: '$.settlement.capped' };
       }
-      if (settlement.survivorsBanked !== undefined &&
-          JSON.stringify(settlement.survivorsBanked) !== JSON.stringify(replay.survivorsBanked)) {
-        return { ok: false, code: 'LEDGER_MISMATCH', message: 'published survivor set does not match', path: '$.settlement.survivorsBanked' };
-      }
-      if (settlement.sideLedger !== undefined &&
-          JSON.stringify(settlement.sideLedger) !== JSON.stringify(replay.sideLedger)) {
-        return { ok: false, code: 'LEDGER_MISMATCH', message: 'published side-bet ledger does not match', path: '$.settlement.sideLedger' };
-      }
-      if (settlement.ledger !== undefined &&
-          JSON.stringify(settlement.ledger) !== JSON.stringify(replay.ledger)) {
-        return { ok: false, code: 'LEDGER_MISMATCH', message: 'published arena ledger does not match', path: '$.settlement.ledger' };
+      // Content equality, not key-order equality: a foreign implementation that
+      // emits the same ledger with different key order is not a mismatch.
+      for (const field of ['survivorsBanked', 'sideLedger', 'ledger']) {
+        if (canonicalJson(settlement[field]) !== canonicalJson(replay[field])) {
+          return {
+            ok: false,
+            code: 'LEDGER_MISMATCH',
+            message: `published ${field} does not match the re-derived one`,
+            path: `$.settlement.${field}`,
+          };
+        }
       }
     }
 
@@ -985,6 +1075,87 @@ export function verifyRound(serverSeedHex, published, play, settlement = undefin
     }
     return { ok: false, code: 'VERIFICATION_FAILED', message: 'Verification failed', path: '$' };
   }
+}
+
+/** Scalars a published settlement must carry, all compared exactly. */
+export const SETTLEMENT_SCALARS = Object.freeze([
+  'stakeMicro',
+  'sideStakeMicro',
+  'totalStakeMicro',
+  'routeCreditedMicro',
+  'sideCreditedMicro',
+  'creditedMicro',
+  'finalClaim',
+  'returnMultiple',
+]);
+
+/** Everything a published settlement must carry for `verifyRound` to accept it. */
+export const SETTLEMENT_FIELDS = Object.freeze([
+  ...SETTLEMENT_SCALARS,
+  'capped',
+  'survivorsBanked',
+  'ledger',
+  'sideLedger',
+]);
+
+/**
+ * Verify a SET of rounds against one published chain.
+ *
+ * Single-round verification cannot detect a reused chain link: each round in
+ * isolation verifies perfectly, and the damage — a revealed seed used again for
+ * a later round, whose table is then computable in advance — only becomes
+ * visible when the rounds are seen together. This is that check, and it is the
+ * honest scope of the claim: reuse and stalling are DETECTABLE by anyone holding
+ * the round ledger, not rejected by a lone verifier.
+ *
+ * @param {{roundId: string, chain: {terminal: string, length: number, index: number}}[]} rounds
+ */
+export function verifyChainLedger(rounds) {
+  if (!Array.isArray(rounds) || rounds.length === 0) {
+    return { ok: false, code: 'INVALID_CHAIN', message: 'rounds must be a non-empty array', path: '$' };
+  }
+  let terminal = null;
+  let length = null;
+  const byIndex = new Map();
+  for (let i = 0; i < rounds.length; i += 1) {
+    const entry = rounds[i];
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      return { ok: false, code: 'INVALID_CHAIN', message: 'each round must be an object', path: `$[${i}]` };
+    }
+    let position;
+    try {
+      position = normalizeChainPosition(entry.chain, `$[${i}].chain`);
+      normalizeRoundId(entry.roundId);
+    } catch (error) {
+      if (error instanceof TranscriptError) {
+        return { ok: false, code: error.code, message: error.message, path: error.path };
+      }
+      throw error;
+    }
+    if (terminal === null) {
+      terminal = position.terminal;
+      length = position.length;
+    } else if (position.terminal !== terminal || position.length !== length) {
+      return {
+        ok: false,
+        code: 'CHAIN_MISMATCH',
+        message: 'rounds belong to different chains',
+        path: `$[${i}].chain.terminal`,
+      };
+    }
+    const seen = byIndex.get(position.index);
+    if (seen !== undefined) {
+      return {
+        ok: false,
+        code: 'CHAIN_MISMATCH',
+        message: `chain index ${position.index} is consumed by both ${seen} and ${entry.roundId}`,
+        path: `$[${i}].chain.index`,
+      };
+    }
+    byIndex.set(position.index, entry.roundId);
+  }
+  const consumed = [...byIndex.keys()].sort((a, b) => a - b);
+  return Object.freeze({ ok: true, terminal, consumed, remaining: length - 1 - consumed.length });
 }
 
 /* ------------------------------------------------------------------ *
@@ -1034,7 +1205,11 @@ export function fixturePlay(input = FIXTURE_INPUT) {
 
 export function buildFixture() {
   const pre = preCommit(FIXTURE_INPUT.serverSeed, FIXTURE_INPUT.roundId);
-  const { published, hazard } = openRound(FIXTURE_INPUT.serverSeed, FIXTURE_INPUT.clientSeed, pre);
+  const { published, hazard } = openRound(
+    FIXTURE_INPUT.serverSeed,
+    { seed: FIXTURE_INPUT.clientSeed, respondingTo: pre.commitment },
+    pre,
+  );
   const replay = replayRound({ hazard }, fixturePlay());
   return {
     schema: SCHEMA,
@@ -1135,8 +1310,22 @@ function main() {
           `reveal ${seed}  position ${ok ? 'OK' : 'BROKEN'}  replayed-at-wrong-index ${wrongIndex ? 'ACCEPTED' : 'rejected'}\n`,
       );
     }
+    // A lone verifier cannot see reuse; a ledger over rounds can.
+    const honest = [];
+    for (let index = length - 2; index >= 0; index -= 1) {
+      honest.push({ roundId: `round-${length - 1 - index}`, chain: { terminal: chain.terminal, length, index } });
+    }
+    const reused = [honest[0], { roundId: 'round-replay', chain: { ...honest[0].chain } }];
+    const ledgerOk = verifyChainLedger(honest);
+    const ledgerBad = verifyChainLedger(reused);
     process.stdout.write(
-      '\nThe operator never chooses a seed per round: the whole sequence was fixed by\none public hash, and each round names the position it consumes.\n',
+      `\n  chain ledger, honest sequence: ok=${ledgerOk.ok} consumed=[${ledgerOk.consumed}] remaining=${ledgerOk.remaining}\n` +
+        `  chain ledger, index reused:    ok=${ledgerBad.ok} ${ledgerBad.code ?? ''} — ${ledgerBad.message ?? ''}\n`,
+    );
+    process.stdout.write(
+      '\nThe operator never chooses a seed per round: the whole sequence was fixed by\n' +
+        'one public hash, and each round names the position it consumes. A single round\n' +
+        'cannot detect a reused link — verifyChainLedger over the round set can.\n',
     );
     return;
   }
@@ -1146,10 +1335,11 @@ function main() {
   const roundId = flag('--round') ?? 'demo-round';
 
   // Step 1: publish the pre-commitment. No client input exists yet.
-  const pre = preCommit(serverSeed, roundId);
-  // Step 2 & 3: the client seed arrives; only now is the table derivable, and
-  // `published` is everything the player is allowed to see.
-  const { published, hazard } = openRound(serverSeed, clientSeed, pre);
+  const pre = preCommit(serverSeed, roundId, { publishedAtMs: Date.now() });
+  // Step 2 & 3: the client answers with a seed BOUND to the commitment it saw,
+  // so a seed collected before any commitment existed is unusable. Only now is
+  // the table derivable, and `published` is all the player is allowed to see.
+  const { published, hazard } = openRound(serverSeed, { seed: clientSeed, respondingTo: pre.commitment }, pre);
   const play = { stakeMicro: 10_000_000n, actions: demoPlay(hazard) };
 
   const replay = replayRound({ hazard }, play);

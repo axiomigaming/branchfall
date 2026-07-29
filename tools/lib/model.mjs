@@ -39,16 +39,17 @@
 import { F, Frac, binomial } from './exact.mjs';
 
 export class ModelError extends Error {
-  /** @param {string} code @param {string} message */
-  constructor(code, message) {
+  /** @param {string} code @param {string} message @param {string} [path] */
+  constructor(code, message, path = '$') {
     super(message);
     this.name = 'ModelError';
     this.code = code;
+    this.path = path;
   }
 }
 
-function fail(code, message) {
-  throw new ModelError(code, message);
+function fail(code, message, path) {
+  throw new ModelError(code, message, path);
 }
 
 /** @typedef {'WIDE'|'SPLIT'|'NARROW'} ContractId */
@@ -228,7 +229,13 @@ export function configKey(id, runners, laneSplit = null) {
  * @returns {{contract: ContractId, runners: number, laneSplit: number|null, lanes: number[], key: string}[]}
  */
 export function routeConfigurations(options = {}) {
+  if (options === null || typeof options !== 'object' || Array.isArray(options)) {
+    fail('INVALID_ARGUMENT', 'routeConfigurations options must be an object', '$.options');
+  }
   const floor = options.minRunners ?? 1;
+  if (!Number.isSafeInteger(floor) || floor < 0 || floor > CONFIG.squadSize) {
+    fail('INVALID_ARGUMENT', `minRunners must be an integer in [0, ${CONFIG.squadSize}]`, '$.options.minRunners');
+  }
   const rows = [];
   for (const id of CONTRACT_IDS) {
     for (let n = Math.max(CONTRACTS[id].minRunners, floor); n <= CONFIG.squadSize; n += 1) {
@@ -385,6 +392,10 @@ export function assertLegalAction(action, arena, alive) {
  * @returns {{contract: ContractId, runners: number, laneSplit: number|null}|null}
  */
 export function committedConfiguration(action, alive) {
+  if (!action || typeof action !== 'object' || Array.isArray(action)) {
+    fail('INVALID_ACTION', 'Action must be an object', '$.action');
+  }
+  assertRunnerCount(alive, 'alive');
   if (action.type === 'BANK') return null;
   if (action.type === 'ROUTE') {
     return Object.freeze({ contract: action.contract, runners: alive, laneSplit: splitOf(action) });
@@ -412,6 +423,9 @@ export function committedConfiguration(action, alive) {
  * @returns {Branch[]}
  */
 export function branches(action, alive) {
+  if (!action || typeof action !== 'object' || Array.isArray(action)) {
+    fail('INVALID_ACTION', 'Action must be an object', '$.action');
+  }
   assertRunnerCount(alive, 'alive');
   if (alive === 0) fail('INVALID_SQUAD', 'No runners left to act');
   const n = F(BigInt(alive));
@@ -536,6 +550,8 @@ export function sideBet(id) {
  *            laneSplit: number|null, key: string, probability: Frac, multiplier: Frac, rtp: Frac}[]}
  */
 export function sideBetOffers(id, runners, laneSplit = null) {
+  contract(id);
+  assertRunnerCount(runners, 'runners');
   if (runners < CONFIG.sideBet.minRunners) return Object.freeze([]);
   const dist = survivorDistribution(id, runners, laneSplit);
   return Object.freeze(
@@ -769,6 +785,19 @@ export function reachableRoundMaxima() {
   if (reachableCache) return reachableCache;
   const T = CONFIG.sideBet.maxTotalStakeRatio;
 
+  // Precondition for the stake optimisation below. Putting the whole side
+  // allowance on one ticket is optimal only if one ticket may legally absorb it.
+  // If the per-bet limit were ever set below the round limit, the optimum would
+  // spread across the best few winning bets and this walk would UNDER-report the
+  // maximum — the one direction a cap proof must never be wrong in. Fail loudly.
+  if (CONFIG.sideBet.maxStakeRatioPerBet.lt(T)) {
+    fail(
+      'INVALID_CONFIG',
+      'reachableRoundMaxima() assumes one side bet can absorb the whole round allowance; ' +
+        'with a smaller per-bet limit the stake optimisation must spread across tickets',
+    );
+  }
+
   let paths = 0;
   let routeTicketMax = Frac.ZERO;
   let routeTicketLine = [];
@@ -936,13 +965,21 @@ export function enumeratePolicy(policy, plan = () => []) {
       const offer = offers.find((o) => o.bet === t.bet);
       if (!offer) fail('INVALID_SIDE_BET', `${t.bet} is not offered at ${JSON.stringify(action)}`);
       if (t.weight.lte(Frac.ZERO) || t.weight.gt(CONFIG.sideBet.maxStakeRatioPerBet)) {
-        fail('INVALID_SIDE_BET', `side-bet weight ${t.weight} is outside the published limits`);
+        fail('INVALID_SIDE_BET', `side-bet weight ${t.weight} is outside the published per-bet limit`);
       }
       arenaSideStake = arenaSideStake.add(t.weight);
       return { offer, weight: t.weight, spec: sideBet(t.bet) };
     });
-    if (arenaSideStake.gt(CONFIG.sideBet.maxTotalStakeRatio)) {
-      fail('INVALID_SIDE_BET', 'side-bet stake exceeds the published per-round limit');
+    // The round-wide limit is CUMULATIVE across arenas, and `staked` already
+    // carries the route unit plus everything staked on the way here. Checking
+    // only this arena's total — which is what the first draft did — let a plan
+    // stake 1x on every arena and call it a 1x round.
+    const sideSoFar = staked.sub(Frac.ONE).add(arenaSideStake);
+    if (sideSoFar.gt(CONFIG.sideBet.maxTotalStakeRatio)) {
+      fail(
+        'INVALID_SIDE_BET',
+        `side-bet stake ${sideSoFar} exceeds the published per-round limit ${CONFIG.sideBet.maxTotalStakeRatio}`,
+      );
     }
 
     for (const b of branches(action, alive)) {

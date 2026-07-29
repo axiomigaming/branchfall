@@ -175,14 +175,35 @@ describe('cross-document consistency', () => {
     expect(designDoc).toContain('RTS 14G');
     expect(designDoc).toContain('RTS 14D');
     expect(designDoc).toMatch(/RTS 8 is the \*\*autoplay prohibition\*\*/);
-    expect(designDoc).not.toMatch(/2500 ms.{0,40}RTS 8/);
+    // No document may attribute the timing rule to RTS 8. The README did.
+    for (const [name, doc] of Object.entries({ designDoc, engineDoc, readme, mathDoc })) {
+      for (const match of doc.matchAll(/RTS 8/g)) {
+        const context = doc.slice(match.index, match.index + 160).replace(/\n/g, ' ');
+        expect(context, `${name}: RTS 8 cited for timing`).toMatch(/autoplay/i);
+      }
+      expect(doc, `${name}: cites a cycle floor`).not.toMatch(/RTS 8\)/);
+    }
     // And the classification is stated as a position, not as settled fact.
     expect(designDoc).toContain('classification question for a regulator and a test house');
   });
 
-  it('states the round-level rounding bound, not only the route-ticket one', () => {
+  it('states the round-level rounding bound everywhere it states a bound', () => {
     expect(mathDoc).toContain('A round that also carries side bets loses more in absolute terms');
     expect(readme).toContain('across a round that also carries side bets');
+    // §1 and the generated invariants table used to claim 5 uc for the whole round.
+    expect(mathDoc).not.toMatch(/entire round's rounding loss is bounded by\s*\n?5 uc/);
+    expect(mathDoc).toContain('Max floor-rounding loss, route ticket');
+    expect(mathDoc).toContain('Max floor-rounding loss, whole round incl. side bets');
+  });
+
+  it('does not claim controls the reference implementation lacks', () => {
+    // A lint rule that does not exist, and a "reused link fails" that a lone
+    // verifier cannot deliver, were both claimed. Neither may come back.
+    expect(engineDoc).not.toMatch(/lint rule bans/);
+    expect(engineDoc).not.toMatch(/so a reused link fails and a stalled chain is countable/);
+    expect(engineDoc).toContain('anyone holding the round ledger');
+    expect(engineDoc).toMatch(/it cannot\s+enforce chronology/);
+    expect(engineDoc).toMatch(/\*\*closed schema\*\*/i);
   });
 
   it('documents the sealed hazard table as a structural property', () => {

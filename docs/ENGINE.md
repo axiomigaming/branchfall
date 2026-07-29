@@ -335,9 +335,27 @@ The round has a **two-sided** commit-reveal, in this order and no other.
 | 5. Settle | operator | the revealed server seed, the ledger | nothing |
 | 6. Verify | anyone | — | — |
 
-**Step 1 must precede step 2, and the module must enforce it.** `openRound()`
-takes an already-published `ServerPreCommitment` and *opens* it; it does not mint
-one. A commitment minted at the same instant the operator learns the client seed
+**Step 1 must precede step 2. The module enforces what it can, and it cannot
+enforce chronology.** `openRound()` takes an already-published
+`ServerPreCommitment` and *opens* it; it does not mint one. What it verifies is
+that the server seed opens that commitment — not that the commitment reached the
+player first. No library can verify that, because wall-clock ordering is not a
+property of the arguments.
+
+Two things close the gap, and both live above this API:
+
+1. **The client binds its seed to the commitment it saw.** `openRound()` accepts
+   `{ seed, respondingTo }`, and rejects the round with `COMMITMENT_MISMATCH` if
+   `respondingTo` is not the commitment supplied. An honest client stores exactly
+   one commitment before revealing its seed and refuses to answer any other, so a
+   seed collected before a commitment existed is unusable.
+2. **A pre-committed seed chain** (§5.1) removes per-round seed choice entirely,
+   which is why it is recommended rather than optional in deployment.
+
+An operator that collects the client seed and only then publishes one of several
+pre-computed commitments has the full grinding attack back, and it will verify.
+That is an integration defect of the highest severity, it is listed in §9, and it
+is not something this repository can prevent on the operator's behalf. A commitment minted at the same instant the operator learns the client seed
 commits to nothing — and worse, it lets the operator grind **round ids** instead
 of seeds, which recovers the whole attack §10.1 exists to close, silently and
 with every round still verifying. Measured on the reference implementation:
@@ -381,15 +399,21 @@ An implementation that derives the table at step 1 and merely mixes the client
 seed in later has not built this protocol; it has built the one §10 says is
 broken.
 
-**Verification is total:** recompute the pre-commitment from the revealed server
-seed and compare with a constant-time hex compare; verify the chain link if one
-was published; re-derive the table from both seeds; compare the hazard digest;
-replay the recorded action list; check every credit — route and side — against
-the recomputed ledger. Failure codes are stable and machine-branchable:
+**Verification is total:** check the published record against a **closed schema**
+— exactly the eight sealed-safe fields, so a table smuggled under *any* key is
+rejected rather than only one named `hazard`; recompute the pre-commitment from
+the revealed server seed and compare with a constant-time hex compare; verify the
+chain position if one was published; re-derive the table from both seeds; compare
+the hazard digest, also constant-time; replay the recorded action list; and, when
+a settlement is supplied, compare **every** field of it — all of which are
+required, because an optional comparison is not a comparison — against the
+re-derivation, by content rather than by key order. Failure codes are stable and
+machine-branchable:
 `INVALID_TRANSCRIPT`, `UNSUPPORTED_VERSION`, `ADAPTER_MISMATCH`,
 `DERIVATION_FAILED`, `TRANSCRIPT_MISMATCH`, `COMMITMENT_MISMATCH`,
 `CHAIN_MISMATCH`, `MALFORMED_HAZARD`, `ILLEGAL_ACTION`, `INVALID_LANE_SPLIT`,
-`INVALID_SIDE_BET`, `QUOTE_MISMATCH`, `LEDGER_MISMATCH`. Integrations branch on
+`INVALID_SIDE_BET`, `QUOTE_MISMATCH`, `LEDGER_MISMATCH`,
+`INVALID_CHAIN`, `INVALID_ARGUMENT`, `VERIFICATION_FAILED`. Integrations branch on
 `code`, never on message text.
 
 ### 5.1 Server-seed chains
@@ -399,14 +423,22 @@ publishes only `s_{L-1}` and `L`. Rounds consume the chain in reverse: the first
 round reveals `s_{L-2}`, the next `s_{L-3}`, and so on.
 
 **A round binds to a POSITION, not to a link.** The pre-commitment carries
-`{terminal, length, index}`, and verification hashes the revealed seed forward
-`length - 1 - index` times and requires it to land exactly on the published
-terminal. Checking a single forward hash against "the next link" is not enough:
-it proves the seed hashes to *some* published value, not that it is the seed for
-*this* round of *that* chain, so the same seed can be replayed across rounds and
-a stalled chain is invisible. With the index bound, two rounds claiming the same
-index are visibly the same round, and any verifier can see how many rounds a
-terminal is good for.
+`{terminal, length, index}`; the position is hashed into `serverCommitment` so an
+operator cannot retro-fit a different index to an already-revealed seed; and
+verification hashes the revealed seed forward `length - 1 - index` times and
+requires it to land exactly on the published terminal. Checking a single forward
+hash against "the next link" is not enough — it proves the seed hashes to *some*
+published value, not that it is the seed for *this* position of *that* chain.
+
+**And a single round still cannot detect reuse.** Two rounds that consume the
+same index both verify perfectly in isolation; the damage — a revealed seed used
+again for a later round, whose table is then computable in advance by anyone who
+saw the first reveal — only becomes visible when the rounds are seen together.
+`verifyChainLedger(rounds)` is that check: it takes a set of round records and
+rejects a duplicated index, a foreign terminal, or a mismatched length, and
+reports how many links remain. Reuse and stalling are therefore **detectable by
+anyone holding the round ledger**, and are *not* rejected by a lone verifier.
+Saying otherwise would be claiming a control that does not exist.
 
 This is optional in the protocol and **recommended in deployment**, because it
 removes the operator's ability to choose a server seed per round at all: the
@@ -627,7 +659,7 @@ settlement — as is the hazard table derived from them. Ranked failure modes in
 | Client claims a survivor set or a multiplier | high | Survivors are re-derived server-side; a quoted multiplier is recomputed and must match exactly (`QUOTE_MISMATCH`), which also catches the honest case of a card that went stale when the player dragged the fork divider |
 | Operator publishes a settlement that does not match the table | high | `verifyRound()` compares every credited figure, the survivor set and both ledgers against a fresh re-derivation and fails `LEDGER_MISMATCH`. A verifier that checks only the commitment proves the table was honest and says nothing about what the player was paid |
 | Operator grinds the round id instead of the seed | highest | `openRound()` opens an already-published pre-commitment and takes the round id from it; it never mints one (§5) |
-| Chain link reused, or chain stalled | medium | A round pre-commits to its chain `index`; verification hashes forward to the published terminal, so a reused link fails and a stalled chain is countable (§5.1) |
+| Chain link reused, or chain stalled | medium | A round pre-commits to its chain `index` and the position is hashed into the commitment, so an index cannot be re-labelled after a reveal. Reuse across rounds is **detectable, not rejected**: `verifyChainLedger()` over a set of round records finds a duplicated index or a stalled chain; a lone `verifyRound()` cannot (§5.1) |
 | Side bet placed after the OUTCOME is known | highest | Atomicity with the route action is necessary and not sufficient: what matters is that the outcome is not knowable. Enforced by sealing the table (§10.2), not by the shape of the command |
 | Side bet placed after the route is known | high | Side bets are fields of the route action, not a separate command; there is no API path to place one later |
 | Side-bet stake used to escape the cap or the limits | medium | `maxSideBetStakeRatio` and `maxTotalSideBetStakeRatio` enforced before debit; cap basis is per ticket |
@@ -637,7 +669,9 @@ settlement — as is the hazard table derived from them. Ranked failure modes in
 | Hostile shelter list, lane balance or side-bet payload | medium | Validated: distinct alive integer slots with `1 <= k <= n-1`; lane balance must be in `laneSplits(n)`; side bets must be known ids, unique per arena, within stake limits |
 | Malformed hazard table reaching an exported replay entry point | low | `assertHazardShape()` validates arena count, per-contract lane count, and every draw's range, failing `MALFORMED_HAZARD` with a `path` |
 | Oversized or malformed transcript | low | Bounded parser, `ENGINE_LIMITS`, fail closed on unknown versions |
-| Float creeping into a money path | low | No `number` type in any money or probability signature; `Rational` and `bigint` only; lint rule bans `parseFloat`/`Number(` in the money path |
+| Float creeping into a money path | low | No `number` type in any money or probability signature; `Rational` and `bigint` only. A test asserts no float operation appears in `tools/lib/exact.mjs` or `tools/lib/model.mjs`; the engine build must add the same check to its own money path |
+| Published settlement that omits the figures it claims to prove | high | Every settlement field is required; a partial settlement fails `LEDGER_MISMATCH` rather than returning `ok` |
+| Table smuggled into the published record under another key | high | Closed schema: exactly the eight sealed-safe fields, anything else fails `INVALID_TRANSCRIPT` |
 | Cap silently clipping an advertised win | low | `capMustBeUnreachable` with `capBasis: 'per-ticket'` proven in CI, per ticket and over the round total; a violation breaks the build instead of the player's payout |
 
 ### 10.1 Why seed grinding is the top row
