@@ -93,3 +93,15 @@ export interface WireRationalView {
 export function view(value: Rational, places = 8): WireRationalView {
   return { exact: fraction(value), decimal: decimals(value, places) };
 }
+
+/**
+ * The same view, rendered the way the published tables render.
+ *
+ * `docs/MATH.md`'s probability and multiplier columns are round-half-up
+ * (`tools/lib/exact.mjs`), so a card that truncated would print
+ * `12.08967032` where the paytable prints `12.08967033`. Money keeps `view()`:
+ * a claim is never rounded up, not even in a label.
+ */
+export function viewRounded(value: Rational, places = 8): WireRationalView {
+  return { exact: fraction(value), decimal: rounded(value, places) };
+}

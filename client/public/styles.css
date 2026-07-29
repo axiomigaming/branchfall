@@ -1,0 +1,976 @@
+/*
+ * BRANCHFALL — graybox styling.
+ *
+ * The palette is `docs/DESIGN.md` §6.1 verbatim, including the two hard rules:
+ * risk is never coloured as danger (NARROW is not red, `--alert` is destructive
+ * confirmations only) and `--verify` never appears in the game world.
+ *
+ * The type direction is §6.5 at placeholder fidelity: a condensed grotesque for
+ * display, a neutral grotesque for body, tabular-lining numerals for every money
+ * figure and every multiplier, sentence case everywhere except route names, which
+ * are the only element allowed to shout and all shout equally. The real build
+ * ships two families in four cuts under 190 KB; this one uses the system stack,
+ * because a graybox that spends its font budget on a graybox is spending it
+ * twice.
+ *
+ * Layout is portrait-first on a 390 x 844 baseline: viewport 0-58% of height,
+ * decision surface 58-100%, every primary action inside the bottom thumb zone,
+ * 44 pt targets.
+ */
+
+:root {
+  /* §6.1 — ten percent of the frame is warm; ninety percent is not. */
+  --void: #0e1114;
+  --night: #1a2026;
+  --fog-mid: #38434b;
+  --fog-far: #8a98a0;
+  --mist: #d6dde0;
+  --bark-deep: #2b231c;
+  --bark: #4a3a2c;
+  --bark-lit: #7a6248;
+  --fossil: #d8cfbb;
+  --lamp-core: #ffe7be;
+  --lamp: #ffa53d;
+  --ember: #d2621c;
+  --brass: #c9a227;
+  --extinguish: #5a4e63;
+  --verify: #7fd4ff;
+  --alert: #e0442f;
+
+  /* Money families (§5.2.2): banked and running are never the same colour. */
+  --money-running: var(--lamp-core);
+  --money-banked: var(--brass);
+  --grows: var(--fossil);
+  --falls: var(--fog-far);
+
+  --display: ui-sans-serif, "Helvetica Neue", "Arial Narrow", system-ui, sans-serif;
+  --body: ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --gutter: 16px;
+  --radius: 3px;
+  --hairline: 1px solid rgba(138, 152, 160, 0.18);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--void);
+  color: var(--mist);
+  font-family: var(--body);
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+#app {
+  min-height: 100%;
+  max-width: 460px;
+  margin: 0 auto;
+  background: var(--night);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* ------------------------------------------------------------------ type */
+
+h1,
+h2,
+h3 {
+  font-family: var(--display);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  margin: 0;
+}
+
+h1 {
+  font-size: 26px;
+}
+h2 {
+  font-size: 19px;
+}
+h3 {
+  font-size: 16px;
+}
+
+.route-name {
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  font-size: 17px;
+}
+
+.num,
+.money {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.small {
+  font-size: 13px;
+  color: var(--fog-far);
+}
+
+.tiny {
+  font-size: 12px;
+  color: var(--fog-far);
+}
+
+.note {
+  font-size: 13px;
+  color: var(--fog-far);
+  line-height: 1.5;
+}
+
+.fiction {
+  font-family: var(--display);
+  font-style: italic;
+  color: var(--fog-far);
+  font-size: 13px;
+}
+
+.runner-name {
+  font-family: var(--display);
+  font-style: italic;
+  letter-spacing: 0.01em;
+}
+
+/* ---------------------------------------------------------------- chrome */
+
+.session-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px var(--gutter);
+  background: var(--void);
+  border-bottom: var(--hairline);
+  font-size: 12px;
+  color: var(--fog-far);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.session-strip .money {
+  color: var(--mist);
+}
+
+.screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.pad {
+  padding: var(--gutter);
+}
+
+.stack > * + * {
+  margin-top: 12px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.spread {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+hr {
+  border: 0;
+  border-top: var(--hairline);
+  margin: 14px 0;
+}
+
+/* --------------------------------------------------------------- buttons */
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.btn {
+  min-height: 48px;
+  padding: 12px 18px;
+  border: 1px solid var(--fog-mid);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--mist);
+  font-family: var(--display);
+  font-size: 16px;
+  letter-spacing: 0.02em;
+  width: 100%;
+  transition: border-color 240ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/*
+ * There is one primary style and it never marks a *choice* as the right one.
+ * `Bank` and `Run the next branch` are rendered with identical weight (§S4).
+ */
+.btn.primary {
+  border-color: var(--brass);
+  color: var(--lamp-core);
+}
+
+.btn.quiet {
+  border-color: transparent;
+  color: var(--fog-far);
+  min-height: 40px;
+  font-size: 14px;
+}
+
+.btn-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.link {
+  color: var(--fog-far);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-size: 13px;
+}
+
+/*
+ * The speed-of-play floor (§5.1): a 2 pt hairline filling under the primary
+ * action. No numerals, no ticking sound, and nothing expires when it completes —
+ * a floor delays when something becomes available and takes nothing away.
+ */
+.cycle {
+  height: 2px;
+  background: rgba(138, 152, 160, 0.2);
+  margin-top: 8px;
+  overflow: hidden;
+}
+
+.cycle > span {
+  display: block;
+  height: 100%;
+  background: var(--brass);
+  width: 0;
+}
+
+/* -------------------------------------------------------------- viewport */
+
+/* The world. Every shape in here is a placeholder for authored art. */
+.viewport {
+  position: relative;
+  height: 34vh;
+  min-height: 200px;
+  max-height: 320px;
+  background:
+    linear-gradient(180deg, #202832 0%, var(--night) 38%, var(--fog-mid) 84%, var(--fog-far) 100%);
+  overflow: hidden;
+  flex: none;
+}
+
+.viewport .fog {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 46%;
+  background: linear-gradient(180deg, rgba(138, 152, 160, 0) 0%, rgba(138, 152, 160, 0.55) 70%, rgba(214, 221, 224, 0.7) 100%);
+  pointer-events: none;
+}
+
+.viewport .arena-label {
+  position: absolute;
+  top: 12px;
+  left: var(--gutter);
+  right: var(--gutter);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.arena-label h2 {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 15px;
+  color: var(--fossil);
+}
+
+.branch {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 52%;
+  height: 16px;
+  background: linear-gradient(180deg, var(--bark-lit) 0%, var(--bark) 45%, var(--bark-deep) 100%);
+}
+
+.branch.thin {
+  height: 7px;
+  top: 70%;
+  right: 12%;
+  left: 8%;
+}
+
+.branch.collapsed {
+  background: linear-gradient(180deg, var(--fog-mid) 0%, var(--void) 100%);
+  opacity: 0.5;
+}
+
+.kindling {
+  position: absolute;
+  width: 11px;
+  height: 28px;
+  transform: translate(-50%, -100%);
+  transition: left 400ms linear, opacity 400ms linear;
+}
+
+.kindling .body {
+  position: absolute;
+  inset: 0;
+  background: var(--bark-deep);
+  border: 1px solid rgba(216, 207, 187, 0.35);
+  border-radius: 2px 2px 0 0;
+}
+
+.kindling .lantern {
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  border-radius: 50%;
+  background: var(--lamp-core);
+  box-shadow: 0 0 14px 6px rgba(255, 165, 61, 0.45);
+}
+
+.kindling.lost .lantern {
+  background: var(--extinguish);
+  box-shadow: none;
+}
+
+.kindling.lost {
+  opacity: 0.35;
+}
+
+.kindling.home .lantern {
+  background: var(--brass);
+  box-shadow: 0 0 10px 4px rgba(201, 162, 39, 0.35);
+}
+
+.kindling .tag {
+  position: absolute;
+  top: -16px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  white-space: nowrap;
+  color: var(--fog-far);
+}
+
+/* ------------------------------------------------------------ claim meter */
+
+/*
+ * §5.2.2 — the teaching object *is* the HUD. Five pips, one per share, each
+ * labelled with its own value. It is never dismissed and never graduates.
+ */
+.claim-meter {
+  background: var(--void);
+  border-top: var(--hairline);
+  border-bottom: var(--hairline);
+  padding: 10px var(--gutter) 12px;
+  text-align: center;
+  flex: none;
+}
+
+.claim-figure {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-size: 28px;
+  line-height: 1.1;
+  color: var(--money-running);
+}
+
+.claim-caption {
+  font-size: 12px;
+  color: var(--fog-far);
+  letter-spacing: 0.04em;
+}
+
+.pips {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.pips.split-lanes {
+  gap: 10px;
+}
+
+.pip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 46px;
+}
+
+.pip .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--lamp);
+  box-shadow: 0 0 10px 3px rgba(255, 165, 61, 0.3);
+}
+
+.pip.lost .dot {
+  background: var(--extinguish);
+  box-shadow: none;
+}
+
+.pip.home .dot {
+  background: var(--brass);
+  box-shadow: none;
+}
+
+.pip .value {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fog-far);
+}
+
+.pip .who {
+  font-size: 10px;
+  color: var(--fog-mid);
+}
+
+.lane-gap {
+  width: 18px;
+  border-left: 1px dashed rgba(138, 152, 160, 0.35);
+}
+
+.banked-row {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(201, 162, 39, 0.3);
+  color: var(--money-banked);
+  font-size: 12px;
+}
+
+/* -------------------------------------------------------------- surfaces */
+
+.surface {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 96px;
+}
+
+.card-pager {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding: 12px var(--gutter);
+  scrollbar-width: none;
+}
+
+.card-pager::-webkit-scrollbar {
+  display: none;
+}
+
+/* All four cards have identical visual weight (§S2). No badge, no highlight. */
+.card {
+  flex: 0 0 88%;
+  scroll-snap-align: center;
+  border: var(--hairline);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(56, 67, 75, 0.28) 0%, rgba(26, 32, 38, 0.28) 100%);
+  padding: 14px;
+}
+
+.card.selected {
+  border-color: var(--fossil);
+}
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.multiplier {
+  font-family: var(--mono);
+  font-size: 24px;
+  color: var(--fossil);
+}
+
+.field {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 14px;
+}
+
+.field .label {
+  color: var(--fog-far);
+}
+
+.field .value {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.field.emphasis .value {
+  color: var(--fossil);
+}
+
+.card-footer {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: var(--hairline);
+  font-size: 12px;
+  color: var(--fog-far);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ------------------------------------------------------- distribution bars */
+
+/*
+ * §3.2 build requirement 2: the bars mark the break-even. Everything below the
+ * tick is drawn in the falling family, everything at or above it in the growing
+ * family, so a player can see which side of the line the mass sits on before
+ * reading a digit.
+ */
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 56px;
+  margin: 10px 0 2px;
+  position: relative;
+}
+
+.bar {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  height: 100%;
+  gap: 3px;
+}
+
+.bar .fill {
+  width: 100%;
+  min-height: 1px;
+  background: var(--falls);
+  border-radius: 1px 1px 0 0;
+}
+
+.bar.grows .fill {
+  background: var(--grows);
+}
+
+.bar.holds .fill {
+  background: var(--bark-lit);
+}
+
+.bar.wipe .fill {
+  background: var(--extinguish);
+}
+
+.bar .axis {
+  font-size: 10px;
+  color: var(--fog-mid);
+  font-family: var(--mono);
+}
+
+.bar.breakeven .axis {
+  color: var(--fossil);
+}
+
+.bar.breakeven .axis::before {
+  content: "▲";
+  display: block;
+  font-size: 7px;
+  line-height: 1;
+  color: var(--fossil);
+}
+
+.bars-caption {
+  font-size: 11px;
+  color: var(--fog-mid);
+  display: flex;
+  justify-content: space-between;
+}
+
+/* -------------------------------------------------------------- fork ctl */
+
+.fork {
+  margin-top: 10px;
+  border-top: var(--hairline);
+  padding-top: 10px;
+}
+
+.balance-tabs {
+  display: grid;
+  grid-auto-flow: column;
+  gap: 8px;
+}
+
+.balance-tab {
+  border: var(--hairline);
+  border-radius: var(--radius);
+  padding: 8px 6px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 15px;
+  min-height: 44px;
+}
+
+.balance-tab[aria-pressed="true"] {
+  border-color: var(--fossil);
+  color: var(--fossil);
+}
+
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.compare-table th,
+.compare-table td {
+  padding: 4px 2px;
+  text-align: right;
+  border-bottom: 1px solid rgba(138, 152, 160, 0.1);
+}
+
+.compare-table th:first-child,
+.compare-table td:first-child {
+  text-align: left;
+  color: var(--fog-far);
+  font-weight: 400;
+}
+
+.compare-table td {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.limb-picker {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 8px;
+  margin-top: 10px;
+  align-items: start;
+}
+
+.limb {
+  border: 1px dashed rgba(138, 152, 160, 0.3);
+  border-radius: var(--radius);
+  padding: 8px;
+  min-height: 64px;
+}
+
+.limb h4 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fog-mid);
+  font-weight: 500;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: var(--hairline);
+  border-radius: 999px;
+  padding: 5px 10px;
+  margin: 0 4px 4px 0;
+  font-size: 13px;
+  min-height: 32px;
+}
+
+.chip .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--lamp);
+}
+
+.chip.inert {
+  opacity: 0.45;
+}
+
+.chip[aria-pressed="true"] {
+  border-color: var(--brass);
+  color: var(--lamp-core);
+}
+
+/* ------------------------------------------------------------- side bets */
+
+.sidebet {
+  border: var(--hairline);
+  border-radius: var(--radius);
+  padding: 10px;
+  margin: 0 var(--gutter);
+}
+
+.sidebet-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(138, 152, 160, 0.1);
+}
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  border: var(--hairline);
+  border-radius: var(--radius);
+}
+
+.stepper button {
+  width: 44px;
+  height: 44px;
+  font-size: 18px;
+  color: var(--mist);
+}
+
+.stepper .amount {
+  min-width: 92px;
+  text-align: center;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------- footer */
+
+.footer {
+  position: sticky;
+  bottom: 0;
+  background: var(--night);
+  box-shadow: 0 -14px 18px -12px rgba(14, 17, 20, 0.9);
+  padding: 10px var(--gutter) calc(12px + env(safe-area-inset-bottom));
+  border-top: var(--hairline);
+  z-index: 10;
+}
+
+.footer .status {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--fog-far);
+  margin-bottom: 8px;
+}
+
+/* ----------------------------------------------------------------- sheet */
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(14, 17, 20, 0.82);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 40;
+}
+
+.sheet {
+  width: 100%;
+  max-width: 460px;
+  max-height: 86vh;
+  overflow-y: auto;
+  background: var(--night);
+  border-top: 1px solid var(--fog-mid);
+  border-radius: 8px 8px 0 0;
+  padding: 16px var(--gutter) calc(24px + env(safe-area-inset-bottom));
+}
+
+.sheet h2 {
+  margin-bottom: 8px;
+}
+
+.odds-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.odds-table th,
+.odds-table td {
+  padding: 5px 4px;
+  border-bottom: 1px solid rgba(138, 152, 160, 0.12);
+  text-align: right;
+}
+
+.odds-table th:first-child,
+.odds-table td:first-child {
+  text-align: left;
+}
+
+.odds-table td {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+/* ----------------------------------------------------------- verify (S8) */
+
+/*
+ * §S8 — a deliberately different visual family, because proof must never look
+ * like a reward. `--verify` appears here and nowhere in the world.
+ */
+.verify {
+  --mist: #dff2ff;
+  background: #0b1620;
+  color: #dff2ff;
+}
+
+.verify h1,
+.verify h2 {
+  color: var(--verify);
+}
+
+.verify .check {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(127, 212, 255, 0.15);
+  align-items: start;
+}
+
+.verify .mark {
+  font-family: var(--mono);
+  color: var(--verify);
+}
+
+.verify .mark.bad {
+  color: var(--alert);
+}
+
+.verify .hash {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #86a7bd;
+  word-break: break-all;
+}
+
+.verify .btn {
+  border-color: rgba(127, 212, 255, 0.5);
+  color: var(--verify);
+}
+
+/* ---------------------------------------------------------------- chips */
+
+.badge {
+  display: inline-block;
+  border: var(--hairline);
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fog-far);
+}
+
+.badge.rehearsal {
+  border-color: var(--brass);
+  color: var(--brass);
+}
+
+.banked-figure {
+  color: var(--money-banked);
+}
+
+.lost-name {
+  color: var(--extinguish);
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  background: var(--void);
+  border: 1px solid var(--fog-mid);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 13px;
+  max-width: 90%;
+  z-index: 50;
+}
+
+.error {
+  border-color: var(--alert);
+  color: #ffd9d3;
+}
+
+/* ------------------------------------------------------------ animation */
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+.fade-in {
+  animation: fade 240ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* The wipe screen holds on empty fog before it says anything (§S6). */
+.quiet-hold {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fog-mid);
+  font-size: 13px;
+}

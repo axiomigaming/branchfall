@@ -72,6 +72,7 @@ import {
   type RouteId,
 } from './geometry.js';
 import { credits, decimals, fraction, view, type WireRationalView } from './money.js';
+import { MICRO_PER_CREDIT } from './definition.js';
 import { figuresFor, geometryKey, type GeometryFigures } from './paytable.js';
 import { REHEARSAL_SEED_PAIR } from './rehearsal-seed.js';
 import {
@@ -86,6 +87,16 @@ import {
 import { InsufficientFunds, Wallet } from './wallet.js';
 import { BUNDLE_SCHEMA, type CreditEvent, type VerificationBundle } from './verify.js';
 import { ghostLines, type GhostRow } from './ghost.js';
+
+/**
+ * A claim is carried in **micro-credits** — the unit the engine's book holds and
+ * the unit a credit is floored to. Every label is in credits, so the conversion
+ * happens once, here, and never by hand at a call site. Getting this wrong is
+ * how a screen ends up showing `4775000.000` where the player staked five.
+ */
+function inCredits(value: Rational): Rational {
+  return rational(value.numerator, value.denominator * MICRO_PER_CREDIT);
+}
 
 export class RoundError extends Error {
   constructor(
@@ -143,6 +154,8 @@ export interface ArenaRecord {
   readonly fallen: readonly { readonly slot: number; readonly name: string }[];
   readonly running: number;
   readonly claimBeforeMicro: bigint;
+  /** After a shelter has taken its share out, which is what the branch ran with. */
+  readonly claimRunningMicro: bigint;
   readonly claimAfterMicro: bigint;
   readonly claimBefore: WireRationalView;
   readonly claimAfter: WireRationalView;
@@ -683,6 +696,17 @@ export class RoundStore {
     }
 
     const claimAfter = round.claim;
+    // The claim the branch actually ran with. A shelter credits its share before
+    // the arena resolves, so printing the pre-shelter figure in the arithmetic
+    // line would print an equation that does not add up — which is precisely the
+    // kind of money display §10.5 forbids.
+    const claimRunning = multiply(
+      pending.claimBefore,
+      rational(
+        BigInt(pending.running.length),
+        BigInt(pending.running.length + pending.shelter.length),
+      ),
+    );
     const factor = multiply(
       rational(BigInt(survivors.length), BigInt(pending.running.length)),
       rational(
@@ -707,17 +731,22 @@ export class RoundStore {
       running: pending.running.length,
       claimBeforeMicro: floor(pending.claimBefore),
       claimAfterMicro: floor(claimAfter),
-      claimBefore: view(pending.claimBefore, 6),
-      claimAfter: view(claimAfter, 6),
+      claimBefore: view(inCredits(pending.claimBefore), 6),
+      claimAfter: view(inCredits(claimAfter), 6),
       claimFactor: view(factor, 8),
       sideBets: settled,
-      arithmetic: `${decimals(pending.claimBefore, 3)} x (${survivors.length}/${pending.running.length}) x ${decimals(
-        rational(
-          engineContractFor(pending.route, pending.laneSplit).multiplier.numerator,
-          engineContractFor(pending.route, pending.laneSplit).multiplier.denominator,
-        ),
-        3,
-      )} = ${decimals(claimAfter, 3)}`,
+      claimRunningMicro: floor(claimRunning),
+      arithmetic:
+        (pending.shelter.length > 0
+          ? `${decimals(inCredits(pending.claimBefore), 3)} − ${decimals(inCredits(pending.claimBefore), 3) === decimals(inCredits(claimRunning), 3) ? '0.000' : credits(pending.shelterCreditedMicro, 3)} home → `
+          : '') +
+        `${decimals(inCredits(claimRunning), 3)} x (${survivors.length}/${pending.running.length}) x ${decimals(
+          rational(
+            engineContractFor(pending.route, pending.laneSplit).multiplier.numerator,
+            engineContractFor(pending.route, pending.laneSplit).multiplier.denominator,
+          ),
+          3,
+        )} = ${decimals(inCredits(claimAfter), 3)}`,
     });
     round.arenas.push(record);
     round.pending = null;
@@ -1002,6 +1031,7 @@ export function serialiseArena(record: ArenaRecord) {
     ...record,
     shelterCreditedMicro: record.shelterCreditedMicro.toString(),
     claimBeforeMicro: record.claimBeforeMicro.toString(),
+    claimRunningMicro: record.claimRunningMicro.toString(),
     claimAfterMicro: record.claimAfterMicro.toString(),
     sideBets: record.sideBets.map((ticket) => ({
       ...ticket,
@@ -1135,9 +1165,9 @@ export function frameOf(round: Round, store: RoundStore) {
     claim: {
       micro: floor(claim).toString(),
       exact: fraction(claim),
-      display: decimals(claim, 3),
+      display: decimals(inCredits(claim), 3),
       perRunnerMicro: floor(perRunner).toString(),
-      perRunnerDisplay: decimals(perRunner, 3),
+      perRunnerDisplay: decimals(inCredits(perRunner), 3),
     },
     squad: round.runners.map((runner) => {
       const held = book?.claims.find((candidate) => candidate.entity === runner.slot);
@@ -1146,7 +1176,7 @@ export function frameOf(round: Round, store: RoundStore) {
         name: runner.name,
         status: runner.status,
         valueMicro: held ? floor(held.value).toString() : '0',
-        valueDisplay: held ? decimals(held.value, 3) : '0.000',
+        valueDisplay: held ? decimals(inCredits(held.value), 3) : '0.000',
       };
     }),
     live: [...live],

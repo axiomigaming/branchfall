@@ -21,9 +21,15 @@ a brass door closes on a light that is still burning.
 
 BRANCHFALL is a staged-survival game built on **Reveal Engine**, the shared Axiom
 Games TypeScript core. This repository is the complete, build-ready
-specification: the product design, the exact probability model, the engine
+specification — the product design, the exact probability model, the engine
 lifecycle it consumes, a runnable enumerator that proves the paytable, and tests
-that fail if the published numbers and the mathematics ever disagree.
+that fail if the published numbers and the mathematics ever disagree — **and a
+playable graybox of the game itself**: a server that consumes the real engine and
+a browser client that plays a whole round through it, at placeholder-art fidelity.
+
+```bash
+npm install && npm run dev      # http://localhost:4173
+```
 
 ---
 
@@ -201,6 +207,73 @@ max-win cap analysis — all as exact fractions.
 
 ---
 
+## Play it
+
+```bash
+npm run dev                # server + client on http://localhost:4173
+npm run conformance        # the engine's own checks, against this declaration
+npm run verify:bundle -- round.json   # check an exported round on any machine
+npm test                   # includes a full round driven through the API
+```
+
+`npm run dev` bundles the client, serves it, and opens an in-memory free-play
+wallet of 500.00 credits. Nothing here is real money and nothing is persisted:
+restart the process and the session is gone.
+
+**What the graybox is.** The complete product at placeholder-art fidelity. Real
+information architecture, real flows, real mathematics, real fairness: the four
+route cards with their exact numbers, the fork balance and the choice of who
+takes the thin limb, the shelter picker, the three side bets with their prices,
+bank-or-continue, the wipe, the round summary, the verification screen, the
+Ghost Line, and the unstaked three-branch rehearsal on the published seed pair.
+The branch is a rectangle and a Kindling is a stroke with a lantern dot — the art
+direction in `docs/DESIGN.md` §6 is a later wave, and the palette and type
+direction are the only parts of it this build implements.
+
+**What the server is.** A Node/TypeScript service consuming
+`@axiom-games/reveal-engine`'s `staged-survival` lifecycle module as a package,
+from `vendor/`. It is not a reimplementation of anything: the counterfactually
+complete tape, the seed pre-commitment published before the client seed exists,
+correlated lane resolution, per-runner claims banked in subsets under one
+ceiling, receipts, idempotency, snapshots and the transcript verifier are all the
+module's. The server adds the things a generic module cannot know — the route
+menu at each squad size, the side-bet prices computed from the module's own
+survivor law, the stake limits, the game-cycle floor, the wallet, and how an
+abandoned round closes.
+
+| Command | What it does |
+| --- | --- |
+| `POST /api/rounds` | publishes the pre-commitment. No stake, no seed, nothing of yours |
+| `POST /api/rounds/:id/open` | binds your client seed to the commitment you saw, debits the stake, derives the sealed tape, publishes its digest |
+| `POST /api/rounds/:id/commit` | route, fork balance, lane assignment, shelter and side bets — one transaction, one receipt |
+| `POST /api/rounds/:id/resolve` | replays the branch you already committed to, from the sealed tape |
+| `POST /api/rounds/:id/bank` | brings the rest home, then settles and reveals |
+| `POST /api/rounds/:id/expire` | the only path that closes an abandoned round: auto-bank where BANK is legal, a full-stake void where it is not |
+| `GET /api/rounds/:id/verify` | the published record, plus a re-derivation of every credited figure |
+| `POST /api/verify` | the same check on any bundle, from any source |
+
+**Where the graybox differs from `docs/ENGINE.md`, stated rather than smoothed
+over.** That document specified a module before one existed; the module that
+shipped is generic, and two things landed differently.
+
+1. **A fork balance is a contract, not an argument.** The module fixes a
+   geometry with one `laneWidth`, so each legal lead-lane size is declared as its
+   own contract. The two coincide exactly on the canonical balance range, and
+   `server/definition.ts` proves it at boot, size by size, against the module's
+   own lane cuts.
+2. **The module proves one cap basis — the round's external stake.** For the
+   route ticket that *is* the route stake, so the ceiling accumulates across
+   shelter withdrawals, banks and settlement exactly as specified. Side bets are
+   separate tickets with their own stakes and their own accumulators, which is
+   the per-ticket basis `docs/MATH.md` §9 proves.
+
+Neither changes a probability, a price or a payout. `tests/graybox-model.test.mjs`
+checks every geometry, every outcome, every claim factor and all
+<!-- fig:sideBetRows -->42<!-- /fig --> side-bet prices against
+`tools/enumerate.mjs` before a card is allowed to show a digit.
+
+---
+
 ## Documentation
 
 | Document | What's in it |
@@ -216,9 +289,18 @@ max-win cap analysis — all as exact fractions.
 | `tools/montecarlo.mjs` | Forward simulation from first principles; cross-check only |
 | `tools/rehearsal.mjs` | The published first-run rehearsal: the seed pair, the search that chose it, and the teaching beats it has to land |
 | `tools/sync-docs.mjs` | Publishes every generated table and figure into the docs |
+| `tools/verify-bundle.ts` | Verifies an exported round anywhere, from the published record alone |
+| `tools/rehearsal-seed.ts` | The published search that chose the rehearsal seed pair |
 | `src/staged-survival.ts` | The engine lifecycle contract, compilable |
 | `src/branchfall.adapter.ts` | The BRANCHFALL adapter declaration, compilable |
-| `tests/` | Exact-arithmetic tests, paytable-matches-docs, frozen wire fixtures, hostile input, seed-grinding mitigation |
+| `server/definition.ts` | The BRANCHFALL declaration on the shipped module, and the geometry proof |
+| `server/rounds.ts` | The round: pre-commit, open, commit, resolve, settle, expire |
+| `server/paytable.ts` | Every card number, derived from the engine's own survivor law |
+| `server/sidebets.ts` | Side-bet pricing, stake limits and settlement |
+| `server/rehearsal.ts` | The unstaked teaching path — no wallet, no book, no receipt |
+| `server/verify.ts` | The proof *and* the ledger, re-derived |
+| `client/src/` | The browser client: portrait, mobile-first, no framework |
+| `tests/` | Exact-arithmetic tests, paytable-matches-docs, frozen wire fixtures, hostile input, seed-grinding mitigation, and a full round driven through the API |
 
 ---
 
@@ -226,11 +308,11 @@ max-win cap analysis — all as exact fractions.
 
 | | |
 | --- | --- |
-| Stage | Specification complete; engine lifecycle module not yet implemented |
+| Stage | Specification closed; **playable graybox** on the shipped engine module — real flows, real mathematics, real fairness, placeholder art |
 | Real money | **No.** Free-play prototype throughout |
 | Certification | **None claimed.** Not a fairness certificate, RNG certificate, mathematical certification, or regulatory approval |
-| Engine | Targets `@axiom-games/reveal-engine` `reveal-engine/api-v1`; requires a new `staged-survival` lifecycle module (see `docs/ENGINE.md`) |
-| Next | Implement `src/protocol/staged-survival/` in the engine against the frozen fixture in `tests/fixtures/` |
+| Engine | `@axiom-games/reveal-engine` 0.4.0, `reveal-engine/api-v1`, `staged-survival` lifecycle module 1.0.0, consumed as a package from `vendor/` |
+| Next | Art, motion and sound against `docs/DESIGN.md` §6–§7; the determinism, performance and comprehension harnesses in §11.3; an operator integration |
 
 Deployment would require frozen configuration, independently reviewed seed
 custody, an operator integration and wallet audit, jurisdictional analysis, a

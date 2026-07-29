@@ -55,6 +55,19 @@ jobs:
       - name: Check the frozen rehearsal fixture is current
         run: npm run rehearsal:check
 
+      # The graybox consumes the engine as a package from `vendor/`. If the
+      # module ever stops accepting this declaration on its own terms, the
+      # game is built on something other than what it says it is built on.
+      - name: Engine module conformance, against the BRANCHFALL declaration
+        run: npm run conformance
+
+      - name: The client bundles
+        run: npm run build:client
+
+      # Includes the API-level playthrough: a whole round driven through the
+      # HTTP surface with a fixed seed, asserting every credit to the
+      # micro-credit, the speed-of-play floor as a real refusal, and the
+      # verification bundle end to end.
       - name: Tests
         run: npm test
 

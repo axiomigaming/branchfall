@@ -27,7 +27,7 @@ import {
 } from '@axiom-games/reveal-engine/modules/staged-survival';
 import { BRANCHFALL, ENTRY_RETURN, SQUAD_SIZE } from './definition.js';
 import { engineContractFor, laneBalances, laneSizesFor, type RouteId } from './geometry.js';
-import { decimals, fraction, percent, rounded, view, type WireRationalView } from './money.js';
+import { fraction, percent, rounded, view, viewRounded, type WireRationalView } from './money.js';
 
 const ZERO = rational(0n);
 const ONE = rational(1n);
@@ -177,8 +177,8 @@ export function figuresFor(
     }
     outcomes.push({
       survivors: m,
-      probability: view(probability, 12),
-      claimFactor: view(factor, 8),
+      probability: viewRounded(probability, 12),
+      claimFactor: viewRounded(factor, 8),
       direction,
     });
   }
@@ -195,9 +195,9 @@ export function figuresFor(
             id: bet.id,
             label: bet.label,
             claim: bet.claim,
-            probability: view(probability, 12),
+            probability: viewRounded(probability, 12),
             probabilityPct: percent(probability, 4),
-            multiplier: view(sideBetMultiplier(probability), 8),
+            multiplier: viewRounded(sideBetMultiplier(probability), 8),
           };
         })
       : [];
@@ -208,17 +208,17 @@ export function figuresFor(
     running,
     laneSplit,
     lanes: laneSizesFor(running, laneSplit),
-    multiplier: view(multiplier, 8),
+    multiplier: viewRounded(multiplier, 8),
     outcomes: Object.freeze(outcomes),
-    wipe: view(wipe, 12),
-    allClear: view(allClear, 12),
-    sole: view(sole, 12),
-    expectedSurvivors: view(expected, 6),
+    wipe: viewRounded(wipe, 12),
+    allClear: viewRounded(allClear, 12),
+    sole: viewRounded(sole, 12),
+    expectedSurvivors: viewRounded(expected, 6),
     breakEven,
-    claimFactorAtBreakEven: view(breakEvenFactor, 8),
-    grows: view(grows, 12),
-    holds: view(holds, 12),
-    fallsNonZero: view(fallsNonZero, 12),
+    claimFactorAtBreakEven: viewRounded(breakEvenFactor, 8),
+    grows: viewRounded(grows, 12),
+    holds: viewRounded(holds, 12),
+    fallsNonZero: viewRounded(fallsNonZero, 12),
     sideBets: Object.freeze(sideBets),
     display: {
       multiplier: `${rounded(multiplier, 3)}x`,
