@@ -998,7 +998,7 @@ them, checking <!-- fig:invariantCount -->1809<!-- /fig --> exact invariants:
    return distributions. This is the check that did not exist when §3.2 claimed
    the fork was non-dominated.
 
-Run `npm run enumerate` and read sections 2.1, 5 and 7 of the output.
+Run `npm run enumerate` and read sections 2.1, 2.2, 5 and 7 of the output.
 
 ### 8.5 What a player *can* control
 

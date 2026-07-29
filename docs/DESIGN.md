@@ -489,9 +489,9 @@ is therefore declared, and fingerprinted alongside `cycleUnit`:
 | `speed.provisionVerifiedAgainstCertifiedCopy` | **false** |
 
 That last row is the honest one and it is deliberately in the declaration rather
-than in a footnote. **This repository has not checked the lettering against a
-certified copy of the operative edition in any jurisdiction, and does not claim
-the citation is correct.** What it claims is narrower and is the thing that was
+than in a footnote. **This repository has not checked the lettering — or the
+edition string itself — against a certified copy of the operative edition in any
+jurisdiction, and does not claim the citation is correct.** What it claims is narrower and is the thing that was
 missing: the pin exists, it is visible, it is part of the game's declared
 identity, and if it is wrong it is wrong in exactly one place. Verifying it
 against the operative edition for a target jurisdiction is pre-submission work

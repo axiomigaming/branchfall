@@ -897,7 +897,8 @@ paragraph becomes a vulnerability report.
    every geometry including both SPLIT balances.
 4. `sidebets.ts` — event probabilities from the committed geometry, pricing,
    stake limits, quote comparison.
-5. `book.ts` with receipts, per-ticket cap, game-cycle floor, snapshot/restore.
+5. `book.ts` with receipts, per-ticket cap, game-cycle floor, snapshot/restore,
+   and `expire()` — the only path that closes an abandoned round (§6.1).
 6. `conformance.ts` implementing §7.
 7. `reveal-verify --lifecycle staged-survival` CLI support.
 8. Export from `@axiom-games/reveal-engine/protocol`; minor version bump

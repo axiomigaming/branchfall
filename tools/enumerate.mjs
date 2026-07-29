@@ -7,7 +7,10 @@
  *
  *   1. every route contract's hazard parameters and route multiplier;
  *   2. every route GEOMETRY — including the lane balances the player chooses
- *      on a SPLIT — with its exact shape metrics;
+ *      on a SPLIT — with its exact shape metrics; the break-even survivor count
+ *      at which the claim stops falling; and the second-order dominance relation
+ *      between every pair of geometries a player can be offered at once, which is
+ *      what separates a genuine trade from a volatility dial;
  *   3. every (geometry, survivor count) outcome — exact probability and exact
  *      claim multiplier;
  *   4. every side bet against every geometry — exact probability, multiplier
