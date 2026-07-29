@@ -1,0 +1,11 @@
+{
+  "_comment": "A v1-schema transcript, frozen as the conformance vector for rejection. The v1 hazard derivation had no client seed, so no v2 verifier can reproduce its table; verifyRound() must fail closed with UNSUPPORTED_VERSION rather than attempt a migration.",
+  "schema": "branchfall/transcript-v1",
+  "gameId": "branchfall",
+  "adapterVersion": "1.0.0",
+  "modelVersion": "branchfall-hazard/v1",
+  "roundId": "branchfall-fixture-0001",
+  "commitment": "0e1a8a5a5b0a4d3f9c7e2b1d6f8a0c3e5d7b9f1a2c4e6a8c0e2b4d6f8a0c2e4d",
+  "seed": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+  "stakeMicro": "10000000"
+}

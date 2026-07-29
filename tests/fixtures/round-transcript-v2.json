@@ -1,13 +1,21 @@
 {
-  "schema": "branchfall/transcript-v1",
+  "schema": "branchfall/transcript-v2",
   "input": {
-    "seed": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
-    "roundId": "branchfall-fixture-0001",
+    "serverSeed": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+    "clientSeed": "wren-bramble-ora-tuck-sable-74",
+    "roundId": "branchfall-fixture-0002",
     "stakeMicro": "10000000",
     "actions": [
       {
         "type": "ROUTE",
-        "contract": "SPLIT"
+        "contract": "SPLIT",
+        "laneSplit": 4,
+        "sideBets": [
+          {
+            "bet": "CLEAN_SWEEP",
+            "stakeMicro": "2000000"
+          }
+        ]
       },
       {
         "type": "ROUTE",
@@ -17,51 +25,64 @@
         "type": "SHELTER",
         "shelter": [
           0
+        ],
+        "sideBets": [
+          {
+            "bet": "LAST_LIGHT",
+            "stakeMicro": "1000000"
+          }
         ]
       },
       {
         "type": "ROUTE",
-        "contract": "NARROW"
+        "contract": "NARROW",
+        "sideBets": [
+          {
+            "bet": "SOLE_SURVIVOR",
+            "stakeMicro": "1000000"
+          }
+        ]
       },
       {
         "type": "BANK"
       }
     ]
   },
-  "commitment": "f093b04fbed13e5b659290bcb04bf7062f0b3d855de2cf8895f379bbb0f31cf1",
+  "serverCommitment": "922cbd0ff1a575f27174d94342653feb502415d5f3cbeb7982fb787def231db8",
+  "hazardDigest": "fb3f1750e4d4888755dba4879372d4a54d3edfb1d0fd6a0887ac19651f1d9d88",
   "hazard": [
     {
       "WIDE": [
         {
-          "collapse": 24,
-          "slips": [
-            1,
-            2,
-            5,
-            5,
-            0
-          ]
-        }
-      ],
-      "SPLIT": [
-        {
           "collapse": 3,
           "slips": [
             2,
-            2,
             1,
+            0,
+            5,
+            4
+          ]
+        }
+      ],
+      "SPLIT": [
+        {
+          "collapse": 7,
+          "slips": [
+            0,
+            0,
+            3,
             4,
-            5
+            3
           ]
         },
         {
-          "collapse": 8,
+          "collapse": 2,
           "slips": [
-            4,
-            4,
+            2,
+            3,
+            1,
             0,
-            4,
-            1
+            4
           ]
         }
       ],
@@ -69,10 +90,10 @@
         {
           "collapse": 1,
           "slips": [
-            1,
-            1,
             0,
             0,
+            0,
+            1,
             0
           ]
         }
@@ -84,175 +105,175 @@
           "collapse": 4,
           "slips": [
             1,
-            7,
-            1,
-            7,
-            4
-          ]
-        }
-      ],
-      "SPLIT": [
-        {
-          "collapse": 6,
-          "slips": [
-            1,
-            5,
-            1,
-            3,
-            0
-          ]
-        },
-        {
-          "collapse": 0,
-          "slips": [
-            0,
-            5,
-            1,
-            5,
-            2
-          ]
-        }
-      ],
-      "NARROW": [
-        {
-          "collapse": 1,
-          "slips": [
-            0,
-            1,
-            1,
-            1,
-            1
-          ]
-        }
-      ]
-    },
-    {
-      "WIDE": [
-        {
-          "collapse": 20,
-          "slips": [
-            1,
-            6,
             4,
             6,
-            5
-          ]
-        }
-      ],
-      "SPLIT": [
-        {
-          "collapse": 4,
-          "slips": [
-            3,
-            0,
-            1,
-            4,
-            1
-          ]
-        },
-        {
-          "collapse": 6,
-          "slips": [
-            3,
-            2,
-            3,
-            0,
-            2
-          ]
-        }
-      ],
-      "NARROW": [
-        {
-          "collapse": 0,
-          "slips": [
-            0,
-            0,
-            1,
-            1,
-            0
-          ]
-        }
-      ]
-    },
-    {
-      "WIDE": [
-        {
-          "collapse": 14,
-          "slips": [
-            4,
-            7,
-            4,
-            0,
+            6,
             1
           ]
         }
       ],
       "SPLIT": [
-        {
-          "collapse": 1,
-          "slips": [
-            1,
-            0,
-            2,
-            1,
-            1
-          ]
-        },
-        {
-          "collapse": 9,
-          "slips": [
-            5,
-            5,
-            3,
-            1,
-            4
-          ]
-        }
-      ],
-      "NARROW": [
-        {
-          "collapse": 0,
-          "slips": [
-            1,
-            0,
-            1,
-            1,
-            1
-          ]
-        }
-      ]
-    },
-    {
-      "WIDE": [
-        {
-          "collapse": 19,
-          "slips": [
-            0,
-            2,
-            2,
-            1,
-            5
-          ]
-        }
-      ],
-      "SPLIT": [
-        {
-          "collapse": 9,
-          "slips": [
-            0,
-            3,
-            2,
-            3,
-            4
-          ]
-        },
         {
           "collapse": 5,
           "slips": [
-            2,
-            2,
-            2,
+            5,
+            1,
+            3,
             4,
+            4
+          ]
+        },
+        {
+          "collapse": 9,
+          "slips": [
+            1,
+            0,
+            1,
+            3,
+            1
+          ]
+        }
+      ],
+      "NARROW": [
+        {
+          "collapse": 1,
+          "slips": [
+            1,
+            0,
+            1,
+            0,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "WIDE": [
+        {
+          "collapse": 13,
+          "slips": [
+            5,
+            0,
+            6,
+            3,
+            4
+          ]
+        }
+      ],
+      "SPLIT": [
+        {
+          "collapse": 2,
+          "slips": [
+            3,
+            1,
+            1,
+            3,
+            5
+          ]
+        },
+        {
+          "collapse": 0,
+          "slips": [
+            3,
+            2,
+            5,
+            5,
+            0
+          ]
+        }
+      ],
+      "NARROW": [
+        {
+          "collapse": 1,
+          "slips": [
+            1,
+            0,
+            1,
+            0,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "WIDE": [
+        {
+          "collapse": 12,
+          "slips": [
+            4,
+            5,
+            0,
+            0,
+            3
+          ]
+        }
+      ],
+      "SPLIT": [
+        {
+          "collapse": 1,
+          "slips": [
+            3,
+            2,
+            3,
+            0,
+            5
+          ]
+        },
+        {
+          "collapse": 6,
+          "slips": [
+            0,
+            2,
+            3,
+            4,
+            2
+          ]
+        }
+      ],
+      "NARROW": [
+        {
+          "collapse": 1,
+          "slips": [
+            0,
+            1,
+            1,
+            1,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "WIDE": [
+        {
+          "collapse": 5,
+          "slips": [
+            1,
+            6,
+            1,
+            5,
+            5
+          ]
+        }
+      ],
+      "SPLIT": [
+        {
+          "collapse": 1,
+          "slips": [
+            1,
+            4,
+            1,
+            3,
+            2
+          ]
+        },
+        {
+          "collapse": 7,
+          "slips": [
+            0,
+            2,
+            5,
+            0,
             3
           ]
         }
@@ -263,7 +284,7 @@
           "slips": [
             0,
             1,
-            0,
+            1,
             1,
             0
           ]
@@ -273,11 +294,14 @@
   ],
   "replay": {
     "stakeMicro": "10000000",
+    "sideStakeMicro": "4000000",
+    "totalStakeMicro": "14000000",
     "ledger": [
       {
         "arena": 1,
         "action": "ROUTE",
         "contract": "SPLIT",
+        "laneSplit": 4,
         "sheltered": [],
         "running": [
           0,
@@ -290,10 +314,10 @@
           [
             0,
             1,
-            2
+            2,
+            3
           ],
           [
-            3,
             4
           ]
         ],
@@ -316,6 +340,7 @@
         "arena": 2,
         "action": "ROUTE",
         "contract": "WIDE",
+        "laneSplit": null,
         "sheltered": [],
         "running": [
           0,
@@ -338,7 +363,74 @@
         ],
         "survivors": [
           0,
+          1,
           2,
+          3,
+          4
+        ],
+        "fallen": [],
+        "claimBefore": "191/150",
+        "claimAfter": "191/126"
+      },
+      {
+        "arena": 3,
+        "action": "SHELTER",
+        "contract": "WIDE",
+        "laneSplit": null,
+        "sheltered": [
+          0
+        ],
+        "running": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "lanes": [
+          [
+            1,
+            2,
+            3,
+            4
+          ]
+        ],
+        "collapsed": [
+          false
+        ],
+        "survivors": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "fallen": [],
+        "claimBefore": "382/315",
+        "claimAfter": "1910/1323"
+      },
+      {
+        "arena": 4,
+        "action": "ROUTE",
+        "contract": "NARROW",
+        "laneSplit": null,
+        "sheltered": [],
+        "running": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "lanes": [
+          [
+            1,
+            2,
+            3,
+            4
+          ]
+        ],
+        "collapsed": [
+          false
+        ],
+        "survivors": [
           4
         ],
         "fallen": [
@@ -348,81 +440,74 @@
             "lane": 0
           },
           {
+            "slot": 2,
+            "cause": "slip",
+            "lane": 0
+          },
+          {
             "slot": 3,
             "cause": "slip",
             "lane": 0
           }
         ],
-        "claimBefore": "191/150",
-        "claimAfter": "191/210"
+        "claimBefore": "1910/1323",
+        "claimAfter": "1910/1323"
+      },
+      {
+        "arena": 5,
+        "action": "BANK",
+        "alive": [
+          4
+        ],
+        "claimBefore": "1910/1323"
+      }
+    ],
+    "sideLedger": [
+      {
+        "arena": 1,
+        "bet": "CLEAN_SWEEP",
+        "contract": "SPLIT",
+        "runners": 5,
+        "laneSplit": 4,
+        "stakeMicro": "2000000",
+        "probability": "125/384",
+        "multiplier": "9168/3125",
+        "won": true,
+        "creditedMicro": "5867520"
       },
       {
         "arena": 3,
-        "action": "SHELTER",
+        "bet": "LAST_LIGHT",
         "contract": "WIDE",
-        "sheltered": [
-          0
-        ],
-        "running": [
-          2,
-          4
-        ],
-        "lanes": [
-          [
-            2,
-            4
-          ]
-        ],
-        "collapsed": [
-          false
-        ],
-        "survivors": [
-          2,
-          4
-        ],
-        "fallen": [],
-        "claimBefore": "191/315",
-        "claimAfter": "955/1323"
+        "runners": 4,
+        "laneSplit": null,
+        "stakeMicro": "1000000",
+        "probability": "103/2560",
+        "multiplier": "12224/515",
+        "won": false,
+        "creditedMicro": "0"
       },
       {
         "arena": 4,
-        "action": "ROUTE",
+        "bet": "SOLE_SURVIVOR",
         "contract": "NARROW",
-        "sheltered": [],
-        "running": [
-          2,
-          4
-        ],
-        "lanes": [
-          [
-            2,
-            4
-          ]
-        ],
-        "collapsed": [
-          true
-        ],
-        "survivors": [],
-        "fallen": [
-          {
-            "slot": 2,
-            "cause": "collapse",
-            "lane": 0
-          },
-          {
-            "slot": 4,
-            "cause": "collapse",
-            "lane": 0
-          }
-        ],
-        "claimBefore": "955/1323",
-        "claimAfter": "0/1"
+        "runners": 4,
+        "laneSplit": null,
+        "stakeMicro": "1000000",
+        "probability": "1/8",
+        "multiplier": "191/25",
+        "won": true,
+        "creditedMicro": "7640000"
       }
     ],
-    "survivorsBanked": [],
-    "finalClaim": "0/1",
-    "creditedMicro": "3031746",
-    "returnMultiple": "1515873/5000000",
+    "survivorsBanked": [
+      4
+    ],
+    "finalClaim": "1910/1323",
+    "routeCreditedMicro": "17468631",
+    "sideCreditedMicro": "13507520",
+    "creditedMicro": "30976151",
+    "returnMultiple": "30976151/14000000",
     "capped": false
   }
 }

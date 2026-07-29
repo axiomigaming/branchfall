@@ -6,20 +6,27 @@
  * game with exact BigInt rational arithmetic and prints, as exact fractions:
  *
  *   1. every route contract's hazard parameters and route multiplier;
- *   2. every (contract, squad size, survivor count) outcome — its exact
- *      probability and its exact claim multiplier;
- *   3. every side bet's exact probability, multiplier and RTP;
- *   4. a backward-induction sweep of the entire decision space showing that the
+ *   2. every route GEOMETRY — including the lane balances the player chooses
+ *      on a SPLIT — with its exact shape metrics;
+ *   3. every (geometry, survivor count) outcome — exact probability and exact
+ *      claim multiplier;
+ *   4. every side bet against every geometry — exact probability, multiplier
+ *      and RTP — and the proof that pricing is bound to the committed
+ *      configuration rather than to a contract id;
+ *   5. a backward-induction sweep of the entire decision space showing that the
  *      best and the worst policy have identical value in every reachable state;
- *   5. the full outcome space of a set of named policies, with exact RTP,
+ *   6. the full outcome space of a set of named policies, with exact RTP,
  *      variance and tail probabilities;
- *   6. the maximum credited payout over all policies and paths, versus the cap.
+ *   7. the full outcome space of PORTFOLIOS — a route policy plus a side-bet
+ *      plan — proving `E[credited] / E[staked] = r` exactly for each one;
+ *   8. the max-win cap analysis, per ticket AND over the round total.
  *
  * Every claim printed here is asserted. A violated invariant exits non-zero.
  *
  * Usage:
  *   node tools/enumerate.mjs               full human-readable report
  *   node tools/enumerate.mjs --markdown    emit the docs/MATH.md tables
+ *   node tools/enumerate.mjs --figures     emit the inline doc figures
  *   node tools/enumerate.mjs --json        emit machine-readable results
  *   node tools/enumerate.mjs --quiet       assertions only (exit code is the answer)
  */
@@ -29,17 +36,25 @@ import {
   CONFIG,
   CONTRACTS,
   CONTRACT_IDS,
+  SIDE_BETS,
+  SIDE_BET_PLANS,
   actionExpectedFactor,
   actionsFor,
   branches,
+  capAnalysis,
+  committedConfiguration,
+  configKey,
   enumeratePolicy,
   laneSizes,
+  laneSplitsFor,
+  largestSideBetMultiplier,
   marginalSurvival,
-  maxPayoutDP,
   POLICIES,
   probabilityAtLeast,
   probabilityOfZero,
+  routeConfigurations,
   routeMultiplier,
+  sideBetOffersFor,
   sideBetTable,
   stateValueDP,
   survivorDistribution,
@@ -65,11 +80,34 @@ function checkEqual(actual, expected, description) {
 }
 
 /* ------------------------------------------------------------------ *
- * derived quantities
+ * formatting helpers
  * ------------------------------------------------------------------ */
 
 const PROB_PLACES = 12;
 const MULT_PLACES = 8;
+
+/** @param {Frac} f @param {number} places */
+const pct = (f, places = 2) => `${toFixedExact(f.mul(F(100n)), places)}%`;
+/** @param {Frac} f @param {number} places */
+const mult = (f, places = 3) => `${toFixedExact(f, places)}x`;
+/** @param {bigint} value */
+const grouped = (value) => value.toString().replace(/\B(?=(\d{3})+(?!\d))/gu, ',');
+/** @param {number|null} laneSplit @param {number} runners */
+const geometryLabel = (laneSplit, runners) => (laneSplit === null ? `${runners}` : `${laneSplit}+${runners - laneSplit}`);
+
+/** @param {Frac[]} dist */
+function expectedSurvivors(dist) {
+  return dist.reduce((s, p, m) => s.add(p.mul(F(BigInt(m)))), Frac.ZERO);
+}
+
+/** @param {Frac[]} dist @param {number} floorCount */
+function probabilityOfAtLeast(dist, floorCount) {
+  return dist.reduce((s, p, m) => (m >= floorCount ? s.add(p) : s), Frac.ZERO);
+}
+
+/* ------------------------------------------------------------------ *
+ * derived quantities
+ * ------------------------------------------------------------------ */
 
 /** Contract-level rows. */
 export function contractRows() {
@@ -87,55 +125,51 @@ export function contractRows() {
   });
 }
 
-/** Every (contract, runners, survivors) outcome with probability and claim multiplier. */
-export function outcomeRows() {
-  const rows = [];
-  for (const id of CONTRACT_IDS) {
-    for (let n = CONTRACTS[id].minRunners; n <= CONFIG.squadSize; n += 1) {
-      const dist = survivorDistribution(id, n);
-      const mu = routeMultiplier(id);
-      for (let m = 0; m <= n; m += 1) {
-        rows.push({
-          contract: id,
-          runners: n,
-          survivors: m,
-          probability: dist[m],
-          claimMultiplier: F(BigInt(m), BigInt(n)).mul(mu),
-        });
-      }
-    }
-  }
-  return rows;
+/**
+ * Every route geometry the game can present: contract x running group x lane
+ * balance. This is the unit everything else is indexed by.
+ */
+export function geometryRows() {
+  return routeConfigurations().map((config) => {
+    const dist = survivorDistribution(config.contract, config.runners, config.laneSplit);
+    return {
+      ...config,
+      choices: laneSplitsFor(config.contract, config.runners).length,
+      wipe: dist[0],
+      cleanSweep: dist[config.runners],
+      soleSurvivor: config.runners >= 1 ? dist[1] : Frac.ZERO,
+      expectedSurvivors: expectedSurvivors(dist),
+      fairness: dist.reduce(
+        (s, p, m) => s.add(p.mul(F(BigInt(m), BigInt(config.runners))).mul(routeMultiplier(config.contract))),
+        Frac.ZERO,
+      ),
+      total: dist.reduce((s, p) => s.add(p), Frac.ZERO),
+    };
+  });
 }
 
-/** Per (contract, runners) shape metrics: the reason contract choice matters. */
-export function shapeRows() {
+/** Every (geometry, survivors) outcome with probability and claim multiplier. */
+export function outcomeRows() {
   const rows = [];
-  for (const id of CONTRACT_IDS) {
-    for (let n = CONTRACTS[id].minRunners; n <= CONFIG.squadSize; n += 1) {
-      const dist = survivorDistribution(id, n);
-      const mu = routeMultiplier(id);
-      const expectedSurvivors = dist.reduce((s, p, m) => s.add(p.mul(F(BigInt(m)))), Frac.ZERO);
-      const fairness = dist.reduce(
-        (s, p, m) => s.add(p.mul(F(BigInt(m), BigInt(n))).mul(mu)),
-        Frac.ZERO,
-      );
+  for (const config of routeConfigurations()) {
+    const dist = survivorDistribution(config.contract, config.runners, config.laneSplit);
+    const mu = routeMultiplier(config.contract);
+    for (let m = 0; m <= config.runners; m += 1) {
       rows.push({
-        contract: id,
-        runners: n,
-        lanes: laneSizes(id, n),
-        wipe: dist[0],
-        cleanSweep: dist[n],
-        expectedSurvivors,
-        fairness,
-        total: dist.reduce((s, p) => s.add(p), Frac.ZERO),
+        contract: config.contract,
+        runners: config.runners,
+        laneSplit: config.laneSplit,
+        lanes: config.lanes,
+        survivors: m,
+        probability: dist[m],
+        claimMultiplier: F(BigInt(m), BigInt(config.runners)).mul(mu),
       });
     }
   }
   return rows;
 }
 
-/** Full outcome space of every named policy, with exact moments and tails. */
+/** Full outcome space of every named policy, route ticket only. */
 export function policyRows() {
   return Object.entries(POLICIES).map(([key, { label, fn }]) => {
     const result = enumeratePolicy(fn);
@@ -145,21 +179,56 @@ export function policyRows() {
       leaves: result.leaves,
       distinctOutcomes: result.distribution.length,
       totalProbability: result.totalProbability,
-      rtp: result.mean,
+      rtp: result.rtp,
+      mean: result.mean,
+      stakeDeterministic: result.stakeDeterministic,
       variance: result.variance,
       bust: probabilityOfZero(result.distribution),
       atLeast1: probabilityAtLeast(result.distribution, F(1n)),
       atLeast10: probabilityAtLeast(result.distribution, F(10n)),
       atLeast100: probabilityAtLeast(result.distribution, F(100n)),
       maxReturn: result.maxReturn,
+      maxReturnProbability: result.distribution.reduce(
+        (acc, o) => (o.value.eq(result.maxReturn) ? o.prob : acc),
+        Frac.ZERO,
+      ),
     };
   });
 }
 
-/** Exact ceiling on credited payout across every policy and path. */
+/**
+ * Every (route policy, side-bet plan) portfolio. This is the table that makes
+ * the "no policy beats the target RTP" claim cover side bets, which the v1
+ * draft asserted without having them in its state space.
+ */
+export function portfolioRows(policyKeys = Object.keys(POLICIES)) {
+  const rows = [];
+  for (const policyKey of policyKeys) {
+    const policy = POLICIES[policyKey];
+    for (const [planKey, plan] of Object.entries(SIDE_BET_PLANS)) {
+      const result = enumeratePolicy(policy.fn, plan.fn);
+      rows.push({
+        policyKey,
+        planKey,
+        policy: policy.label,
+        plan: plan.label,
+        leaves: result.leaves,
+        expectedStake: result.expectedStake,
+        expectedCredit: result.expectedCredit,
+        rtp: result.rtp,
+        stakeDeterministic: result.stakeDeterministic,
+        variance: result.variance,
+        bust: probabilityOfZero(result.distribution),
+        maxReturn: result.maxReturn,
+      });
+    }
+  }
+  return rows;
+}
+
+/** Exact ceiling on credited payout for the route ticket, over all policies and paths. */
 export function maxPayoutMultiple() {
-  const best = maxPayoutDP();
-  return CONFIG.rtp.mul(best[1][CONFIG.squadSize]);
+  return capAnalysis().routeTicketMax;
 }
 
 /* ------------------------------------------------------------------ *
@@ -170,22 +239,47 @@ export function runInvariants() {
   failures.length = 0;
   checks.length = 0;
 
-  // 1. Every survivor distribution is a probability distribution.
-  for (const row of shapeRows()) {
-    checkEqual(row.total, Frac.ONE, `${row.contract}/${row.runners}: probabilities sum to 1`);
+  const configs = routeConfigurations();
+
+  // 1. Lane geometry is well formed: sizes sum to the group, one entry per lane,
+  //    canonical (lead lane never smaller than the trailing lane), and the set of
+  //    legal balances is exactly what the action list offers.
+  for (const config of configs) {
+    const sizes = laneSizes(config.contract, config.runners, config.laneSplit);
+    check(
+      sizes.length === CONTRACTS[config.contract].laneCount,
+      `${config.key}: lane count is ${CONTRACTS[config.contract].laneCount}`,
+    );
+    check(
+      sizes.reduce((a, b) => a + b, 0) === config.runners,
+      `${config.key}: lane sizes sum to the running group`,
+    );
+    check(sizes.every((s) => s >= 1), `${config.key}: every lane carries at least one runner`);
+    check(
+      sizes[0] >= sizes[sizes.length - 1],
+      `${config.key}: lane balance is canonical (lead lane is the larger half)`,
+    );
   }
 
-  // 2. Marginal per-runner survival matches the declared (1 - c) * q for every squad size.
-  for (const id of CONTRACT_IDS) {
-    const p = marginalSurvival(id);
-    for (let n = CONTRACTS[id].minRunners; n <= CONFIG.squadSize; n += 1) {
-      const dist = survivorDistribution(id, n);
-      const expected = dist.reduce((s, prob, m) => s.add(prob.mul(F(BigInt(m)))), Frac.ZERO);
-      checkEqual(expected, p.mul(F(BigInt(n))), `${id}/${n}: E[survivors] = n * p`);
-    }
+  // 2. Every survivor distribution is a probability distribution.
+  for (const row of geometryRows()) {
+    checkEqual(row.total, Frac.ONE, `${row.key}: probabilities sum to 1`);
   }
 
-  // 3. Route multiplier is exactly 1 / p, so a stage is a fair bet on the carried claim.
+  // 3. Marginal per-runner survival matches the declared (1 - c) * q for every
+  //    geometry — including every lane balance. This is what makes the lane
+  //    balance a shape choice and not an odds choice.
+  for (const config of configs) {
+    const p = marginalSurvival(config.contract);
+    const dist = survivorDistribution(config.contract, config.runners, config.laneSplit);
+    checkEqual(
+      expectedSurvivors(dist),
+      p.mul(F(BigInt(config.runners))),
+      `${config.key}: E[survivors] = n * p`,
+    );
+  }
+
+  // 4. Route multiplier is exactly 1 / p, so a stage is a fair bet on the carried claim.
   for (const id of CONTRACT_IDS) {
     checkEqual(
       marginalSurvival(id).mul(routeMultiplier(id)),
@@ -194,7 +288,21 @@ export function runInvariants() {
     );
   }
 
-  // 4. Stage neutrality: every legal action has expected total factor exactly 1.
+  // 5. P(all clear) depends only on the lane COUNT, never on the balance:
+  //    it is (1-c)^lanes * q^n. Published in DESIGN.md §3.3 — bound here.
+  for (let n = CONTRACTS.SPLIT.minRunners; n <= CONFIG.squadSize; n += 1) {
+    const splits = laneSplitsFor('SPLIT', n);
+    const first = survivorDistribution('SPLIT', n, splits[0])[n];
+    for (const k of splits) {
+      checkEqual(
+        survivorDistribution('SPLIT', n, k)[n],
+        first,
+        `SPLIT/${n}: P(all clear) is identical across lane balances`,
+      );
+    }
+  }
+
+  // 6. Stage neutrality: every legal action has expected total factor exactly 1.
   for (let arena = 1; arena <= CONFIG.arenas; arena += 1) {
     for (let alive = 1; alive <= CONFIG.squadSize; alive += 1) {
       for (const action of actionsFor(arena, alive)) {
@@ -207,7 +315,7 @@ export function runInvariants() {
     }
   }
 
-  // 5. Branch tables are themselves probability distributions.
+  // 7. Branch tables are themselves probability distributions.
   for (let alive = 1; alive <= CONFIG.squadSize; alive += 1) {
     for (const action of actionsFor(2, alive)) {
       const total = branches(action, alive).reduce((s, b) => s.add(b.prob), Frac.ZERO);
@@ -215,7 +323,7 @@ export function runInvariants() {
     }
   }
 
-  // 6. Backward induction: best policy value == worst policy value == 1 everywhere.
+  // 8. Backward induction: best policy value == worst policy value == 1 everywhere.
   const dp = stateValueDP();
   for (const state of dp.states) {
     checkEqual(state.max, Frac.ONE, `state (arena ${state.arena}, ${state.alive} alive): optimal value is 1`);
@@ -229,29 +337,150 @@ export function runInvariants() {
     }
   }
 
-  // 7. Every named policy returns exactly the target RTP over its full outcome space.
+  // 9. Every named policy returns exactly the target RTP over its full outcome space.
+  const cap = F(CONFIG.maxWinMultiple);
   for (const row of policyRows()) {
     checkEqual(row.totalProbability, Frac.ONE, `${row.label}: outcome space probabilities sum to 1`);
     checkEqual(row.rtp, CONFIG.rtp, `${row.label}: RTP is exactly the target`);
-    check(row.maxReturn.lte(F(CONFIG.maxWinMultiple)), `${row.label}: max return is within the cap`);
+    check(row.stakeDeterministic, `${row.label}: the route ticket stakes a deterministic total`);
+    checkEqual(row.mean, CONFIG.rtp, `${row.label}: mean return multiple equals the RTP`);
+    check(row.maxReturn.lt(cap), `${row.label}: max return is strictly within the cap`);
   }
 
-  // 8. Target RTP sits inside the published 94%-97% band.
-  check(CONFIG.rtp.gte(F(94n, 100n)) && CONFIG.rtp.lte(F(97n, 100n)), 'target RTP is within [94%, 97%]');
+  // 10. Side-bet pricing is exactly r / P, and it is bound to the configuration
+  //     the action actually commits — not to a contract id. An offer whose
+  //     probability disagrees with the branch table it rides on fails here.
+  for (let arena = 1; arena <= CONFIG.arenas; arena += 1) {
+    for (let alive = 1; alive <= CONFIG.squadSize; alive += 1) {
+      for (const action of actionsFor(arena, alive)) {
+        const config = committedConfiguration(action, alive);
+        const offers = sideBetOffersFor(action, alive);
+        if (!config || config.runners < CONFIG.sideBet.minRunners) {
+          check(
+            offers.length === 0,
+            `arena ${arena}, ${alive} alive, ${JSON.stringify(action)}: no side bets below ${CONFIG.sideBet.minRunners} runners`,
+          );
+          continue;
+        }
+        check(
+          offers.length === SIDE_BETS.length,
+          `arena ${arena}, ${alive} alive, ${JSON.stringify(action)}: all three side bets offered`,
+        );
+        const table = branches(action, alive);
+        for (const offer of offers) {
+          const spec = SIDE_BETS.find((s) => s.id === offer.bet);
+          const fromBranches = table.reduce(
+            (s, b) => (spec.predicate(b.survivors, config.runners) ? s.add(b.prob) : s),
+            Frac.ZERO,
+          );
+          checkEqual(
+            offer.probability,
+            fromBranches,
+            `${JSON.stringify(action)} @${alive}: ${offer.bet} probability matches the arena's own branch table`,
+          );
+          checkEqual(
+            offer.probability.mul(offer.multiplier),
+            CONFIG.rtp,
+            `${JSON.stringify(action)} @${alive}: ${offer.bet} is priced at exactly r / P`,
+          );
+        }
+      }
+    }
+  }
 
-  // 9. The max-win cap strictly dominates the best reachable payout of the main game.
-  const cap = F(CONFIG.maxWinMultiple);
-  const best = maxPayoutMultiple();
-  check(best.lt(cap), `max reachable payout ${best} is strictly below the cap ${cap}`);
-
-  // 10. Side bets: every one prices to exactly the target RTP and stays under the cap.
-  for (const row of sideBetTable()) {
-    checkEqual(row.rtp, CONFIG.rtp, `side bet ${row.bet} on ${row.contract}/${row.runners}: RTP is exact`);
-    check(
-      row.multiplier.lte(cap),
-      `side bet ${row.bet} on ${row.contract}/${row.runners}: multiplier ${row.multiplier} within cap`,
+  // 11. The published side-bet paytable covers every geometry, once each.
+  const published = sideBetTable();
+  const expectedRows = SIDE_BETS.length * routeConfigurations({ minRunners: CONFIG.sideBet.minRunners }).length;
+  check(published.length === expectedRows, `side-bet paytable has exactly ${expectedRows} rows`);
+  const seen = new Set();
+  for (const row of published) {
+    const id = `${row.bet}@${row.key}`;
+    check(!seen.has(id), `side-bet paytable row ${id} appears once`);
+    seen.add(id);
+    checkEqual(row.rtp, CONFIG.rtp, `side bet ${id}: RTP is exact`);
+    check(row.multiplier.lt(cap), `side bet ${id}: multiplier ${row.multiplier} is strictly within the cap`);
+    checkEqual(
+      row.probability,
+      survivorDistribution(row.contract, row.runners, row.laneSplit)[
+        row.bet === 'CLEAN_SWEEP' ? row.runners : row.bet === 'SOLE_SURVIVOR' ? 1 : 0
+      ],
+      `side bet ${id}: probability reads out of the geometry's own distribution`,
     );
   }
+
+  // 12. PORTFOLIOS. Every route policy combined with every side-bet plan returns
+  //     E[credited] / E[staked] = r exactly. This is the statement DESIGN.md and
+  //     the README make, and it now covers side bets rather than stopping at the
+  //     route ticket.
+  for (const row of portfolioRows()) {
+    checkEqual(
+      row.rtp,
+      CONFIG.rtp,
+      `portfolio ${row.policyKey} + ${row.planKey}: E[credited]/E[staked] is exactly the target RTP`,
+    );
+    check(
+      row.maxReturn.lt(cap),
+      `portfolio ${row.policyKey} + ${row.planKey}: max return ${row.maxReturn} is strictly within the cap`,
+    );
+    check(
+      row.expectedStake.gte(Frac.ONE),
+      `portfolio ${row.policyKey} + ${row.planKey}: expected stake includes the route ticket`,
+    );
+  }
+
+  // 13. Target RTP sits inside the published 94%-97% band.
+  check(CONFIG.rtp.gte(F(94n, 100n)) && CONFIG.rtp.lte(F(97n, 100n)), 'target RTP is within [94%, 97%]');
+
+  // 14. MAX-WIN CAP, correctly scoped.
+  //     (a) no ticket can pay more than the cap times its own stake;
+  //     (b) no round can pay more than the cap times the round's total stake.
+  const capReport = capAnalysis();
+  check(
+    capReport.routeTicketMax.lt(cap),
+    `route ticket ceiling ${capReport.routeTicketMax} is strictly below the cap ${cap}`,
+  );
+  check(
+    capReport.sideBetMax.lt(cap),
+    `largest side-bet multiplier ${capReport.sideBetMax} is strictly below the cap ${cap}`,
+  );
+  check(
+    capReport.maxTicketMultiple.lt(cap),
+    `per-ticket ceiling ${capReport.maxTicketMultiple} is strictly below the cap ${cap}`,
+  );
+  check(
+    capReport.ratioNoSideBets.lt(cap),
+    `round total with no side bets, ${capReport.ratioNoSideBets} of total stake, is below the cap`,
+  );
+  check(
+    capReport.ratioMaxSideBets.lt(cap),
+    `round total at the maximum legal side-bet stake, ${capReport.ratioMaxSideBets} of total stake, is below the cap`,
+  );
+  check(
+    capReport.maxRoundRatio.lte(capReport.maxTicketMultiple),
+    'round total per unit of total stake never exceeds the per-ticket ceiling (weighted-mean bound)',
+  );
+  check(
+    capReport.maxRoundRatio.lt(cap),
+    `max round total ${capReport.maxRoundRatio} of total stake is strictly below the cap ${cap}`,
+  );
+
+  // 15. The published stake limits are coherent: a single bet may not exceed the
+  //     round-wide allowance, and the allowance is finite and positive.
+  check(
+    CONFIG.sideBet.maxStakeRatioPerBet.gt(Frac.ZERO),
+    'the per-bet side-bet stake limit is strictly positive',
+  );
+  check(
+    CONFIG.sideBet.maxStakeRatioPerBet.lte(CONFIG.sideBet.maxTotalStakeRatio),
+    'a single side bet cannot exceed the round-wide side-bet allowance',
+  );
+  check(
+    CONFIG.sideBet.maxTotalStakeRatio.lte(F(1n)),
+    'side bets can never carry more money than the route ticket they ride on',
+  );
+
+  // 16. Speed of play: the declared minimum game cycle satisfies UKGC RTS 8.
+  check(CONFIG.minGameCycleMs >= 2500, 'minimum game cycle is at least 2500 ms (UKGC RTS 8)');
 
   return { checks: [...checks], failures: [...failures] };
 }
@@ -267,8 +496,7 @@ function table(header, rows) {
 }
 
 export function buildTables() {
-  const cap = F(CONFIG.maxWinMultiple);
-  const best = maxPayoutMultiple();
+  const capReport = capAnalysis();
 
   const contracts = table(
     ['Contract', 'Lanes', 'Min runners', 'Lane collapse `c`', 'Per-runner clear `q`', 'Marginal survival `p`', 'Route multiplier `mu`', '`mu` decimal'],
@@ -284,11 +512,47 @@ export function buildTables() {
     ]),
   );
 
+  // The wipe comparison in docs/MATH.md §3.1 — the number a player feels.
+  // Generated rather than hand-written: it is the headline claim of the design.
+  const wipes = table(
+    ['Runners `n`', 'WIDE', 'SPLIT (balanced)', 'SPLIT (lopsided)', 'NARROW', 'Safer route'],
+    [2, 3, 4, 5].map((n) => {
+      const splits = laneSplitsFor('SPLIT', n);
+      const wide = survivorDistribution('WIDE', n)[0];
+      const balanced = survivorDistribution('SPLIT', n, splits[0])[0];
+      const lopsided = survivorDistribution('SPLIT', n, splits[splits.length - 1])[0];
+      return [
+        String(n),
+        toFixedExact(wide, 6),
+        `**${toFixedExact(balanced, 6)}**`,
+        splits.length > 1 ? toFixedExact(lopsided, 6) : '—',
+        toFixedExact(survivorDistribution('NARROW', n)[0], 6),
+        balanced.lt(wide) ? 'SPLIT' : 'WIDE',
+      ];
+    }),
+  );
+
+  const geometries = table(
+    ['Contract', 'Runners `n`', 'Lane balance', 'Balances offered', 'P(total wipe)', 'P(all clear)', 'P(exactly one)', 'E[survivors]', 'Stage RTP'],
+    geometryRows().map((r) => [
+      r.contract,
+      String(r.runners),
+      geometryLabel(r.laneSplit, r.runners),
+      String(r.choices),
+      `\`${r.wipe}\` = ${toFixedExact(r.wipe, PROB_PLACES)}`,
+      `\`${r.cleanSweep}\` = ${toFixedExact(r.cleanSweep, PROB_PLACES)}`,
+      `\`${r.soleSurvivor}\` = ${toFixedExact(r.soleSurvivor, PROB_PLACES)}`,
+      `\`${r.expectedSurvivors}\` = ${toFixedExact(r.expectedSurvivors, 6)}`,
+      `\`${r.fairness}\``,
+    ]),
+  );
+
   const outcomes = table(
-    ['Contract', 'Runners `n`', 'Survivors `m`', 'Exact probability', 'Probability', 'Exact claim multiplier', 'Claim multiplier'],
+    ['Contract', 'Runners `n`', 'Lane balance', 'Survivors `m`', 'Exact probability', 'Probability', 'Exact claim multiplier', 'Claim multiplier'],
     outcomeRows().map((r) => [
       r.contract,
       String(r.runners),
+      geometryLabel(r.laneSplit, r.runners),
       String(r.survivors),
       `\`${r.probability}\``,
       toFixedExact(r.probability, PROB_PLACES),
@@ -297,25 +561,13 @@ export function buildTables() {
     ]),
   );
 
-  const shape = table(
-    ['Contract', 'Runners `n`', 'Lane sizes', 'P(total wipe)', 'P(all clear)', 'E[survivors]', 'Stage RTP'],
-    shapeRows().map((r) => [
-      r.contract,
-      String(r.runners),
-      r.lanes.join('+'),
-      `\`${r.wipe}\` = ${toFixedExact(r.wipe, PROB_PLACES)}`,
-      `\`${r.cleanSweep}\` = ${toFixedExact(r.cleanSweep, PROB_PLACES)}`,
-      `\`${r.expectedSurvivors}\` = ${toFixedExact(r.expectedSurvivors, 6)}`,
-      `\`${r.fairness}\``,
-    ]),
-  );
-
   const sidebets = table(
-    ['Side bet', 'Contract', 'Runners', 'Exact probability', 'Probability', 'Exact multiplier', 'Multiplier', 'Exact RTP'],
+    ['Side bet', 'Contract', 'Runners', 'Lane balance', 'Exact probability', 'Probability', 'Exact multiplier', 'Multiplier', 'Exact RTP'],
     sideBetTable().map((r) => [
       r.bet,
       r.contract,
       String(r.runners),
+      geometryLabel(r.laneSplit, r.runners),
       `\`${r.probability}\``,
       toFixedExact(r.probability, PROB_PLACES),
       `\`${r.multiplier}\``,
@@ -340,30 +592,169 @@ export function buildTables() {
     ]),
   );
 
+  const portfolios = table(
+    ['Route policy', 'Side-bet plan', 'Leaves', 'E[staked]', 'E[credited]', 'RTP = E[cr]/E[st]', 'RTP %', 'Std. dev.', 'Max return'],
+    portfolioRows(['ALL_WIDE', 'ALL_SPLIT', 'ALL_NARROW', 'SHELTER_LADDER']).map((r) => [
+      r.policy,
+      r.plan,
+      String(r.leaves),
+      `\`${r.expectedStake}\``,
+      `\`${r.expectedCredit}\``,
+      `\`${r.rtp}\``,
+      toFixedExact(r.rtp.mul(F(100n)), 4),
+      sqrtFixed(r.variance, 6),
+      `\`${r.maxReturn}\` = ${toFixedExact(r.maxReturn, 6)}`,
+    ]),
+  );
+
   const invariants = table(
     ['Quantity', 'Exact value', 'Decimal'],
     [
-      ['Target RTP (all bets, all policies)', `\`${CONFIG.rtp}\``, toFixedExact(CONFIG.rtp, 6)],
+      ['Target RTP (every ticket, every policy, every portfolio)', `\`${CONFIG.rtp}\``, toFixedExact(CONFIG.rtp, 6)],
       ['Squad size', `\`${CONFIG.squadSize}\``, String(CONFIG.squadSize)],
       ['Arenas per run', `\`${CONFIG.arenas}\``, String(CONFIG.arenas)],
-      ['Max reachable payout (any policy)', `\`${best}\``, toFixedExact(best, 6)],
-      ['Max-win cap', `\`${cap}\``, toFixedExact(cap, 6)],
-      ['Cap headroom', `\`${cap.sub(best)}\``, toFixedExact(cap.sub(best), 6)],
-      [
-        'Largest side-bet multiplier',
-        `\`${largestSideBetMultiplier()}\``,
-        toFixedExact(largestSideBetMultiplier(), 6),
-      ],
+      ['Route-ticket ceiling (any policy, any path)', `\`${capReport.routeTicketMax}\``, toFixedExact(capReport.routeTicketMax, 6)],
+      ['Largest side-bet multiplier', `\`${capReport.sideBetMax}\``, toFixedExact(capReport.sideBetMax, 6)],
+      ['Per-ticket ceiling (the binding one)', `\`${capReport.maxTicketMultiple}\``, toFixedExact(capReport.maxTicketMultiple, 6)],
+      ['Max-win cap (per ticket, against that ticket\'s own stake)', `\`${capReport.cap}\``, toFixedExact(capReport.cap, 6)],
+      ['Cap headroom', `\`${capReport.headroom}\``, toFixedExact(capReport.headroom, 6)],
+      ['Max round total, per unit of total round stake', `\`${capReport.maxRoundRatio}\``, toFixedExact(capReport.maxRoundRatio, 6)],
+      ['Max round total, per unit of route stake (both limits maxed)', `\`${capReport.maxRoundTotalPerRouteStake}\``, toFixedExact(capReport.maxRoundTotalPerRouteStake, 6)],
+      ['Side-bet stake limit, per bet', `\`${CONFIG.sideBet.maxStakeRatioPerBet}\``, `${toFixedExact(CONFIG.sideBet.maxStakeRatioPerBet, 2)} x route stake`],
+      ['Side-bet stake limit, per round', `\`${CONFIG.sideBet.maxTotalStakeRatio}\``, `${toFixedExact(CONFIG.sideBet.maxTotalStakeRatio, 2)} x route stake`],
+      ['Minimum game cycle', `\`${CONFIG.minGameCycleMs}\` ms`, `${(CONFIG.minGameCycleMs / 1000).toFixed(1)} s per arena`],
       ['Money unit', '`1/1000000` credit', '0.000001'],
       ['Max floor-rounding loss per round', '`5/1000000` credit', '0.000005'],
     ],
   );
 
-  return Object.freeze({ contracts, outcomes, shape, sidebets, policies, invariants });
+  return Object.freeze({ contracts, wipes, geometries, outcomes, sidebets, policies, portfolios, invariants });
 }
 
-export function largestSideBetMultiplier() {
-  return sideBetTable().reduce((m, r) => (r.multiplier.gt(m) ? r.multiplier : m), Frac.ZERO);
+/* ------------------------------------------------------------------ *
+ * inline figures — every load-bearing number in the prose documents
+ * ------------------------------------------------------------------ */
+
+export function buildFigures() {
+  const capReport = capAnalysis();
+  const policies = policyRows();
+  const geometry = (id, n, k = null) => survivorDistribution(id, n, k);
+
+  const wide5 = geometry('WIDE', 5);
+  const wide2 = geometry('WIDE', 2);
+  const balanced5 = geometry('SPLIT', 5, 3);
+  const scout5 = geometry('SPLIT', 5, 4);
+  const balanced4 = geometry('SPLIT', 4, 2);
+  const scout4 = geometry('SPLIT', 4, 3);
+  const split2 = geometry('SPLIT', 2, 1);
+  const narrow5 = geometry('NARROW', 5);
+
+  const byBet = (id) => sideBetTable().filter((r) => r.bet === id);
+  const lo = (rows) => rows.reduce((m, r) => (r.multiplier.lt(m) ? r.multiplier : m), F(10n ** 9n));
+  const hi = (rows) => rows.reduce((m, r) => (r.multiplier.gt(m) ? r.multiplier : m), Frac.ZERO);
+
+  const varianceOf = (key) => policies.find((p) => p.key === key).variance;
+  const minVar = policies.reduce((m, p) => (p.variance.lt(m) ? p.variance : m), policies[0].variance);
+  const maxVar = policies.reduce((m, p) => (p.variance.gt(m) ? p.variance : m), Frac.ZERO);
+
+  const knife = policies.find((p) => p.key === 'ALL_NARROW');
+  const topOdds = Frac.ONE.div(knife.maxReturnProbability);
+
+  const { checks: allChecks } = runInvariants();
+
+  return Object.freeze({
+    /* identity */
+    rtpPct: pct(CONFIG.rtp, 1),
+    rtpPct4: pct(CONFIG.rtp, 4),
+    rtpExact: `${CONFIG.rtp}`,
+    houseEdgePct: pct(Frac.ONE.sub(CONFIG.rtp), 1),
+    squadSize: String(CONFIG.squadSize),
+    arenas: String(CONFIG.arenas),
+    invariantCount: String(allChecks.length),
+    minCycleMs: String(CONFIG.minGameCycleMs),
+    minCycleSeconds: (CONFIG.minGameCycleMs / 1000).toFixed(1),
+    hazardDraws: String(
+      CONFIG.arenas *
+        CONTRACT_IDS.reduce((s, id) => s + CONTRACTS[id].laneCount, 0) *
+        (1 + CONFIG.squadSize),
+    ),
+
+    /* route multipliers */
+    wideMult: mult(routeMultiplier('WIDE')),
+    splitMult: mult(routeMultiplier('SPLIT')),
+    narrowMult: mult(routeMultiplier('NARROW')),
+
+    /* wipe probabilities */
+    wideWipe5: pct(wide5[0]),
+    wideWipe2: pct(wide2[0]),
+    splitWipe5: pct(balanced5[0]),
+    splitWipe2: pct(split2[0]),
+    scoutWipe5: pct(scout5[0]),
+    splitWipe4: pct(balanced4[0]),
+    scoutWipe4: pct(scout4[0]),
+    narrowWipe5: pct(narrow5[0]),
+    splitSaferRatio5: mult(wide5[0].div(balanced5[0]), 2),
+
+    /* clean sweeps and shape */
+    wideAllClear5: pct(wide5[5]),
+    splitAllClear5: pct(balanced5[5]),
+    narrowAllClear5: pct(narrow5[5]),
+    wideExpectedSurvivors5: toFixedExact(expectedSurvivors(wide5), 2),
+    narrowExpectedSurvivors5: toFixedExact(expectedSurvivors(narrow5), 2),
+    splitExpectedSurvivors5: toFixedExact(expectedSurvivors(balanced5), 2),
+    wideFallen5: toFixedExact(F(5n).sub(expectedSurvivors(wide5)), 2),
+    splitFallen5: toFixedExact(F(5n).sub(expectedSurvivors(balanced5)), 2),
+    balancedKeep4Plus5: pct(probabilityOfAtLeast(balanced5, 4)),
+    scoutKeep4Plus5: pct(probabilityOfAtLeast(scout5, 4)),
+    balancedSole5: pct(balanced5[1]),
+    scoutSole5: pct(scout5[1]),
+    splitAllClear4: pct(balanced4[4]),
+    splitExpectedSurvivors4: toFixedExact(expectedSurvivors(balanced4), 2),
+    balancedKeep3Plus4: pct(probabilityOfAtLeast(balanced4, 3)),
+    scoutKeep3Plus4: pct(probabilityOfAtLeast(scout4, 3)),
+    balancedSole4: pct(balanced4[1]),
+    scoutSole4: pct(scout4[1]),
+
+    /* side bets */
+    cleanSweepMin: mult(lo(byBet('CLEAN_SWEEP')), 2),
+    cleanSweepMax: mult(hi(byBet('CLEAN_SWEEP')), 2),
+    soleSurvivorMin: mult(lo(byBet('SOLE_SURVIVOR')), 2),
+    soleSurvivorMax: mult(hi(byBet('SOLE_SURVIVOR')), 2),
+    lastLightMin: mult(lo(byBet('LAST_LIGHT')), 2),
+    lastLightMax: mult(hi(byBet('LAST_LIGHT')), 2),
+    sideBetRows: String(sideBetTable().length),
+
+    /* cap */
+    routeTicketMax: mult(capReport.routeTicketMax, 2),
+    maxTicketMultiple: mult(capReport.maxTicketMultiple, 2),
+    maxRoundRatio: mult(capReport.maxRoundRatio, 2),
+    ratioMaxSideBets: mult(capReport.ratioMaxSideBets, 2),
+    worstCaseRoundTotal: mult(capReport.maxRoundTotalPerRouteStake, 2),
+    v1BreachTotal: mult(
+      capReport.routeTicketMax.add(hi(byBet('CLEAN_SWEEP')).mul(F(BigInt(CONFIG.arenas)))),
+      2,
+    ),
+    v1BreachSoleSurvivor: mult(capReport.sideBetMax.mul(F(2n)), 2),
+    capMultiple: mult(capReport.cap, 0),
+    capHeadroom: mult(capReport.headroom, 2),
+    topPrizeOdds: `1 in ${grouped(topOdds.floor())}`,
+
+    /* volatility */
+    sdMin: sqrtFixed(minVar, 2),
+    sdMax: sqrtFixed(maxVar, 2),
+    sdSpread: `${sqrtFixed(maxVar.div(minVar), 1)}x`,
+    keeperBust: pct(policies.find((p) => p.key === 'SHELTER_LADDER').bust, 2),
+    keeperMax: mult(policies.find((p) => p.key === 'SHELTER_LADDER').maxReturn, 2),
+    knifeBust: pct(knife.bust, 2),
+    rangerBust: pct(policies.find((p) => p.key === 'ALL_WIDE').bust, 2),
+    rangerSd: sqrtFixed(varianceOf('ALL_WIDE'), 2),
+    forkerSd: sqrtFixed(varianceOf('ALL_SPLIT'), 2),
+    scoutSd: sqrtFixed(varianceOf('SCOUT_SPLIT'), 2),
+
+    /* rounding */
+    maxRoundingLoss: '0.000005',
+    roundingRtpFloorPct: pct(CONFIG.rtp.sub(F(5n, 1_000_000n)), 4),
+  });
 }
 
 /* ------------------------------------------------------------------ *
@@ -373,8 +764,7 @@ export function largestSideBetMultiplier() {
 function humanReport() {
   const lines = [];
   const push = (s = '') => lines.push(s);
-  const cap = F(CONFIG.maxWinMultiple);
-  const best = maxPayoutMultiple();
+  const capReport = capAnalysis();
 
   push('BRANCHFALL — exact outcome enumeration');
   push('======================================');
@@ -384,7 +774,7 @@ function humanReport() {
   push(`squad size         ${CONFIG.squadSize}`);
   push(`arenas             ${CONFIG.arenas}`);
   push(`target RTP         ${CONFIG.rtp} = ${toFixedExact(CONFIG.rtp.mul(F(100n)), 4)}%`);
-  push(`max-win cap        ${cap}x`);
+  push(`max-win cap        ${capReport.cap}x per ticket, against that ticket's own stake`);
   push('');
 
   push('1. ROUTE CONTRACTS');
@@ -397,17 +787,26 @@ function humanReport() {
   }
   push('');
 
-  push('2. ARENA OUTCOME SPACE — exact probability and exact claim multiplier');
+  push('2. ROUTE GEOMETRIES — contract x running group x lane balance');
+  push('--------------------------------------------------------------');
+  push('   the lane balance of a SPLIT is a player choice; it moves the shape, never the mean');
+  for (const r of geometryRows()) {
+    push(
+      `  ${r.key.padEnd(14)} lanes=${geometryLabel(r.laneSplit, r.runners).padEnd(5)} ` +
+        `wipe=${toFixedExact(r.wipe, 8)}  allClear=${toFixedExact(r.cleanSweep, 8)}  ` +
+        `E[surv]=${toFixedExact(r.expectedSurvivors, 6)}  stageRTP=${r.fairness}`,
+    );
+  }
+  push('');
+
+  push('3. ARENA OUTCOME SPACE — exact probability and exact claim multiplier');
   push('---------------------------------------------------------------------');
   let currentKey = '';
   for (const r of outcomeRows()) {
-    const key = `${r.contract}/${r.runners}`;
+    const key = configKey(r.contract, r.runners, r.laneSplit);
     if (key !== currentKey) {
       currentKey = key;
-      const shape = shapeRows().find((s) => s.contract === r.contract && s.runners === r.runners);
-      push(
-        `  ${key.padEnd(10)} lanes=${shape.lanes.join('+')}  sum(P)=${shape.total}  E[survivors]=${shape.expectedSurvivors}  stage RTP=${shape.fairness}`,
-      );
+      push(`  ${key.padEnd(14)} lanes=${r.lanes.join('+')}`);
     }
     push(
       `      m=${r.survivors}  P=${String(r.probability).padEnd(26)} (${toFixedExact(r.probability, PROB_PLACES)})` +
@@ -416,17 +815,17 @@ function humanReport() {
   }
   push('');
 
-  push('3. SIDE BETS — priced at RTP / P(event)');
-  push('---------------------------------------');
+  push('4. SIDE BETS — priced at r / P against the COMMITTED geometry');
+  push('-------------------------------------------------------------');
   for (const r of sideBetTable()) {
     push(
-      `  ${r.bet.padEnd(14)} ${r.contract.padEnd(7)} n=${r.runners}  P=${String(r.probability).padEnd(22)} ` +
+      `  ${r.bet.padEnd(14)} ${r.key.padEnd(14)} P=${String(r.probability).padEnd(22)} ` +
         `x=${String(r.multiplier).padEnd(24)} (${toFixedExact(r.multiplier, 6)})  RTP=${r.rtp}`,
     );
   }
   push('');
 
-  push('4. DECISION SPACE — backward induction over every reachable state');
+  push('5. DECISION SPACE — backward induction over every reachable state');
   push('------------------------------------------------------------------');
   push('   value = exact expected credited payout per unit of claim held on entry');
   const dp = stateValueDP();
@@ -434,14 +833,19 @@ function humanReport() {
     push(
       `  arena ${state.arena}, ${state.alive} alive: best=${state.max}  worst=${state.min}  ` +
         `actions=${state.actions.length} [${state.actions
-          .map((a) => `${a.action.type === 'ROUTE' ? a.action.contract : a.action.type === 'SHELTER' ? `SHELTER${a.action.shelter}` : 'BANK'}=${a.value}`)
+          .map((a) => {
+            if (a.action.type === 'BANK') return `BANK=${a.value}`;
+            if (a.action.type === 'SHELTER') return `SHELTER${a.action.shelter}=${a.value}`;
+            const suffix = a.action.laneSplit === null || a.action.laneSplit === undefined ? '' : `(${a.action.laneSplit})`;
+            return `${a.action.contract}${suffix}=${a.value}`;
+          })
           .join(' ')}]`,
     );
   }
   push('');
 
-  push('5. FULL OUTCOME SPACE OF NAMED POLICIES');
-  push('---------------------------------------');
+  push('6. FULL OUTCOME SPACE OF NAMED POLICIES (route ticket only)');
+  push('-----------------------------------------------------------');
   for (const r of policyRows()) {
     push(`  ${r.label}`);
     push(
@@ -456,13 +860,31 @@ function humanReport() {
   }
   push('');
 
-  push('6. MAX-WIN CAP');
-  push('--------------');
-  push(`  max reachable payout over all policies and paths: ${best} = ${toFixedExact(best, 6)}x`);
-  push(`  declared cap:                                     ${cap} = ${toFixedExact(cap, 6)}x`);
-  push(`  largest side-bet multiplier:                      ${largestSideBetMultiplier()} = ${toFixedExact(largestSideBetMultiplier(), 6)}x`);
-  push(`  headroom:                                         ${cap.sub(best)} = ${toFixedExact(cap.sub(best), 6)}x`);
-  push('  => the cap is a liability ceiling, never a payout rule: it cannot clip an advertised win.');
+  push('7. PORTFOLIOS — route policy x side-bet plan');
+  push('--------------------------------------------');
+  push('   RTP is E[credited] / E[staked], which is the only correct definition when a');
+  push('   plan stakes a path-dependent total. Every one of them is exactly r.');
+  for (const r of portfolioRows()) {
+    push(
+      `  ${r.policyKey.padEnd(18)} ${r.planKey.padEnd(24)} E[stake]=${String(r.expectedStake).padEnd(20)} ` +
+        `E[credit]=${String(r.expectedCredit).padEnd(28)} RTP=${r.rtp}  max=${toFixedExact(r.maxReturn, 4)}x`,
+    );
+  }
+  push('');
+
+  push('8. MAX-WIN CAP — per ticket, and over the round total');
+  push('-----------------------------------------------------');
+  push(`  route-ticket ceiling (all policies, all paths):    ${capReport.routeTicketMax} = ${toFixedExact(capReport.routeTicketMax, 6)}x`);
+  push(`  largest side-bet multiplier:                       ${capReport.sideBetMax} = ${toFixedExact(capReport.sideBetMax, 6)}x`);
+  push(`  per-ticket ceiling (the binding one):              ${capReport.maxTicketMultiple} = ${toFixedExact(capReport.maxTicketMultiple, 6)}x`);
+  push(`  declared cap (per ticket, own stake basis):        ${capReport.cap} = ${toFixedExact(capReport.cap, 6)}x`);
+  push(`  headroom:                                          ${capReport.headroom} = ${toFixedExact(capReport.headroom, 6)}x`);
+  push('');
+  push(`  round total / total round stake, no side bets:     ${capReport.ratioNoSideBets} = ${toFixedExact(capReport.ratioNoSideBets, 6)}x`);
+  push(`  round total / total round stake, max side bets:    ${capReport.ratioMaxSideBets} = ${toFixedExact(capReport.ratioMaxSideBets, 6)}x`);
+  push(`  worst case over the interval:                      ${capReport.maxRoundRatio} = ${toFixedExact(capReport.maxRoundRatio, 6)}x`);
+  push(`  worst-case round total in route stakes:            ${capReport.maxRoundTotalPerRouteStake} = ${toFixedExact(capReport.maxRoundTotalPerRouteStake, 6)}x`);
+  push('  => no ticket and no round can reach the cap: it cannot clip an advertised win.');
   push('');
 
   return lines.join('\n');
@@ -477,18 +899,33 @@ function main() {
     for (const [name, body] of Object.entries(tables)) {
       process.stdout.write(`<!-- table:${name} -->\n${body}\n\n`);
     }
+  } else if (args.has('--figures')) {
+    for (const [name, value] of Object.entries(buildFigures())) {
+      process.stdout.write(`${name.padEnd(28)} ${value}\n`);
+    }
   } else if (args.has('--json')) {
     const replacer = (_k, v) => (v instanceof Frac ? v.toString() : typeof v === 'bigint' ? v.toString() : v);
     process.stdout.write(
       `${JSON.stringify(
         {
-          config: { ...CONFIG, rtp: CONFIG.rtp.toString(), maxWinMultiple: CONFIG.maxWinMultiple.toString() },
+          config: {
+            ...CONFIG,
+            rtp: CONFIG.rtp.toString(),
+            maxWinMultiple: CONFIG.maxWinMultiple.toString(),
+            sideBet: {
+              ...CONFIG.sideBet,
+              maxStakeRatioPerBet: CONFIG.sideBet.maxStakeRatioPerBet.toString(),
+              maxTotalStakeRatio: CONFIG.sideBet.maxTotalStakeRatio.toString(),
+            },
+          },
           contracts: contractRows(),
+          geometries: geometryRows(),
           outcomes: outcomeRows(),
-          shape: shapeRows(),
           sideBets: sideBetTable(),
           policies: policyRows(),
-          maxPayoutMultiple: maxPayoutMultiple().toString(),
+          portfolios: portfolioRows(),
+          cap: capAnalysis(),
+          figures: buildFigures(),
           checks: allChecks.length,
           failures: allFailures,
         },
@@ -507,7 +944,7 @@ function main() {
     process.exitCode = 1;
     return;
   }
-  if (args.has('--markdown') || args.has('--json') || args.has('--quiet')) {
+  if (args.has('--markdown') || args.has('--json') || args.has('--quiet') || args.has('--figures')) {
     process.stderr.write(`OK — ${banner}\n`);
   } else {
     process.stdout.write(`OK — ${banner}\n`);
@@ -517,3 +954,5 @@ function main() {
 const invokedDirectly =
   process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
 if (invokedDirectly) main();
+
+export { largestSideBetMultiplier, capAnalysis };

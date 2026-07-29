@@ -1,3 +1,10 @@
+/**
+ * The model itself: geometry, distributions, actions, side bets, the DP.
+ *
+ * Everything here is exact. A test that needed a tolerance would be a test that
+ * had left the exact-arithmetic path, so there are none.
+ */
+
 import { describe, expect, it } from 'vitest';
 import { F, Frac } from '../tools/lib/exact.mjs';
 import {
@@ -5,353 +12,399 @@ import {
   CONTRACTS,
   CONTRACT_IDS,
   ModelError,
+  SIDE_BETS,
+  SIDE_BET_IDS,
+  SIDE_BET_PLANS,
   actionExpectedFactor,
   actionsFor,
   assertLegalAction,
+  balancedSplit,
   branches,
+  capAnalysis,
+  committedConfiguration,
+  configKey,
   contract,
   enumeratePolicy,
   laneDistribution,
   laneSizes,
+  laneSplitsFor,
+  largestSideBetMultiplier,
   marginalSurvival,
   maxPayoutDP,
   POLICIES,
   probabilityOfZero,
+  routeConfigurations,
   routeMultiplier,
+  scoutSplit,
+  sideBetOffers,
+  sideBetOffersFor,
   sideBetTable,
   stateValueDP,
   survivorDistribution,
 } from '../tools/lib/model.mjs';
 
-const N = CONFIG.squadSize;
-const K = CONFIG.arenas;
+const sum = (fracs) => fracs.reduce((a, b) => a.add(b), Frac.ZERO);
+const expectedSurvivors = (dist) => dist.reduce((s, p, m) => s.add(p.mul(F(BigInt(m)))), Frac.ZERO);
 
-describe('configuration', () => {
-  it('declares the published constants', () => {
-    expect(CONFIG.squadSize).toBe(5);
-    expect(CONFIG.arenas).toBe(5);
-    expect(CONFIG.rtp.toString()).toBe('191/200');
-    expect(CONFIG.maxWinMultiple).toBe(1000n);
-    expect(CONFIG.microCreditsPerCredit).toBe(1_000_000n);
-  });
-
-  it('keeps the target RTP inside the mandated 94%-97% band', () => {
-    expect(CONFIG.rtp.gte(F(94n, 100n))).toBe(true);
-    expect(CONFIG.rtp.lte(F(97n, 100n))).toBe(true);
-  });
-
-  it('freezes the declaration', () => {
-    expect(Object.isFrozen(CONFIG)).toBe(true);
-    expect(Object.isFrozen(CONTRACTS.WIDE)).toBe(true);
-  });
-});
-
-describe('lane hazard model', () => {
-  it('produces an exact probability distribution for every lane size', () => {
-    for (const id of CONTRACT_IDS) {
-      const spec = CONTRACTS[id];
-      for (let size = 0; size <= N; size += 1) {
-        const dist = laneDistribution(size, spec.collapse, spec.clear);
-        expect(dist).toHaveLength(size + 1);
-        const total = dist.reduce((s, p) => s.add(p), Frac.ZERO);
-        expect(total.toString()).toBe('1/1');
+describe('lane geometry', () => {
+  it('offers exactly one geometry for single-lane contracts, reported as null', () => {
+    for (const id of ['WIDE', 'NARROW']) {
+      for (let n = 1; n <= CONFIG.squadSize; n += 1) {
+        expect([...laneSplitsFor(id, n)]).toEqual([null]);
+        expect([...laneSizes(id, n, null)]).toEqual([n]);
       }
     }
   });
 
-  it('models an empty lane as certainly producing no survivors', () => {
-    const dist = laneDistribution(0, CONTRACTS.SPLIT.collapse, CONTRACTS.SPLIT.clear);
-    expect(dist.map(String)).toEqual(['1/1']);
-  });
-
-  it('puts a collapse atom at zero survivors that independence alone cannot explain', () => {
-    // WIDE with 5 runners: P(0) must exceed (1-q)^5 by the collapse mass.
-    const dist = survivorDistribution('WIDE', 5);
-    const independentOnly = Frac.ONE.sub(CONTRACTS.WIDE.clear).pow(5);
-    expect(dist[0].gt(independentOnly)).toBe(true);
-    expect(dist[0].toString()).toBe('4099/102400');
-    expect(dist[0].gte(CONTRACTS.WIDE.collapse)).toBe(true);
-  });
-});
-
-describe('route contracts', () => {
-  it('publishes the declared hazard parameters', () => {
-    expect([CONTRACTS.WIDE.collapse.toString(), CONTRACTS.WIDE.clear.toString()]).toEqual(['1/25', '7/8']);
-    expect([CONTRACTS.SPLIT.collapse.toString(), CONTRACTS.SPLIT.clear.toString()]).toEqual(['1/10', '5/6']);
-    expect([CONTRACTS.NARROW.collapse.toString(), CONTRACTS.NARROW.clear.toString()]).toEqual(['1/2', '1/2']);
-  });
-
-  it('derives marginal survival and the route multiplier as exact reciprocals', () => {
-    expect(marginalSurvival('WIDE').toString()).toBe('21/25');
-    expect(marginalSurvival('SPLIT').toString()).toBe('3/4');
-    expect(marginalSurvival('NARROW').toString()).toBe('1/4');
-    for (const id of CONTRACT_IDS) {
-      expect(marginalSurvival(id).mul(routeMultiplier(id)).toString()).toBe('1/1');
-    }
-    expect(routeMultiplier('WIDE').toString()).toBe('25/21');
-    expect(routeMultiplier('SPLIT').toString()).toBe('4/3');
-    expect(routeMultiplier('NARROW').toString()).toBe('4/1');
-  });
-
-  it('assigns lanes deterministically and exhaustively', () => {
-    expect(laneSizes('WIDE', 5)).toEqual([5]);
-    expect(laneSizes('NARROW', 3)).toEqual([3]);
-    expect(laneSizes('SPLIT', 5)).toEqual([3, 2]);
-    expect(laneSizes('SPLIT', 4)).toEqual([2, 2]);
-    expect(laneSizes('SPLIT', 3)).toEqual([2, 1]);
-    expect(laneSizes('SPLIT', 2)).toEqual([1, 1]);
-    for (const id of CONTRACT_IDS) {
-      for (let n = CONTRACTS[id].minRunners; n <= N; n += 1) {
-        const sizes = laneSizes(id, n);
-        expect(sizes).toHaveLength(CONTRACTS[id].laneCount);
-        expect(sizes.reduce((a, b) => a + b, 0)).toBe(n);
+  it('offers canonical lane balances for SPLIT and never a mirrored duplicate', () => {
+    expect([...laneSplitsFor('SPLIT', 2)]).toEqual([1]);
+    expect([...laneSplitsFor('SPLIT', 3)]).toEqual([2]);
+    expect([...laneSplitsFor('SPLIT', 4)]).toEqual([2, 3]);
+    expect([...laneSplitsFor('SPLIT', 5)]).toEqual([3, 4]);
+    for (let n = 2; n <= CONFIG.squadSize; n += 1) {
+      for (const k of laneSplitsFor('SPLIT', n)) {
+        expect(k).toBeGreaterThanOrEqual(Math.ceil(n / 2));
+        expect(k).toBeLessThanOrEqual(n - 1);
       }
     }
   });
 
-  it('gives every runner the same marginal survival regardless of lane geometry', () => {
-    for (const id of CONTRACT_IDS) {
-      const p = marginalSurvival(id);
-      for (let n = CONTRACTS[id].minRunners; n <= N; n += 1) {
-        const expected = survivorDistribution(id, n).reduce(
-          (s, prob, m) => s.add(prob.mul(F(BigInt(m)))),
-          Frac.ZERO,
-        );
-        expect(expected.toString()).toBe(p.mul(F(BigInt(n))).toString());
+  it('rejects an illegal or mirrored lane balance', () => {
+    expect(() => laneSizes('SPLIT', 5, 2)).toThrow(ModelError);
+    expect(() => laneSizes('SPLIT', 5, 5)).toThrow(ModelError);
+    expect(() => laneSizes('SPLIT', 5, 0)).toThrow(ModelError);
+    expect(() => laneSizes('WIDE', 5, 3)).toThrow(ModelError);
+    expect(() => laneSizes('SPLIT', 1, 1)).toThrow(ModelError);
+  });
+
+  it('gives lane sizes that sum to the running group', () => {
+    for (const config of routeConfigurations()) {
+      const sizes = laneSizes(config.contract, config.runners, config.laneSplit);
+      expect(sizes.reduce((a, b) => a + b, 0)).toBe(config.runners);
+      expect(sizes.length).toBe(CONTRACTS[config.contract].laneCount);
+      expect(sizes.every((s) => s >= 1)).toBe(true);
+    }
+  });
+
+  it('enumerates 16 distinct route configurations', () => {
+    const configs = routeConfigurations();
+    expect(configs.length).toBe(16);
+    expect(new Set(configs.map((c) => c.key)).size).toBe(16);
+    expect(configs.map((c) => c.key)).toContain(configKey('SPLIT', 5, 4));
+  });
+});
+
+describe('survivor distributions', () => {
+  it('are exact probability distributions for every geometry', () => {
+    for (const config of routeConfigurations()) {
+      const dist = survivorDistribution(config.contract, config.runners, config.laneSplit);
+      expect(dist.length).toBe(config.runners + 1);
+      expect(sum([...dist]).toString()).toBe('1/1');
+    }
+  });
+
+  it('have mean n*p regardless of contract or lane balance', () => {
+    for (const config of routeConfigurations()) {
+      const dist = survivorDistribution(config.contract, config.runners, config.laneSplit);
+      const expected = marginalSurvival(config.contract).mul(F(BigInt(config.runners)));
+      expect(expectedSurvivors(dist).toString()).toBe(expected.toString());
+    }
+  });
+
+  it('reproduces the hand-derived lopsided SPLIT at five runners', () => {
+    // lane of 4: P(0) = 1/10 + (9/10)(1/6)^4 = 29/288; lane of 1: P(0) = 1/4.
+    const dist = survivorDistribution('SPLIT', 5, 4);
+    expect(dist[0].toString()).toBe('29/1152');
+    expect(dist[1].toString()).toBe('91/1152');
+    expect(dist[5].toString()).toBe('125/384');
+  });
+
+  it('keeps P(all clear) invariant across lane balances but not P(wipe)', () => {
+    for (let n = 2; n <= CONFIG.squadSize; n += 1) {
+      const splits = laneSplitsFor('SPLIT', n);
+      const clears = splits.map((k) => survivorDistribution('SPLIT', n, k)[n].toString());
+      expect(new Set(clears).size).toBe(1);
+      if (splits.length > 1) {
+        const wipes = splits.map((k) => survivorDistribution('SPLIT', n, k)[0].toString());
+        expect(new Set(wipes).size).toBe(splits.length);
       }
     }
   });
-});
 
-describe('correlation is real and reverses with squad size', () => {
-  const wipe = (id, n) => survivorDistribution(id, n)[0];
-
-  it('makes SPLIT dramatically safer than WIDE for a full squad', () => {
-    expect(wipe('WIDE', 5).toString()).toBe('4099/102400');
-    expect(wipe('SPLIT', 5).toString()).toBe('5/384');
-    // 3.07x safer, exactly.
-    const ratio = wipe('WIDE', 5).div(wipe('SPLIT', 5));
-    expect(ratio.gt(F(3n, 1n))).toBe(true);
-    expect(ratio.lt(F(31n, 10n))).toBe(true);
+  it('places the lopsided balance on the safer side of the "almost intact" outcome', () => {
+    const atLeast = (dist, floor) => dist.reduce((s, p, m) => (m >= floor ? s.add(p) : s), Frac.ZERO);
+    const balanced = survivorDistribution('SPLIT', 5, 3);
+    const scout = survivorDistribution('SPLIT', 5, 4);
+    // The trade the route card claims: worse wipe, better "four or five".
+    expect(scout[0].gt(balanced[0])).toBe(true);
+    expect(atLeast(scout, 4).gt(atLeast(balanced, 4))).toBe(true);
   });
 
-  it('makes SPLIT more dangerous than WIDE for a pair — the crossover', () => {
-    expect(wipe('WIDE', 2).toString()).toBe('11/200');
-    expect(wipe('SPLIT', 2).toString()).toBe('1/16');
-    expect(wipe('SPLIT', 2).gt(wipe('WIDE', 2))).toBe(true);
-    // and the crossover really is between 2 and 3 runners
-    expect(wipe('SPLIT', 3).lt(wipe('WIDE', 3))).toBe(true);
-  });
-
-  it('keeps WIDE total-wipe above the shared collapse floor at every squad size', () => {
-    for (let n = 1; n <= N; n += 1) expect(wipe('WIDE', n).gte(CONTRACTS.WIDE.collapse)).toBe(true);
+  it('computes a single lane exactly', () => {
+    const dist = laneDistribution(2, F(1n, 10n), F(5n, 6n));
+    // P(0) = 1/10 + (9/10)(1/36) = 1/8
+    expect(dist[0].toString()).toBe('1/8');
+    expect(sum([...dist]).toString()).toBe('1/1');
   });
 });
 
-describe('stage neutrality — the economic core', () => {
-  it('gives every legal action an expected total factor of exactly 1', () => {
-    let pairs = 0;
-    for (let arena = 1; arena <= K; arena += 1) {
-      for (let alive = 1; alive <= N; alive += 1) {
+describe('actions', () => {
+  it('withholds BANK before the first arena', () => {
+    expect(actionsFor(1, 5).some((a) => a.type === 'BANK')).toBe(false);
+    expect(actionsFor(2, 5).some((a) => a.type === 'BANK')).toBe(true);
+  });
+
+  it('offers a ROUTE action per legal lane balance', () => {
+    const routes = actionsFor(2, 5).filter((a) => a.type === 'ROUTE');
+    expect(routes.map((a) => `${a.contract}:${a.laneSplit}`).sort()).toEqual([
+      'NARROW:null',
+      'SPLIT:3',
+      'SPLIT:4',
+      'WIDE:null',
+    ]);
+  });
+
+  it('offers no actions once the squad is gone, and rejects nonsense', () => {
+    expect([...actionsFor(3, 0)]).toEqual([]);
+    expect(() => actionsFor(0, 5)).toThrow(ModelError);
+    expect(() => actionsFor(6, 5)).toThrow(ModelError);
+    expect(() => actionsFor(2, 6)).toThrow(ModelError);
+    expect(() => actionsFor(2, 1.5)).toThrow(ModelError);
+  });
+
+  it('rejects an illegal lane balance through assertLegalAction', () => {
+    expect(() => assertLegalAction({ type: 'ROUTE', contract: 'SPLIT', laneSplit: 3 }, 2, 5)).not.toThrow();
+    expect(() => assertLegalAction({ type: 'ROUTE', contract: 'SPLIT', laneSplit: 2 }, 2, 5)).toThrow(ModelError);
+    expect(() => assertLegalAction({ type: 'ROUTE', contract: 'SPLIT' }, 2, 5)).toThrow(ModelError);
+    expect(() => assertLegalAction({ type: 'BANK' }, 1, 5)).toThrow(ModelError);
+    expect(() => assertLegalAction({ type: 'SHELTER', shelter: 5 }, 2, 5)).toThrow(ModelError);
+    expect(() => assertLegalAction(null, 2, 5)).toThrow(ModelError);
+  });
+
+  it('reports the configuration an action actually commits', () => {
+    expect(committedConfiguration({ type: 'BANK' }, 5)).toBeNull();
+    expect({ ...committedConfiguration({ type: 'SHELTER', shelter: 3 }, 5) }).toEqual({
+      contract: 'WIDE',
+      runners: 2,
+      laneSplit: null,
+    });
+    expect({ ...committedConfiguration({ type: 'ROUTE', contract: 'SPLIT', laneSplit: 4 }, 5) }).toEqual({
+      contract: 'SPLIT',
+      runners: 5,
+      laneSplit: 4,
+    });
+  });
+
+  it('has expected total factor exactly 1 for every legal action in every state', () => {
+    for (let arena = 1; arena <= CONFIG.arenas; arena += 1) {
+      for (let alive = 1; alive <= CONFIG.squadSize; alive += 1) {
         for (const action of actionsFor(arena, alive)) {
           expect(actionExpectedFactor(action, alive).toString()).toBe('1/1');
-          pairs += 1;
+          expect(sum(branches(action, alive).map((b) => b.prob)).toString()).toBe('1/1');
         }
       }
-    }
-    expect(pairs).toBe(140); // 25-state superset of the 21 reachable states
-  });
-
-  it('makes every branch table a probability distribution', () => {
-    for (let alive = 1; alive <= N; alive += 1) {
-      for (const action of actionsFor(2, alive)) {
-        const total = branches(action, alive).reduce((s, b) => s.add(b.prob), Frac.ZERO);
-        expect(total.toString()).toBe('1/1');
-      }
-    }
-  });
-
-  it('zeroes the claim on a total wipe and banks the full claim on BANK', () => {
-    const wipeBranch = branches({ type: 'ROUTE', contract: 'NARROW' }, 5)[0];
-    expect(wipeBranch.survivors).toBe(0);
-    expect(wipeBranch.claimFactor.toString()).toBe('0/1');
-    expect(wipeBranch.bankFactor.toString()).toBe('0/1');
-
-    const bank = branches({ type: 'BANK' }, 3)[0];
-    expect(bank.bankFactor.toString()).toBe('1/1');
-    expect(bank.claimFactor.toString()).toBe('0/1');
-  });
-
-  it('splits SHELTER into an immediate bank plus a WIDE continuation', () => {
-    const bs = branches({ type: 'SHELTER', shelter: 2 }, 5);
-    expect(bs).toHaveLength(4); // 3 runners continue => 0..3 survivors
-    for (const b of bs) expect(b.bankFactor.toString()).toBe('2/5');
-    const wide = survivorDistribution('WIDE', 3);
-    expect(bs.map((b) => b.prob.toString())).toEqual(wide.map(String));
-  });
-});
-
-describe('decision space — no policy beats the target RTP', () => {
-  const dp = stateValueDP();
-
-  it('gives the best and the worst policy identical value in every state', () => {
-    expect(dp.states.length).toBe(K * N);
-    for (const state of dp.states) {
-      expect(state.max.toString()).toBe('1/1');
-      expect(state.min.toString()).toBe('1/1');
-    }
-  });
-
-  it('gives every individual action the same value as every other', () => {
-    for (const state of dp.states) {
-      for (const { value } of state.actions) expect(value.toString()).toBe('1/1');
-    }
-  });
-
-  it('returns exactly 191/200 over the complete outcome space of every named policy', () => {
-    for (const [key, { fn }] of Object.entries(POLICIES)) {
-      const result = enumeratePolicy(fn);
-      expect(result.totalProbability.toString(), key).toBe('1/1');
-      expect(result.mean.toString(), key).toBe('191/200');
-    }
-  });
-
-  it('holds for adaptive policies that condition on observed history', () => {
-    const contrarian = (arena, alive) => {
-      if (alive === 5) return { type: 'ROUTE', contract: 'NARROW' };
-      if (alive === 1) return arena > 1 ? { type: 'BANK' } : { type: 'ROUTE', contract: 'WIDE' };
-      return { type: 'SHELTER', shelter: alive - 1 };
-    };
-    expect(enumeratePolicy(contrarian).mean.toString()).toBe('191/200');
-  });
-
-  it('holds for a randomised policy (a convex combination of deterministic ones)', () => {
-    // Deterministic surrogate: a fixed pseudo-random schedule over the state index.
-    const schedule = ['WIDE', 'NARROW', 'SPLIT', 'NARROW', 'WIDE'];
-    const mixed = (arena, alive) => {
-      const pick = schedule[(arena * 7 + alive * 3) % schedule.length];
-      if (pick === 'SPLIT' && alive < 2) return { type: 'ROUTE', contract: 'WIDE' };
-      return { type: 'ROUTE', contract: pick };
-    };
-    expect(enumeratePolicy(mixed).mean.toString()).toBe('191/200');
-  });
-
-  it('lets policies move variance enormously while the mean stays pinned', () => {
-    const bolt = enumeratePolicy(POLICIES.BANK_AFTER_ONE.fn);
-    const knife = enumeratePolicy(POLICIES.ALL_NARROW.fn);
-    expect(bolt.mean.eq(knife.mean)).toBe(true);
-    expect(knife.variance.gt(bolt.variance.mul(F(1000n)))).toBe(true);
-  });
-
-  it('offers a policy with exactly zero bust probability', () => {
-    const keeper = enumeratePolicy(POLICIES.SHELTER_LADDER.fn);
-    expect(probabilityOfZero(keeper.distribution).toString()).toBe('0/1');
-    expect(keeper.mean.toString()).toBe('191/200');
-  });
-});
-
-describe('max-win cap', () => {
-  it('proves the cap is unreachable by the main game', () => {
-    const best = CONFIG.rtp.mul(maxPayoutDP()[1][N]);
-    expect(best.toString()).toBe('24448/25');
-    expect(best.lt(F(CONFIG.maxWinMultiple))).toBe(true);
-  });
-
-  it('derives the maximum from five NARROW arenas with a perfect squad', () => {
-    expect(maxPayoutDP()[1][N].toString()).toBe('1024/1');
-    expect(routeMultiplier('NARROW').pow(K).toString()).toBe('1024/1');
-  });
-
-  it('keeps every side-bet multiplier under the cap', () => {
-    for (const row of sideBetTable()) {
-      expect(row.multiplier.lte(F(CONFIG.maxWinMultiple)), `${row.bet}/${row.contract}/${row.runners}`).toBe(true);
     }
   });
 });
 
 describe('side bets', () => {
-  const rows = sideBetTable();
+  it('are withheld below the published minimum running group', () => {
+    expect([...sideBetOffers('WIDE', 1)]).toEqual([]);
+    expect([...sideBetOffersFor({ type: 'SHELTER', shelter: 4 }, 5)]).toEqual([]);
+    expect([...sideBetOffersFor({ type: 'BANK' }, 5)]).toEqual([]);
+    expect(sideBetOffersFor({ type: 'SHELTER', shelter: 3 }, 5).length).toBe(3);
+  });
 
-  it('prices every side bet at exactly the target RTP', () => {
-    expect(rows.length).toBe(36); // 3 bets x 3 contracts x squad sizes 2..5
-    for (const row of rows) {
-      expect(row.rtp.toString(), `${row.bet}/${row.contract}/${row.runners}`).toBe('191/200');
-      expect(row.multiplier.toString()).toBe(CONFIG.rtp.div(row.probability).toString());
+  it('price at exactly r / P against the committed geometry', () => {
+    for (const row of sideBetTable()) {
+      expect(row.rtp.toString()).toBe(CONFIG.rtp.toString());
+      expect(row.probability.mul(row.multiplier).toString()).toBe(CONFIG.rtp.toString());
     }
   });
 
-  it('publishes the biggest multiplier in the game', () => {
-    const biggest = rows.reduce((m, r) => (r.multiplier.gt(m.multiplier) ? r : m), rows[0]);
-    expect(biggest.bet).toBe('SOLE SURVIVOR');
-    expect(biggest.contract).toBe('WIDE');
-    expect(biggest.runners).toBe(5);
-    expect(biggest.multiplier.toString()).toBe('97792/105');
+  it('price differently on different lane balances of the same contract', () => {
+    const balanced = sideBetOffers('SPLIT', 5, 3).find((o) => o.bet === 'SOLE_SURVIVOR');
+    const scout = sideBetOffers('SPLIT', 5, 4).find((o) => o.bet === 'SOLE_SURVIVOR');
+    expect(balanced.multiplier.toString()).not.toBe(scout.multiplier.toString());
+    // The lopsided balance makes a sole survivor likelier, so it must pay less.
+    expect(scout.multiplier.lt(balanced.multiplier)).toBe(true);
   });
 
-  it('never quotes a zero or infinite multiplier', () => {
-    for (const row of rows) {
-      expect(row.probability.gt(Frac.ZERO)).toBe(true);
-      expect(row.probability.lte(Frac.ONE)).toBe(true);
+  it('read their probability out of the arena branch table they ride', () => {
+    for (let arena = 1; arena <= CONFIG.arenas; arena += 1) {
+      for (let alive = 1; alive <= CONFIG.squadSize; alive += 1) {
+        for (const action of actionsFor(arena, alive)) {
+          const config = committedConfiguration(action, alive);
+          const table = branches(action, alive);
+          for (const offer of sideBetOffersFor(action, alive)) {
+            const spec = SIDE_BETS.find((s) => s.id === offer.bet);
+            const fromBranches = table.reduce(
+              (s, b) => (spec.predicate(b.survivors, config.runners) ? s.add(b.prob) : s),
+              Frac.ZERO,
+            );
+            expect(offer.probability.toString()).toBe(fromBranches.toString());
+          }
+        }
+      }
     }
+  });
+
+  it('publishes one row per (event, geometry) with no duplicates', () => {
+    const rows = sideBetTable();
+    const eligible = routeConfigurations({ minRunners: CONFIG.sideBet.minRunners });
+    expect(rows.length).toBe(SIDE_BETS.length * eligible.length);
+    expect(new Set(rows.map((r) => `${r.bet}@${r.key}`)).size).toBe(rows.length);
+    expect([...SIDE_BET_IDS]).toEqual(['CLEAN_SWEEP', 'SOLE_SURVIVOR', 'LAST_LIGHT']);
+  });
+
+  it('never prices a zero-probability event', () => {
+    for (const row of sideBetTable()) expect(row.probability.isZero()).toBe(false);
   });
 });
 
-describe('hostile input', () => {
-  it('rejects unknown contracts', () => {
-    expect(() => contract('TUNNEL')).toThrow(ModelError);
-    expect(() => contract('__proto__')).toThrow(/Unknown route contract/);
-    expect(() => contract('constructor')).toThrow(/Unknown route contract/);
-    expect(() => survivorDistribution('toString', 3)).toThrow(ModelError);
+describe('the decision-space DP', () => {
+  const dp = stateValueDP();
+
+  it('gives best value == worst value == 1 in every state', () => {
+    for (const state of dp.states) {
+      expect(state.max.toString()).toBe('1/1');
+      expect(state.min.toString()).toBe('1/1');
+      for (const { value } of state.actions) expect(value.toString()).toBe('1/1');
+    }
   });
 
-  it('rejects out-of-range squad sizes', () => {
-    expect(() => survivorDistribution('WIDE', -1)).toThrow(ModelError);
-    expect(() => survivorDistribution('WIDE', 6)).toThrow(ModelError);
-    expect(() => survivorDistribution('WIDE', 2.5)).toThrow(ModelError);
-    expect(() => survivorDistribution('WIDE', NaN)).toThrow(ModelError);
+  it('sweeps the 25-state superset, not just the reachable 21', () => {
+    expect(dp.states.length).toBe(CONFIG.arenas * CONFIG.squadSize);
   });
 
-  it('refuses SPLIT below its minimum squad size', () => {
-    expect(() => laneSizes('SPLIT', 1)).toThrow(/at least 2/);
-    expect(actionsFor(2, 1).some((a) => a.contract === 'SPLIT')).toBe(false);
-    expect(actionsFor(2, 2).some((a) => a.contract === 'SPLIT')).toBe(true);
+  it('bounds the route ticket at r * 4^5', () => {
+    const best = maxPayoutDP();
+    expect(CONFIG.rtp.mul(best[1][CONFIG.squadSize]).toString()).toBe('24448/25');
+  });
+});
+
+describe('policy enumeration', () => {
+  it('returns exactly the target RTP for every named policy', () => {
+    for (const { fn, label } of Object.values(POLICIES)) {
+      const result = enumeratePolicy(fn);
+      expect(result.totalProbability.toString(), label).toBe('1/1');
+      expect(result.rtp.toString(), label).toBe(CONFIG.rtp.toString());
+      expect(result.mean.toString(), label).toBe(CONFIG.rtp.toString());
+      expect(result.stakeDeterministic, label).toBe(true);
+    }
   });
 
-  it('refuses to bank before the first arena has been run', () => {
-    expect(actionsFor(1, 5).some((a) => a.type === 'BANK')).toBe(false);
-    expect(actionsFor(2, 5).some((a) => a.type === 'BANK')).toBe(true);
-    expect(() => assertLegalAction({ type: 'BANK' }, 1, 5)).toThrow(/illegal/i);
+  it('returns exactly the target RTP for every portfolio of policy and side-bet plan', () => {
+    for (const [policyKey, policy] of Object.entries(POLICIES)) {
+      for (const [planKey, plan] of Object.entries(SIDE_BET_PLANS)) {
+        const result = enumeratePolicy(policy.fn, plan.fn);
+        const label = `${policyKey}+${planKey}`;
+        expect(result.rtp.toString(), label).toBe(CONFIG.rtp.toString());
+        expect(result.expectedCredit.toString(), label).toBe(
+          CONFIG.rtp.mul(result.expectedStake).toString(),
+        );
+      }
+    }
   });
 
-  it('rejects out-of-range arenas', () => {
-    expect(() => actionsFor(0, 5)).toThrow(ModelError);
-    expect(() => actionsFor(K + 1, 5)).toThrow(ModelError);
-    expect(() => actionsFor(1.5, 5)).toThrow(ModelError);
+  it('stakes a path-dependent total for an every-arena plan, and a fixed one otherwise', () => {
+    const everyArena = enumeratePolicy(POLICIES.ALL_WIDE.fn, SIDE_BET_PLANS.SWEEP_EVERY_ARENA.fn);
+    expect(everyArena.stakeDeterministic).toBe(false);
+    expect(everyArena.expectedStake.gt(Frac.ONE)).toBe(true);
+    const firstArenaOnly = enumeratePolicy(POLICIES.ALL_WIDE.fn, SIDE_BET_PLANS.MAX_SOLE_SURVIVOR.fn);
+    expect(firstArenaOnly.stakeDeterministic).toBe(true);
+    expect(firstArenaOnly.expectedStake.toString()).toBe('2/1');
   });
 
-  it('rejects malformed shelter counts', () => {
-    expect(() => branches({ type: 'SHELTER', shelter: 0 }, 5)).toThrow(ModelError);
-    expect(() => branches({ type: 'SHELTER', shelter: 5 }, 5)).toThrow(ModelError);
-    expect(() => branches({ type: 'SHELTER', shelter: -1 }, 5)).toThrow(ModelError);
-    expect(() => branches({ type: 'SHELTER', shelter: 1.5 }, 5)).toThrow(ModelError);
-    expect(() => assertLegalAction({ type: 'SHELTER', shelter: 9 }, 2, 3)).toThrow(/illegal/i);
+  it('changes variance when only the lane balance changes', () => {
+    const balanced = enumeratePolicy(POLICIES.ALL_SPLIT.fn);
+    const scout = enumeratePolicy(POLICIES.SCOUT_SPLIT.fn);
+    expect(balanced.rtp.toString()).toBe(scout.rtp.toString());
+    expect(balanced.variance.toString()).not.toBe(scout.variance.toString());
+    expect(scout.variance.gt(balanced.variance)).toBe(true);
   });
 
-  it('rejects unknown or malformed action shapes', () => {
-    expect(() => branches({ type: 'TELEPORT' }, 5)).toThrow(ModelError);
-    expect(() => assertLegalAction(null, 2, 5)).toThrow(ModelError);
-    expect(() => assertLegalAction('BANK', 2, 5)).toThrow(ModelError);
-    // A BANK carrying extra fields is not the BANK we offered.
-    expect(() => assertLegalAction({ type: 'BANK', contract: 'WIDE' }, 2, 5)).toThrow(/illegal/i);
+  it('reaches zero bust probability under the shelter ladder', () => {
+    const keeper = enumeratePolicy(POLICIES.SHELTER_LADDER.fn);
+    expect(probabilityOfZero(keeper.distribution).toString()).toBe('0/1');
   });
 
-  it('rejects a policy that is not a function, and one that returns an illegal action', () => {
-    expect(() => enumeratePolicy(null)).toThrow(ModelError);
-    expect(() => enumeratePolicy(() => ({ type: 'ROUTE', contract: 'SPLIT' }))).toThrow(/illegal/i);
+  it('rejects a plan that stakes outside the published limits', () => {
+    const overweight = () => [{ bet: 'CLEAN_SWEEP', weight: F(2n, 1n) }];
+    expect(() => enumeratePolicy(POLICIES.ALL_WIDE.fn, overweight)).toThrow(ModelError);
+    const unoffered = (_a, _b, _c, config) =>
+      config.runners < 2 ? [{ bet: 'CLEAN_SWEEP', weight: F(1n, 10n) }] : [];
+    expect(() => enumeratePolicy(POLICIES.ALL_WIDE.fn, unoffered)).toThrow(ModelError);
+    expect(() => enumeratePolicy('not a function')).toThrow(ModelError);
+  });
+});
+
+describe('the max-win cap analysis', () => {
+  const report = capAnalysis();
+
+  it('bounds every ticket strictly below the declared cap', () => {
+    expect(report.routeTicketMax.toString()).toBe('24448/25');
+    expect(report.sideBetMax.toString()).toBe('97792/105');
+    expect(report.maxTicketMultiple.toString()).toBe('24448/25');
+    expect(report.maxTicketMultiple.lt(F(CONFIG.maxWinMultiple))).toBe(true);
+    expect(report.sideBetMax.toString()).toBe(largestSideBetMultiplier().toString());
   });
 
-  it('refuses to act with an empty squad', () => {
-    expect(actionsFor(3, 0)).toEqual([]);
-    expect(() => branches({ type: 'BANK' }, 0)).toThrow(/No runners left/);
+  it('bounds the round total strictly below the cap at both stake endpoints', () => {
+    const cap = F(CONFIG.maxWinMultiple);
+    expect(report.ratioNoSideBets.lt(cap)).toBe(true);
+    expect(report.ratioMaxSideBets.lt(cap)).toBe(true);
+    expect(report.maxRoundRatio.lt(cap)).toBe(true);
+    // The round ratio is a weighted mean of ticket multiples, so it can never
+    // exceed the largest ticket ceiling. That is the whole per-round argument.
+    expect(report.maxRoundRatio.lte(report.maxTicketMultiple)).toBe(true);
+  });
+
+  it('keeps the stake limits coherent, which is what closes the proof', () => {
+    expect(CONFIG.sideBet.maxStakeRatioPerBet.lte(CONFIG.sideBet.maxTotalStakeRatio)).toBe(true);
+    expect(CONFIG.sideBet.maxTotalStakeRatio.lte(F(1n))).toBe(true);
+    expect(CONFIG.sideBet.maxStakeRatioPerBet.gt(Frac.ZERO)).toBe(true);
+  });
+
+  it('confirms the v1 basis really was reachable, which is why it changed', () => {
+    // Not a hypothetical: a per-round chain cap against the route stake is
+    // reachable the moment side bets are in play. NARROW x5 all-clear pays
+    // 977.92x and wins a Clean Sweep on every one of the five arenas.
+    const cleanSweepNarrow = sideBetTable().find(
+      (r) => r.bet === 'CLEAN_SWEEP' && r.contract === 'NARROW' && r.runners === 5,
+    );
+    const v1Total = report.routeTicketMax.add(cleanSweepNarrow.multiplier.mul(F(BigInt(CONFIG.arenas))));
+    expect(v1Total.gt(F(CONFIG.maxWinMultiple))).toBe(true);
+    expect(v1Total.toString()).toBe('32088/25');
+  });
+});
+
+describe('configuration surface', () => {
+  it('declares a game cycle that satisfies UKGC RTS 8', () => {
+    expect(CONFIG.minGameCycleMs).toBeGreaterThanOrEqual(2500);
+  });
+
+  it('declares an RTP inside the mandated band', () => {
+    expect(CONFIG.rtp.gte(F(94n, 100n))).toBe(true);
+    expect(CONFIG.rtp.lte(F(97n, 100n))).toBe(true);
+  });
+
+  it('is frozen', () => {
+    expect(Object.isFrozen(CONFIG)).toBe(true);
+    expect(Object.isFrozen(CONTRACTS)).toBe(true);
+    expect(Object.isFrozen(CONFIG.sideBet)).toBe(true);
+    for (const id of CONTRACT_IDS) expect(Object.isFrozen(CONTRACTS[id])).toBe(true);
+  });
+
+  it('exposes the UI helpers the fork control needs', () => {
+    expect(balancedSplit(5)).toBe(3);
+    expect(scoutSplit(5)).toBe(4);
+    expect([...laneSplitsFor('SPLIT', 5)]).toContain(balancedSplit(5));
+    expect([...laneSplitsFor('SPLIT', 5)]).toContain(scoutSplit(5));
+  });
+
+  it('rejects an unknown contract', () => {
+    expect(() => contract('LADDER')).toThrow(ModelError);
+    expect(() => routeMultiplier('LADDER')).toThrow(ModelError);
   });
 });

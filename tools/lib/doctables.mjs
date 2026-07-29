@@ -1,17 +1,26 @@
 /**
- * Markdown table slots in the published docs.
+ * Generated slots in the published docs.
  *
- * A slot is an HTML comment marker on its own line, optionally followed by the
- * table body (consecutive lines starting with `|`):
+ * Two kinds of slot exist, and between them every load-bearing number in this
+ * repository's documentation is machine-generated and CI-bound.
+ *
+ * TABLE SLOT — an HTML comment marker on its own line, followed by the table
+ * body (consecutive lines starting with `|`):
  *
  *     <!-- table:contracts -->
  *     | Contract | ... |
  *     | --- | ... |
  *     | WIDE | ... |
  *
- * `tools/sync-docs.mjs` fills the slots from the enumerator.
- * `tests/paytable.test.mjs` asserts the doc still matches the enumeration, so
- * a paytable change that is not re-published fails CI.
+ * FIGURE SLOT — an inline span anywhere in any document:
+ *
+ *     splitting a five-runner squad wipes <!-- fig:splitWipe5 -->1.30%<!-- /fig -->
+ *
+ * `tools/sync-docs.mjs` fills both kinds from the enumerator.
+ * `tests/paytable.test.mjs` asserts the documents still match the enumeration,
+ * so a tuning change that is not re-published fails CI — and, equally, a prose
+ * edit that invents a number fails CI. The v1 draft bound only MATH.md's tables,
+ * which let DESIGN.md drift into claims the model does not support.
  */
 
 /** @param {string} name */
@@ -56,4 +65,44 @@ export function spliceTable(markdown, name, table) {
   const lines = markdown.split('\n');
   lines.splice(found.start, found.end - found.start, found.marker, ...table.split('\n'));
   return lines.join('\n');
+}
+
+/* ------------------------------------------------------------------ *
+ * inline figures
+ * ------------------------------------------------------------------ */
+
+const FIGURE_PATTERN = /<!-- fig:([A-Za-z0-9_]+) -->([\s\S]*?)<!-- \/fig -->/g;
+
+/**
+ * Every figure occurrence in a document, in source order.
+ * @param {string} markdown
+ * @returns {{name:string, value:string, index:number, length:number}[]}
+ */
+export function listFigures(markdown) {
+  const out = [];
+  for (const match of markdown.matchAll(FIGURE_PATTERN)) {
+    out.push({ name: match[1], value: match[2], index: match.index, length: match[0].length });
+  }
+  return out;
+}
+
+/**
+ * Rewrite every figure occurrence from the supplied map.
+ * @param {string} markdown
+ * @param {Record<string, string>} figures
+ * @returns {{text: string, unknown: string[], stale: string[]}}
+ */
+export function spliceFigures(markdown, figures) {
+  const unknown = [];
+  const stale = [];
+  const text = markdown.replace(FIGURE_PATTERN, (whole, name, current) => {
+    if (!Object.prototype.hasOwnProperty.call(figures, name)) {
+      unknown.push(name);
+      return whole;
+    }
+    const next = figures[name];
+    if (current !== next) stale.push(name);
+    return `<!-- fig:${name} -->${next}<!-- /fig -->`;
+  });
+  return { text, unknown, stale };
 }

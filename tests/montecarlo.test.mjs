@@ -41,21 +41,24 @@ describe('deterministic byte stream', () => {
 });
 
 describe('per-arena distributions match the exact model', () => {
-  for (const [contractId, runners, draws] of [
-    ['WIDE', 5, 200_000],
-    ['SPLIT', 5, 200_000],
-    ['NARROW', 5, 200_000],
-    ['SPLIT', 2, 200_000],
+  for (const [contractId, runners, laneSplit, draws] of [
+    ['WIDE', 5, null, 200_000],
+    ['SPLIT', 5, 3, 200_000],
+    ['SPLIT', 5, 4, 200_000],
+    ['SPLIT', 4, 3, 200_000],
+    ['NARROW', 5, null, 200_000],
+    ['SPLIT', 2, 1, 200_000],
   ]) {
-    it(`${contractId} with ${runners} runners`, () => {
-      const rows = crossCheckArena(contractId, runners, draws, SEED);
+    const label = laneSplit === null ? `${runners} runners` : `${runners} runners on ${laneSplit}+${runners - laneSplit}`;
+    it(`${contractId} with ${label}`, () => {
+      const rows = crossCheckArena(contractId, runners, draws, SEED, laneSplit);
       const totalProbability = rows.reduce((s, r) => s + r.empirical.toNumber(), 0);
       expect(Math.abs(totalProbability - 1)).toBeLessThan(1e-9);
       for (const row of rows) {
         // 5 sigma on a binomial with n = draws, generously bounded.
         const p = row.exact.toNumber();
         const sigma = Math.sqrt(Math.max(p * (1 - p), 1e-6) / draws);
-        expect(row.absError.toNumber(), `${contractId}/${runners} m=${row.survivors}`).toBeLessThan(
+        expect(row.absError.toNumber(), `${contractId}/${label} m=${row.survivors}`).toBeLessThan(
           5 * sigma + 1e-4,
         );
       }
@@ -75,16 +78,33 @@ describe('per-arena distributions match the exact model', () => {
   it('never returns more survivors than runners', () => {
     const rng = new ByteStream(SEED);
     for (let i = 0; i < 5000; i += 1) {
-      for (const id of ['WIDE', 'SPLIT', 'NARROW']) {
-        const m = simulateArena(rng, id, 5);
+      for (const [id, laneSplit] of [['WIDE', null], ['SPLIT', 3], ['SPLIT', 4], ['NARROW', null]]) {
+        const m = simulateArena(rng, id, 5, laneSplit);
         expect(m).toBeGreaterThanOrEqual(0);
         expect(m).toBeLessThanOrEqual(5);
       }
     }
   });
+
+  it('separates the two SPLIT lane balances the way the exact model says', () => {
+    const balanced = crossCheckArena('SPLIT', 5, 400_000, SEED, 3);
+    const scout = crossCheckArena('SPLIT', 5, 400_000, SEED, 4);
+    // The lopsided balance must wipe more often and clear four-or-more more often.
+    expect(scout[0].empirical.toNumber()).toBeGreaterThan(balanced[0].empirical.toNumber());
+    const keep4 = (rows) => rows[4].empirical.toNumber() + rows[5].empirical.toNumber();
+    expect(keep4(scout)).toBeGreaterThan(keep4(balanced));
+    // ... and clear ALL five exactly as often, because that is lane-count only.
+    expect(Math.abs(scout[5].empirical.toNumber() - balanced[5].empirical.toNumber())).toBeLessThan(0.01);
+  });
 });
 
 describe('full-round RTP agrees with the exact value', () => {
+  it('agrees with the exact model on the lopsided SPLIT policy too', () => {
+    const result = simulate(POLICIES.SCOUT_SPLIT.fn, 60_000, SEED);
+    // Scout's exact SD is ~0.87; 5 sigma at 60k rounds is ~0.0178.
+    expect(Math.abs(result.empiricalRtp.toNumber() - CONFIG.rtp.toNumber())).toBeLessThan(0.0178);
+  });
+
   it('reproduces 95.5% under the low-variance Ranger policy', () => {
     const rounds = 60_000;
     const result = simulate(POLICIES.ALL_WIDE.fn, rounds, SEED);

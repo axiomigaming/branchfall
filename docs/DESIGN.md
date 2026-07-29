@@ -4,8 +4,13 @@
 
 > Five small figures with lanterns for hearts cross five collapsing branches above
 > a fog you cannot see the bottom of. You choose the route. They do the running.
-> Every route pays back the same 95.5% — what you are actually choosing is the
-> shape of the risk, and which of your runners you are willing to gamble.
+> Every route pays back the same <!-- fig:rtpPct -->95.5%<!-- /fig --> — what you
+> are actually choosing is the shape of the risk, and which of your runners you
+> are willing to gamble.
+
+Every number in this document is generated from `tools/lib/model.mjs` and
+re-checked on every CI run. `npm run docs:check` fails if a sentence here claims
+something the model does not compute.
 
 ---
 
@@ -22,9 +27,10 @@ be. They are not cute. They are earnest, slightly battered, and clearly made by
 hand — someone put them together and is now sending them across a stone branch in
 the dark.
 
-**The run.** Climb the tree. Five branches — Lowbranch, The Grain, Windrow, The
-Char, Crown. At the top is the Crown Lamp. Along the way there are Lamp Houses:
-brass shelters where a Kindling's light can be banked and kept.
+**The run.** Climb the tree. Five branches — **Lowbranch, The Grain, Windrow, The
+Char, Crown** (§6.7 gives each one a full brief). At the top is the Crown Lamp.
+Along the way there are Lamp Houses: brass shelters where a Kindling's light can
+be banked and kept.
 
 **Originality guard.** No game-show framing, no elimination-show host, no
 inflatable obstacles, no bean-shaped avatars, no primary-colour party palette, no
@@ -46,21 +52,26 @@ BUY  ->  [ ROUTE -> RUN -> RESOLVE -> BANK? ] x up to 5  ->  SETTLE  ->  VERIFY
 1. **Open the squad.** Five named Kindlings. The player may rename and re-dress
    them. Cosmetics change nothing but the player's attachment.
 2. **Set stake and buy the run.** The stake is debited. The round's claim opens at
-   `stake x 95.5%`. This is the only moment the house margin is charged.
-   A commitment hash for the whole round is published *now*, before any choice.
+   `stake x `<!-- fig:rtpPct -->95.5%<!-- /fig -->. This is the only moment the
+   house margin is charged on the route ticket.
+   The round's **pre-commitment hash** is published *now*, before any choice — and
+   before the client seed exists (§8.1).
 3. **Arena brief.** The player sees the branch ahead and four route cards, each
    showing its exact numbers for the current squad size. **No timer.**
-4. **Commit the route.** Optionally attach a side bet. Optionally choose which
-   Kindlings to shelter.
+4. **Commit the route.** On a Split with four or five runners, set the fork
+   balance. Optionally attach side bets. Optionally choose which Kindlings to
+   shelter.
 5. **The run.** A 9–14 second deterministic replay of the committed transcript.
    Client physics is presentation; the transcript already decided who falls.
 6. **Resolve.** Survivors are counted. The claim is multiplied by
    `(survivors / runners) x route multiplier`. If nobody clears, the round ends.
-7. **Bank or continue.** Available after every resolved arena. **No timer.**
+7. **Bank or continue.** Available after every resolved arena. **No timer** — but
+   the next money control does not unlock for
+   <!-- fig:minCycleSeconds -->2.5<!-- /fig --> seconds (§5.1).
 8. **Settle.** Banking, or finishing arena 5, credits the claim. A wipe credits
-   nothing beyond anything already sheltered.
-9. **Verify.** The seed is revealed. The player can re-derive the whole round,
-   including the routes they did not take.
+   nothing beyond anything already sheltered and any side bet that won.
+9. **Verify.** The server seed is revealed. The player can re-derive the whole
+   round, including the routes they did not take.
 
 A full five-arena run is 90–120 seconds. A cautious two-arena run is ~35 seconds.
 
@@ -77,38 +88,54 @@ a payout, because the outcome was fixed before the player chose.
 
 ## 3. Player decisions — and exactly what each one changes
 
-Zero fake agency. Every control below moves the distribution in a way the player
-can see, and none of them moves the expected value. The number in the last column
-is proved exactly in `MATH.md` §8 and asserted in CI.
+Every control below is listed with what it actually moves. Rows 1–6 move the
+distribution in ways the player can see and the route card states. Rows 7 and 8
+move nothing distributional at all, and are listed here **because they are the
+ones that look like agency and are not** — a spec that quietly omits them is how
+a shelter picker ends up implying that picking a particular Kindling changes the
+odds. It does not. It cannot.
+
+The RTP column is proved exactly in `MATH.md` §8 and asserted in CI.
 
 | # | Decision | When | What it actually changes | Effect on RTP |
 | --- | --- | --- | --- | --- |
 | 1 | **Stake** | Before buy | Scales everything linearly | none |
 | 2 | **Route contract** (Wide / Split / Narrow / Shelter) | Before each arena, no timer | The entire survivor distribution: wipe probability, expected survivors, multiplier, skew | **none** |
-| 3 | **Shelter size `k`** | With a Shelter contract | Banks `k/n` of the claim irreversibly; truncates both tails | **none** |
-| 4 | **Which Kindlings to shelter** | With a Shelter contract | *Who* comes home. Also changes next arena's lane sizes, hence the shape | **none** |
+| 3 | **Fork balance** (Split only, at 4 or 5 runners) | With a Split contract | Wipe probability and the middle of the distribution, in opposite directions. **Not** the multiplier, **not** P(all clear), **not** expected survivors (§3.3) | **none** |
+| 4 | **Shelter size `k`** | With a Shelter contract | Banks `k/n` of the claim irreversibly; truncates both tails | **none** |
 | 5 | **Bank or continue** | After each resolved arena, no timer | Truncates the distribution at the current claim | **none** |
-| 6 | **Side bet + stake** | With each route commitment | Adds a bet with its own shape and its own identical margin | **none** |
-| 7 | **Names, lantern glass, cloth, charms** | Any time | Nothing mechanical. Attachment only | **none** |
+| 6 | **Side bet: event and stake** | With each route commitment | Adds a separate ticket with its own shape, at the identical margin | **none** |
+| 7 | **Which Kindlings to shelter; who takes the thin limb** | With Shelter / Split | **Nothing distributional.** Runners are interchangeable in the mathematics: every one carries an equal share and has identical survival odds. What it changes is *who comes home* | **none** |
+| 8 | **Names, lantern glass, cloth, charms** | Any time | Nothing mechanical. Attachment only | **none** |
 
-**Stated plainly, in-product:** *"Every route returns 95.5%. You are choosing the
-shape of the risk, not the odds."* This line is permanently visible on the route
-screen. It is not a disclaimer buried in a legal sheet; it is the product's
-actual thesis.
+**Stated plainly, in-product:** *"Every route returns
+<!-- fig:rtpPct -->95.5%<!-- /fig -->. You are choosing the shape of the risk, not
+the odds."* This line is permanently visible on the route screen. It is not a
+disclaimer buried in a legal sheet; it is the product's actual thesis.
+
+**And the harder line, also in-product**, on the shelter picker and the fork
+assignment: *"Choosing who runs where changes who comes home. It does not change
+the odds."* Both halves are true, and shipping only the first half would be the
+lie.
 
 ### 3.1 The routes, and why the choice is real
 
 | Route | Fiction | Geometry | What it does to the distribution |
 | --- | --- | --- | --- |
-| **WIDE** — *The Broad Bough* | A wide fossil bough. Crosswind, crumbling bark. | One lane, whole squad | Keeps the most runners alive (4.2 of 5 per arena) but everyone shares one shear risk: total wipe never drops below 4%. Multiplier 1.190x. |
-| **SPLIT** — *The Fork* | The branch divides. The squad divides with it. | Two independent lanes | Kills more runners on average (1.25 per arena vs 0.8) yet a **total** wipe needs both limbs to fail: 1.30% at five runners, **3.07x safer than Wide**. Multiplier 1.333x. |
-| **NARROW** — *The Reach* | A hairline limb across a gap. Single file, point runner first. | One lane, single file | The point runner's fall whips the line and takes everyone: 51.6% total wipe. Multiplier 4.000x. |
+| **WIDE** — *The Broad Bough* | A wide fossil bough. Crosswind, crumbling bark. | One lane, whole squad | Keeps the most runners alive (<!-- fig:wideExpectedSurvivors5 -->4.20<!-- /fig --> of 5 per arena) and clears the whole squad most often (<!-- fig:wideAllClear5 -->49.24%<!-- /fig -->). Everyone shares one shear risk, so a total wipe never drops below <!-- fig:wideWipe5 -->4.00%<!-- /fig -->. Multiplier <!-- fig:wideMult -->1.190x<!-- /fig -->. |
+| **SPLIT** — *The Fork* | The branch divides in two. The squad divides with it. | Two independent lanes; balance is the player's | Kills more runners on average (<!-- fig:splitFallen5 -->1.25<!-- /fig --> per arena vs <!-- fig:wideFallen5 -->0.80<!-- /fig -->) and clears the squad less often (<!-- fig:splitAllClear5 -->32.55%<!-- /fig -->) — but a **total** wipe needs both limbs to fail: <!-- fig:splitWipe5 -->1.30%<!-- /fig --> at five runners. Multiplier <!-- fig:splitMult -->1.333x<!-- /fig -->. |
+| **NARROW** — *The Reach* | A hairline limb across a gap. Single file, point runner first. | One lane, single file | The point runner's fall whips the line and takes everyone: <!-- fig:narrowWipe5 -->51.56%<!-- /fig --> total wipe, and all five clear only <!-- fig:narrowAllClear5 -->1.56%<!-- /fig --> of the time. Multiplier <!-- fig:narrowMult -->4.000x<!-- /fig -->. |
 | **SHELTER** — *The Lamp House* | A brass shelter door mid-branch. | Withdraw `k`, remainder runs Wide | Banks `k/n` of the claim on the spot. Shelter even once and your bust probability becomes exactly **zero** — money is already home. |
 
-The Wide/Split reversal is the strategic heart of the game and it is genuine, not
-flavour text: at five runners Split is three times safer against a total wipe; at
-two runners Split is *more* dangerous than Wide, because two solo lanes lose the
-safety of numbers. Players discover this. The route cards show it outright.
+**Wide and Split are a genuine trade, in both directions.** At five runners Split
+is <!-- fig:splitSaferRatio5 -->3.07x<!-- /fig --> safer against losing everyone;
+at two runners Split is *more* dangerous than Wide
+(<!-- fig:splitWipe2 -->6.25%<!-- /fig --> against
+<!-- fig:wideWipe2 -->5.50%<!-- /fig -->), because two solo lanes remove the
+safety of numbers. And at every squad size Wide keeps more runners alive and
+clears the whole squad far more often. Split buys a better worst case with a
+worse typical case. Neither card is the right answer and the copy is forbidden
+from implying one is: see §10.3.
 
 ### 3.2 The route card (the most important UI object in the game)
 
@@ -117,21 +144,85 @@ enumerator publishes:
 
 ```
 ┌──────────────────────────────────────┐
-│ NARROW              THE REACH        │
-│ 4.000x  per runner who clears        │
+│ ROUTE NAME          THE FICTION      │
+│ [multiplier]  per runner who clears  │
 │                                      │
 │ ▁▁▂▅▅▂  survivors, 5 runners         │  ← exact distribution bars
-│ nobody makes it        51.6%         │
-│ all five make it        1.6%         │
-│ expected survivors       1.25        │
+│ nobody makes it          [ % ]       │
+│ all five make it         [ % ]       │
+│ expected survivors       [ n ]       │
 │                                      │
 │ Returns 95.5%, like every route.     │
 │ [ full odds ▸ ]                      │
 └──────────────────────────────────────┘
 ```
 
-`full odds ▸` opens the exact per-outcome table — the same rows as `MATH.md` §5.2,
-as fractions, in the game. A player who wants the paytable gets the paytable.
+Filled in for NARROW at five runners, from the generated tables:
+
+| Field | Value |
+| --- | --- |
+| Multiplier | <!-- fig:narrowMult -->4.000x<!-- /fig --> |
+| Nobody makes it | <!-- fig:narrowWipe5 -->51.56%<!-- /fig --> |
+| All five make it | <!-- fig:narrowAllClear5 -->1.56%<!-- /fig --> |
+| Expected survivors | <!-- fig:narrowExpectedSurvivors5 -->1.25<!-- /fig --> |
+| Returns | <!-- fig:rtpPct -->95.5%<!-- /fig -->, like every route |
+
+`full odds ▸` opens the exact per-outcome table — the same rows as `MATH.md`
+§5.2, as fractions, in the game. A player who wants the paytable gets the
+paytable.
+
+### 3.3 The fork balance (the game's best small decision)
+
+When Split is selected with four or five runners, the card grows a second
+control: a divider the player drags across a row of Kindling silhouettes.
+
+```
+┌──────────────────────────────────────┐
+│ SPLIT                    THE FORK    │
+│ [multiplier]  per runner who clears  │
+│                                      │
+│   ● ● ●  │  ● ●        ← drag        │
+│   broad limb  thin limb              │
+│                                      │
+│              3 + 2      4 + 1        │
+│  nobody makes it  [ % ]     [ % ]    │
+│  all five make it [ % ]     [ % ]    │
+│  four or five     [ % ]     [ % ]    │
+│  one alone comes  [ % ]     [ % ]    │
+│                                      │
+│ Same 95.5% either way.               │
+└──────────────────────────────────────┘
+```
+
+Filled in at five runners, from the generated tables. Multiplier
+<!-- fig:splitMult -->1.333x<!-- /fig --> on both:
+
+| | 3 + 2 | 4 + 1 |
+| --- | --- | --- |
+| Nobody makes it | <!-- fig:splitWipe5 -->1.30%<!-- /fig --> | <!-- fig:scoutWipe5 -->2.52%<!-- /fig --> |
+| All five make it | <!-- fig:splitAllClear5 -->32.55%<!-- /fig --> | <!-- fig:splitAllClear5 -->32.55%<!-- /fig --> |
+| Four or five make it | <!-- fig:balancedKeep4Plus5 -->65.10%<!-- /fig --> | <!-- fig:scoutKeep4Plus5 -->69.44%<!-- /fig --> |
+| One alone comes home | <!-- fig:balancedSole5 -->3.39%<!-- /fig --> | <!-- fig:scoutSole5 -->7.90%<!-- /fig --> |
+
+Both columns are shown at once, always, with no default highlighted. What the
+player is reading is a genuine, non-dominated trade:
+
+* **3 + 2** is half the chance of losing everyone.
+* **4 + 1** is a better chance of coming out with four or five — because four
+  runners riding one lane that usually holds is a more concentrated bet — and
+  more than double the chance that exactly one lantern comes home.
+* **Both are identical** on the multiplier, on the chance of a clean sweep, and
+  on expected survivors. The card says so on its face.
+
+Then the second half of the control, which is the reason it is in the game:
+**the player drags specific Kindlings across the divider.** That choice is
+narratively enormous — *who do you send alone?* — and mathematically inert, and
+the card states both facts in one line: *"Who goes where changes who comes home,
+not the odds."*
+
+At two and three runners there is only one legal balance, and the control does
+not appear. We do not render a disabled slider to imply a choice that is not
+there.
 
 ---
 
@@ -142,31 +233,73 @@ Full exact treatment in `MATH.md` §5. Product surface:
 | Bet | Placed | Resolves | Feel |
 | --- | --- | --- | --- |
 | **Route Ticket** | At buy | End of round | The run itself. The main wager. |
-| **Clean Sweep** | With a route commitment | That arena | "Everybody makes it." 1.29x–61.12x. |
-| **Sole Survivor** | With a route commitment | That arena | "One light comes out." Up to 931.35x on a full Wide squad. |
-| **Last Light** | With a route commitment | That arena | "Nobody makes it." 1.53x–73.34x. |
+| **Clean Sweep** | With a route commitment | That arena | "Everybody makes it." <!-- fig:cleanSweepMin -->1.30x<!-- /fig -->–<!-- fig:cleanSweepMax -->61.12x<!-- /fig -->. |
+| **Sole Survivor** | With a route commitment | That arena | "One light comes out." Up to <!-- fig:soleSurvivorMax -->931.35x<!-- /fig --> on a full Wide squad. |
+| **Last Light** | With a route commitment | That arena | "Nobody makes it." <!-- fig:lastLightMin -->1.53x<!-- /fig -->–<!-- fig:lastLightMax -->73.34x<!-- /fig -->. |
 
-Side bets appear only when two or more Kindlings are running. They are collapsed
-behind a single `+ side bet` control, off by default, with the stake reset to zero
-every arena — a player must actively choose them every time, and never inherits
-a bet they set once.
+Side bets appear only when two or more Kindlings are *running* — under a Shelter,
+that is the reduced group, not the squad. They are collapsed behind a single
+`+ side bet` control, off by default, with the stake reset to zero every arena:
+a player must actively choose them every time and never inherits a bet they set
+once.
+
+**Stake limits, and why they are product surface and not fine print.**
+
+| Limit | Value |
+| --- | --- |
+| Minimum, per side bet | 1.00 credit |
+| Maximum, per side bet | **the route stake** |
+| Maximum, per round, all side bets together | **the route stake** |
+| Tickets per arena | at most one per event, three in total |
+
+A player can never put more money on a <!-- fig:soleSurvivorMax -->931.35x<!-- /fig -->
+long shot than on the game they came to play. This is three things at once: it is
+what makes "1000x" a well-defined statement when a round contains several stakes
+(`MATH.md` §9.3), it is what keeps the max-win cap unreachable, and it is a
+responsible-design limit — an unbounded side-bet stake turns a staged-survival
+game into a one-in-a-thousand lottery wearing its costume.
+
+The stake field shows the ceiling as a hard stop, states it in credits rather
+than as a ratio (*"up to 5.00 — the same as your run"*), and never as a
+percentage of balance.
 
 **Last Light is not insurance.** Product copy never uses the words insurance,
 protection, hedge, or safety net for it. It carries the identical 4.5% margin as
-everything else, and the card says so: *"Same 95.5% as every bet here."* Framing a
-same-margin bet as protection is a dark pattern, and the fact that it *is*
+everything else, and the card says so: *"Same 95.5% as every bet here."* Framing
+a same-margin bet as protection is a dark pattern, and the fact that it *is*
 mathematically a hedge does not license us to sell it as one.
 
 ---
 
 ## 5. Mobile-first portrait UX, screen by screen
 
-Baseline device 390 x 844 pt. All primary actions in the bottom 280 pt thumb zone.
-Everything works one-handed. Landscape is a stretch goal; portrait is the design.
+Baseline device 390 x 844 pt. All primary actions in the bottom 280 pt thumb
+zone. Everything works one-handed. Landscape is a stretch goal; portrait is the
+design.
 
 **Global layout while in a round:** viewport 0–58% of height (the branch, the
 Kindlings, the fog), decision surface 58–100% (cards, claim, actions). The claim
 figure lives on the seam between them in tabular numerals and never moves.
+
+### 5.1 Speed of play — the minimum game cycle
+
+**The game cycle is the arena, not the round**, because the arena is where money
+is committed. From the moment a route is committed, the next money control stays
+locked for **<!-- fig:minCycleMs -->2500<!-- /fig --> ms** (UKGC RTS 8). The
+shortest legal round — arena 1 route, then bank at arena 2 — therefore cannot
+complete faster than two cycles, and `skip` cannot shorten it.
+
+The distinction that matters:
+
+* A **countdown** takes something away when it expires. We have none, anywhere.
+* A **floor** delays when something becomes available and takes nothing away.
+  This is a floor. Nothing expires, nothing is lost, and waiting longer is always
+  free.
+
+It is rendered as a 2 pt hairline filling under the primary action, with no
+numerals and no ticking sound, and the button is simply inert until it completes.
+The engine enforces it server-side (`advance()` fails `TOO_SOON`), so a modified
+client cannot beat it and a slow network cannot be punished by it.
 
 ---
 
@@ -185,9 +318,12 @@ figure lives on the seam between them in tabular numerals and never moves.
 - Below the stepper, computed live and honestly: *"Buying this run debits 5.00 and
   opens a claim of 4.775 — that's the 95.5% return, charged once, now. It is not
   charged again no matter how far you go."*
-- `Buy the run` (primary). On tap: the commitment hash appears for ~1 s with a
-  small lock mark and the text *"This round's outcomes are already fixed and
-  sealed."* Then S2.
+- **Your seed** (collapsed, one tap): the client seed the app generated locally
+  for this round, editable, with *"Change this to anything you like. The server
+  has already committed to its half and cannot see yours."* (§8.1.)
+- `Buy the run` (primary). On tap: the pre-commitment hash appears for ~1 s with a
+  small lock mark and the text *"The server's half of this round is sealed. Your
+  half is yours."* Then S2.
 
 ### S2 — Arena brief and route choice *(the core screen)*
 - Viewport: the branch ahead in fog, arena name, arena number `2 / 5`. The squad
@@ -195,6 +331,7 @@ figure lives on the seam between them in tabular numerals and never moves.
 - Decision surface: a horizontally paged stack of four route cards (§3.2), one
   per screen-width, with a page indicator. Wide first, then Split, Narrow,
   Shelter. Card order never changes and is never personalised.
+- The Split card carries the fork-balance control (§3.3) at four or five runners.
 - Shelter card expands to a Kindling picker: tap the ones to bring home. Live
   readout: *"Banks 1.91 now. 3 keep running."*
 - `+ side bet` collapsed control below the cards.
@@ -206,20 +343,27 @@ figure lives on the seam between them in tabular numerals and never moves.
 - Viewport expands to full bleed. Decision surface slides away; only the claim
   and squad count remain, docked bottom-left.
 - 9–14 s replay. Camera travels with the squad. On Narrow it drops to a close
-  handheld follow.
+  handheld follow. On Split it holds both limbs in frame until they diverge, then
+  cuts to whichever limb resolves first.
 - A `skip` affordance appears after 1.5 s (bottom-right, low contrast). Skipping
   jumps to the resolved state; it cannot change anything, and the game says so
   the first time: *"The result is already sealed. Skipping only skips the view."*
+  Skipping does **not** shorten the game cycle (§5.1).
 
 ### S4 — Resolve, then bank or continue
 - The moment survivors are counted, the claim number rolls (tabular, ~600 ms,
   no spinning) and the arithmetic is shown in full for one beat:
   `4.775 x (3/5) x 1.333 = 3.820`. Never a mystery multiplier.
+- Any side bet resolves in the same beat, on its own line, with its own stake and
+  its own result stated separately from the run: *"Clean Sweep 2.00 — lost."*
+  Side-bet money is never blended into the claim figure.
 - Fallen Kindlings are named in a quiet list: *"Bramble did not make it."*
 - Two actions, equal visual weight, side by side:
   `Bank 3.82` and `Run The Char ▸`. Neither is styled as the "right" one.
   No pulsing, no colour hierarchy, no default focus.
-- **No timer.** The screen will sit here forever.
+- **No timer.** The screen will sit here forever. The
+  <!-- fig:minCycleSeconds -->2.5<!-- /fig --> s hairline completes under both
+  buttons together.
 
 ### S5 — Bank / Shelter
 - The Lamp House door opens, the chosen lanterns go inside, the brass bell
@@ -233,31 +377,36 @@ figure lives on the seam between them in tabular numerals and never moves.
 - The last lantern falls, tumbles, and goes out. Two full seconds of fog and wind
   with no UI at all.
 - Then, quietly: *"No one made it back. You staked 5.00."* Plus anything already
-  sheltered, if any.
+  sheltered or won on a side bet, stated separately.
 - Primary action is `Back to the squad`. A secondary `Run again` fades in only
   after **2 seconds**, and there is no stake pre-fill, no "double your stake",
   no offer, no bonus prompt, no free-spin popup on this screen or the next one.
   Promotional surfaces are suppressed for 60 s after any losing round.
 
 ### S7 — Round summary
-- The five arenas as a vertical strip with what happened at each.
-- Money: staked, banked, side bets, net — plain, tabular, no celebration styling.
+- The five arenas as a vertical strip with what happened at each, including the
+  fork balance chosen and who took the thin limb.
+- Money: staked (run and side bets separately), banked, net — plain, tabular, no
+  celebration styling.
 - `How this was decided ▸`.
 
 ### S8 — Verification
 - Cold blue UI (`--verify`), deliberately in a different visual family from the
   game so proof never looks like a reward.
-- Shows: commitment hash (published pre-round), revealed seed, round id, adapter
+- Shows: the server pre-commitment (published before your seed existed), your
+  client seed, the hazard digest, the revealed server seed, the round id, adapter
   and model versions, and a `Re-derive` button that recomputes the whole hazard
   table on-device and shows every arena's draw against the outcome.
+- If the operator runs a pre-committed seed chain, the chain's terminal hash and
+  this round's forward link are shown, with the date the terminal was published.
 - `Copy verification bundle` exports JSON that `tools/transcript.mjs` will verify
   on any machine.
-- **The Ghost Line** (§8) lives here, opt-in, off by default.
+- **The Ghost Line** (§8.2, limits in §10.6) lives here, opt-in, off by default.
 
 ### S9 — Settings and responsible play
 - Session limits, reality-check interval, self-exclusion hand-off to the
   operator, full odds tables, this document's §10 in plain language, audio and
-  motion-reduction toggles.
+  motion-reduction toggles, quality tier override (§6.8).
 
 ---
 
@@ -295,36 +444,54 @@ proof UI must not feel like a reward animation.
 ### 6.2 Materials
 
 Only three material families exist. Discipline here is what makes it look
-authored rather than assembled.
+authored rather than assembled. Each entry gives the intent first and the
+tier-by-tier implementation in §6.8 — the look is the requirement, the technique
+is negotiable.
 
 - **Petrified wood** — everything the runners touch. Roughness 0.75–0.90,
   metalness 0, triplanar grain normal at two scales (10 cm ripple, 2 m sweep),
   hairline fracture network in the cavity map, a thin dust layer that lightens
-  upward-facing surfaces toward `--fossil`. Edges get 2 mm of translucency so
-  thin fins glow faintly when a lantern passes behind them.
+  upward-facing surfaces toward `--fossil`. Thin fins read as slightly
+  translucent when a lantern passes behind them — delivered by a baked thickness
+  map driving a wrapped-diffuse term with a fresnel-weighted `--lamp` tint. No
+  subsurface scattering on any tier.
 - **Kindling construction** — woven reed (anisotropic strand normal, tangent
   along the weave), linen (GGX sheen lobe, visible weave at 0.5 mm, slight
   fibre fuzz on the silhouette), aged leather straps (roughness 0.5, subtle
-  wax specular), and the lantern: thin blown glass (transmission 0.9, IOR 1.5,
-  thumbprint smudge mask) in an aged brass frame (metalness 1.0, roughness 0.35,
-  patina in the crevices).
-- **Fog** — exponential height fog plus three scrolling volumetric layers at
-  different parallax rates, with light shafts cast by lanterns. Fog density is
-  the game's depth cue and its dread: at arena 5 the fog below is thicker, not
-  thinner.
+  wax specular), and the lantern: thin blown glass in an aged brass frame
+  (metalness 1.0, roughness 0.35, patina in the crevices). The glass is a
+  **pre-integrated** shader — thin-film specular, strong fresnel rim, a 64²
+  per-arena environment probe and an emissive core — not screen-copy refraction.
+  There is no refraction pass in this game on any tier; the read we want is
+  "a lit object behind slightly warped glass", and a fresnel rim over a probe
+  delivers it at a twentieth of the cost.
+- **Fog** — the game's depth cue and its dread. At arena 5 the fog below is
+  thicker, not thinner. Implementation is tiered (§6.8) from raymarched layers
+  down to scrolling cards; what is fixed on every tier is the *silhouette
+  behaviour*: figures must dissolve into `--fog-far` with distance, lanterns must
+  scatter warmth into the near fog, and the fog must have visible internal
+  parallax so the branch reads as suspended in a volume rather than pasted on a
+  backdrop.
 
 **Emissive budget rule:** the only emissive surfaces in the entire game are
-lantern flames, the Lamp House interior, and the Crown Lamp. Nothing else emits
-light — not UI in world space, not hazards, not path markers. Because light is
-money, light must be scarce.
+lantern flames, the Lamp House interior, the Crown Lamp, and the crack network on
+The Char. Nothing else emits — not UI in world space, not hazards, not path
+markers. Because light is money, light must be scarce. The Char's embers are the
+single declared exception and are heat, not light: they cast nothing and
+illuminate nothing (§6.7).
 
 ### 6.3 Lighting
 
 - One cool key from above and behind: a sky dome at `--fog-far`, low intensity.
   Its job is to give the world silhouettes, not to illuminate it.
 - Each Kindling carries a warm point light: `--lamp`, 3.5 m radius,
-  inverse-square. On mobile, only the three nearest cast shadows; the rest use
-  an unshadowed light plus a baked contact-shadow decal.
+  inverse-square, **unshadowed**. Contact is sold by a baked contact-shadow decal
+  projected onto the branch under each figure, not by a shadow map.
+- **At most one shadow-casting light exists in the scene, and it is a spot, not a
+  point.** A shadow-casting point light costs up to six cube faces per frame;
+  three of them was never shippable in a browser. The one spot is parented to the
+  lead lantern, aimed along the direction of travel, 1024² on the top tier and
+  absent below it (§6.8).
 - **The death of a light is a lighting event, not a particle effect.** When a
   lantern goes out its point light falls off over 220 ms with a slight blue
   shift as it dies, and the local fog loses its warm scatter. You feel the frame
@@ -332,20 +499,23 @@ money, light must be scarce.
 - Losing the last lantern removes all warm light from the scene. What remains is
   the cool key on grey fog. Hold it. Do not cut away early.
 - Banking is the inverse: the Lamp House interior blooms as each lantern is
-  carried in, and its brass throws warm bounce back onto the branch.
+  carried in, and its brass throws warm bounce back onto the branch — a
+  hand-placed bounce light, not a GI solve.
 
 ### 6.4 Motion language
 
 - **Hybrid frame rate on the characters.** Root motion and camera at full frame
   rate; secondary motion (cloth, reed sway, lantern swing) stepped to 12 fps.
   The result reads as hand-made puppetry moving through a real space, and it is
-  the single strongest anti-"party game" signal in the whole presentation.
+  the single strongest anti-"party game" signal in the whole presentation. It is
+  also, conveniently, a large saving: secondary rigs update on every fifth frame.
 - **Falls are weighted-light.** 0.7 g for the first 400 ms so the fall registers
   and the lantern arcs legibly, then full gravity. Ragdoll never flails
   comically: joint limits are tight, and the figure keeps trying to grab.
 - **Camera.** Default a 35 mm-equivalent tracking rig at chest height, slight
-  handheld noise. On The Reach it drops to 24 mm, closer and shakier. On a wipe
-  it stops moving entirely and lets the subject leave frame.
+  handheld noise. On The Reach it drops to 24 mm, closer and shakier. On a Split
+  it pulls back to 50 mm to hold both limbs. On a wipe it stops moving entirely
+  and lets the subject leave frame.
 - **UI motion.** Nothing bounces, nothing overshoots. 240 ms cubic-out on
   everything. Money counts up on a tabular roll — never a slot-machine spin,
   never a rising pitch sweep. Celebration is light and sound, not kinetics.
@@ -368,6 +538,8 @@ money, light must be scarce.
   all four shout equally.
 - **Minimum sizes:** 15 pt body, 13 pt secondary, 28 pt for the claim figure.
   Numbers never below 15 pt.
+- **Budget:** two families, four cut files, ≤ 190 KB WOFF2 total, Latin subset at
+  boot with the extended ranges lazy-loaded. Numerals are in the boot subset.
 
 ### 6.6 Three visual references (described, not appropriated)
 
@@ -387,7 +559,160 @@ money, light must be scarce.
    construction and the stepped secondary animation. The player must believe
    someone made these by hand and is now sending them somewhere dangerous.
 
-### 6.7 The presentation contract (client physics never decides money)
+### 6.7 The five arenas
+
+Each is one 60 m spline with modular fossil segments. The dressing, the fork
+geometry, the fog behaviour and the escalation are authored per arena — "dressed
+differently" is not a brief, so here is the brief. Every fork is hand-built, and
+every fork must read at a glance as **one broad limb and one thin limb**, because
+the fork balance is a player decision (§3.3) and the level has to show the player
+what they are choosing between.
+
+**1 — LOWBRANCH.** *The widest bough on the tree, and the closest to the fog.*
+- Silhouette motif: **horizontal**. Long, heavy, level. The only arena where the
+  branch is wider than the camera frame.
+- Fog: densest of the five, and its top plane sits 3 m below the deck, so it laps
+  at the runners' ankles at the low points and the squad wades rather than walks.
+- Dominant material: wet `--bark-deep`, standing water pooled in the grain. This
+  is the **only reflective surface in the game** — lanterns double in the pools —
+  and it is spent here so the following four arenas can be dry and dead.
+- Fork: the bough divides around a fossilised burl the size of a house. Broad
+  limb 2.4 m across, over the burl's shoulder; thin limb a 0.6 m root-buttress
+  ledge running along its flank, with the burl blocking sightlines between them.
+- Escalates: nothing yet. This is the baseline everything else is measured from.
+
+**2 — THE GRAIN.** *The bark is gone. You run on the wood itself.*
+- Silhouette motif: **parallel lines converging**. Petrified grain ridges run
+  along the direction of travel like a giant's fingerprint, and the whole arena
+  reads as perspective lines pointing at the vanishing point.
+- Fog: mid-density, and for the first time it is entirely *below* — a flat white
+  sea with a visible surface. The player learns what falling means.
+- Dominant material: `--fossil` bone-cream on the ridge crowns, `--fog-mid` in the
+  troughs, matte and dusty. Zero moisture.
+- Fork: the grain itself separates. Two ridge-rafts peel apart with a widening
+  crack of nothing between them, and you can see straight down through it. Broad
+  limb is a three-ridge raft; thin limb is a single 0.9 m ridge with the crack on
+  both sides.
+- Escalates: first time the player sees *through* the branch.
+
+**3 — WINDROW.** *The windward side. Everything here is scoured.*
+- Silhouette motif: **diagonals**. The whole arena is raked 6°, so the horizon is
+  never level and the camera never settles. Petrified vine-cables are the only
+  vertical elements, and they hum.
+- Fog: **moving**. Horizontal ribbons streaming left to right at 4 m/s. The
+  player reads wind before they hear it, which is the first time fog stops being
+  a backdrop and becomes weather.
+- Dominant material: `--bark-lit` polished by grit to a low sheen on windward
+  faces, `--bark-deep` in the lee. Directional wear on every asset — the arena
+  should look like it has been sandblasted from one side for a thousand years.
+- Fork: the branch passes a standing vine-cable anchor. Broad limb hugs the lee
+  side, sheltered and slower; thin limb is the exposed windward ledge where the
+  fog ribbons hit the runners directly and their cloth flattens against them.
+- Escalates: for the first time, the environment is actively doing something.
+
+**4 — THE CHAR.** *A lightning scar. The stone here was cooked.*
+- Silhouette motif: **shattered and angular**. Every edge is a fracture plane.
+  Nothing in this arena is a smooth curve.
+- Fog: **thinnest of all five**. The heat burned a hole in it, so the void below
+  is genuinely visible for the first time, and there is nothing in it.
+- Dominant material: vitrified `--void`-black stone at roughness 0.25 — the only
+  near-glossy stone in the game — crazed with a fracture network carrying
+  `--ember` emissive at 0.15. Declared exception to §6.2's emissive rule: it is
+  heat, it casts no shadow, and it illuminates nothing. Embers drift *upward* out
+  of the cracks, which is the only upward motion in the whole game.
+- Fork: the branch is broken and the limbs are the two halves of a splintered
+  trunk. Broad limb is a flat fracture plane; thin limb is the spar of a single
+  splinter, 0.5 m, with a 4 m drop-and-step at its midpoint that the runners have
+  to jump down.
+- Escalates: the player can now see exactly how far there is to fall.
+
+**5 — CROWN.** *The top. The Lamp is visible from the first frame.*
+- Silhouette motif: **a single converging line to a point of light**. Everything
+  aims at the Crown Lamp, which is small, warm, far, and on screen the entire
+  time.
+- Fog: below and behind only. The sky opens for the first and only time — a cold
+  high dome, no stars, no moon. The palette gets *lighter* at the moment it gets
+  most dangerous.
+- Dominant material: `--fossil` gone pale and thin. This is where the thickness
+  map earns its place: the limb is thin enough that a lantern passing behind it
+  glows through the stone.
+- Fork: the crown antlers. Two upswept tines that both aim at the Lamp. The broad
+  tine is wider but takes a long arc; the thin tine is a direct line. Neither
+  reads as the safe one, deliberately — the geometry should make the player
+  hesitate rather than reassure them.
+- Escalates: the destination is visible, which is what makes the last fall the
+  worst one in the game.
+
+Across the five: fog density falls, altitude rises, moisture goes to zero, the
+palette drifts from `--bark-deep` toward `--fossil`, silhouettes go from
+horizontal to vertical, and the sub drone gains 2 dB per arena (§7). By Crown the
+world is pale, dry, high, thin and quiet — the exact opposite of Lowbranch in
+every dimension a player can perceive without being told.
+
+### 6.8 Runtime, device floor, and the quality ladder
+
+**This ships as WebGL2, in an operator lobby iframe.** That decision comes first
+because it changes everything after it.
+
+| Decision | Value | Why |
+| --- | --- | --- |
+| Runtime | **three.js-class custom WebGL2 renderer**, single ES module, no plugin | iGaming content is embedded in an operator lobby iframe with a contractual first-load budget. Unity WebGL is rejected on boot size and heap floor; a native build has no distribution path here |
+| Graphics API floor | **WebGL2** (ES 3.0). No WebGPU dependency | WebGPU coverage is still not universal on the mid-range Android install base; it may be used as an *optional* fast path, never as a requirement |
+| Frame-rate target | **60 fps** on the default tier, **30 fps hard floor** | below 30 the stepped 12 fps secondary animation stops reading as intentional and starts reading as a bug |
+| Device floor (default tier) | **iPhone SE 2020 (A13)** and **Samsung Galaxy A54 (Mali-G68)** | the realistic median of the mobile casino install base |
+| Device floor (fallback tier) | **Snapdragon 680 / Adreno 610** class | the bottom of what we will accept a session from at all |
+| First-load budget | **≤ 5 MB gzipped** to first playable frame | operator lobby contracts; also the difference between a session and a bounce |
+| Total round-trip | **≤ 16 MB** including all five arenas, streamed per arena | arenas 2–5 load during arena 1's replay |
+| GPU memory | **≤ 96 MB** textures on the fallback tier, ≤ 180 MB on the default tier | Adreno 610 devices with 3 GB RAM start evicting well below this |
+
+**Three tiers.** Selected by a 3-second boot probe (renderer string, max texture
+units, a timed fill-rate test), overridable by the player in S9, and never
+silently changed mid-round.
+
+| | **T0 Emberlight** (fallback) | **T1 Understory** (default) | **T2 Canopy** (high) |
+| --- | --- | --- | --- |
+| Target | 30 fps locked | 60 fps, 45 floor | 60 fps |
+| Render scale | 0.65, bilinear | 0.85, FSR-style upscale | 1.0 |
+| Triangles on screen | ≤ 45 k | ≤ 120 k | ≤ 260 k |
+| Kindling mesh | 3.5 k tris, 1 LOD, 22 bones | 8 k tris, 3 LODs, 34 bones | 14 k tris, 3 LODs, 42 bones |
+| Texture atlases | 2 x 1024, ETC2/ASTC 8x8 | 2 x 2048, ASTC 6x6 | 4 x 2048, ASTC 5x5 |
+| Real-time shadows | none | none | 1 spot, 1024², cascade-free |
+| Contact shadows | baked decals | baked decals + quarter-res SSAO | decals + half-res SSAO |
+| Fog | exponential height fog + 3 scrolling cards + baked shaft sprites | 2 raymarched layers at quarter-res, depth-aware bilateral upsample, shafts from the nearest lantern only | 3 raymarched layers at half-res, shafts from up to 3 lanterns |
+| Lantern lights | 2 nearest, vertex-lit | 5, per-pixel, unshadowed | 5, per-pixel, unshadowed |
+| Lantern glass | fresnel rim + emissive core, no probe | + 64² per-arena probe | + 128² probe refreshed per arena |
+| Stone translucency | off | baked thickness, wrapped diffuse | baked thickness + fresnel warm tint |
+| Ragdoll | off — authored clips only | 1 concurrent, off-frustum only | 3 concurrent, off-frustum only |
+| Post | tonemap only | tonemap + bloom (lanterns only, threshold-keyed) | + subtle chromatic falloff at frame edge |
+
+**Per-frame budget on T1 at 60 fps (16.6 ms).** These are acceptance thresholds,
+not aspirations; the determinism harness (§11) fails a build that exceeds them on
+the reference device.
+
+| Pass | Budget |
+| --- | --- |
+| Environment opaque | 4.0 ms |
+| Skinned characters (5) | 3.5 ms |
+| Fog / volumetrics | 1.8 ms |
+| Lighting + contact shadows | 1.6 ms |
+| Post | 1.5 ms |
+| UI | 1.2 ms |
+| CPU: replay driver, animation, audio | 2.4 ms |
+| **Headroom** | **0.6 ms** |
+
+**What degrades and what never does.** The tiers change *how* the look is
+achieved. Three things are identical on every tier, because they are the product:
+
+1. **The 90/10 value structure.** Warm light stays scarce and stays the only
+   saturated colour, at every quality level.
+2. **The stepped 12 fps secondary animation.** It is a character choice, not a
+   performance mode, and T2 does not "upgrade" it to 60.
+3. **Every number, every outcome, and every frame of the resolution.** The
+   transcript decides; the renderer plays. A T0 device and a T2 device replaying
+   the same transcript select the same authored fall clips and credit the same
+   micro-credits (§6.9).
+
+### 6.9 The presentation contract (client physics never decides money)
 
 The renderer is a **player, not a judge**.
 
@@ -396,12 +721,13 @@ The renderer is a **player, not a judge**.
    a flavour draw.
 2. The client receives that resolution and *stages* it. Fall animations are
    authored clips selected by the flavour draw — not free-running simulation —
-   so the same transcript produces the same clip on every device. Ragdoll blends
-   in only after the figure has left the camera frustum, where divergence cannot
-   be observed and cannot matter.
+   so the same transcript produces the same clip on every device and every tier.
+   Ragdoll blends in only after the figure has left the camera frustum, where
+   divergence cannot be observed and cannot matter, and is disabled entirely on
+   T0 with no visible difference inside the frame.
 3. If the client's physics ever disagrees with the transcript, the transcript
    wins and the client is wrong. There is no path by which a frame drop, a
-   thermal throttle, or a modified client changes a credit.
+   thermal throttle, a quality tier, or a modified client changes a credit.
 4. **We never author a near-miss that is not in the data.** If a runner cleared
    by a wide margin, the clip shows a wide margin. Manufacturing "so close!"
    moments is the oldest manipulation in this industry and we do not do it.
@@ -421,6 +747,10 @@ alive.
   slightly different pitch and phase. Five runners make a busy, warm, slightly
   ragged rhythm. Three runners make a thinner one. One runner is a single
   footstep in a large empty space. **You hear your squad shrink.**
+- **The fork.** On a Split the mix splits with it: the broad limb stays centred,
+  the thin limb pans hard and loses its low end, as if heard across a gap. On a
+  4+1 the single runner is almost mono and almost dry, and it is the most exposed
+  sound in the game short of the last lantern.
 - **Lane collapse.** Not an explosion. A long, dry, splintering crack with a
   1.2 s tail, then a hole in the mix.
 - **A lantern going out.** A small glass *pop*, plus a 120 ms high-shelf cut
@@ -436,6 +766,9 @@ alive.
 - **Music.** Sparse, 68 BPM, prepared strings and plucked metal. One voice is
   added per arena survived. It never accelerates and never modulates upward.
   Tempo-driven urgency pressures decisions, and we do not pressure decisions.
+- **Budget.** ≤ 1.6 MB Opus at 48 kbps mono for all bed and one-shots; the squad
+  rhythm is five short samples pitch- and phase-shifted at runtime rather than
+  five recorded stems.
 - **Never:** crowd cheering, hype VO, rising-pitch riser under a decision,
   coin-cascade, "big win" fanfare over a sub-stake return.
 - **Full parity with audio off.** Every state — squad size, claim, route odds,
@@ -444,7 +777,35 @@ alive.
 
 ---
 
-## 8. The signature moment: **The Last Lamp**
+## 8. Fairness, as the player experiences it
+
+### 8.1 Two seeds, and why the player has one
+
+Before the round exists for the player, the operator publishes a hash of its own
+seed. Then the player's device generates a **client seed** locally, shows it, and
+lets the player change it to anything they like. Only once both halves are fixed
+is the round's hazard table derived — from both.
+
+The reason is worth stating plainly in the product, because it is the difference
+between a fairness feature and a fairness *guarantee*: if the operator alone
+picked the seed, it could quietly draw many candidate seeds, keep the one that
+paid the player least, and publish a commitment to that one. Every such round
+would still verify perfectly. Mixing in a seed the operator cannot see when it
+commits is what makes that attack impossible rather than merely detectable.
+
+In-product copy, on S1 and S8: *"The server sealed its half before it ever saw
+yours. Change yours to anything — that is what makes the seal mean something."*
+
+### 8.2 The Ghost Line
+
+Because the committed table covers routes the player did not take, the game can
+show what would have happened on the road not travelled — provably fixed in
+advance, not invented afterwards. That makes it a genuine proof artefact. It is
+also, obviously, a regret engine, which is why §10.4 puts hard limits on it.
+
+---
+
+## 9. The signature moment: **The Last Lamp**
 
 *The clip that gets shared.*
 
@@ -470,6 +831,14 @@ safe, and visibly still burning. Copy: *"Wren came home."* This is the rescue
 feeling the entire game is built to deliver, and it is deliberately given the same
 production value as the biggest win.
 
+**The variant that only exists because of the fork.** Send four Kindlings down
+the broad limb and one down the thin one, and the thin limb is a Last Lamp beat
+that can happen at *any* squad size — one named figure alone in frame while four
+others run somewhere the camera is not. It happens roughly
+<!-- fig:scoutSole5 -->7.90%<!-- /fig --> of the time on a full squad at 4+1
+against <!-- fig:balancedSole5 -->3.39%<!-- /fig --> at 3+2. The player chose to
+create that possibility, which is what makes it land.
+
 **Clip export.** After any round containing a Last Lamp beat, S7 offers
 `Save the clip` — a 6-second 1080x1920 H.264 export, pre-trimmed to the beat,
 watermarked with the round id and a short verification code. No score overlay, no
@@ -478,7 +847,9 @@ verification code is the proof that it really happened that way.
 
 ---
 
-## 9. The emotional hook
+## 10. The emotional hook, and responsible design
+
+### 10.1 The hook
 
 - **Named, dressed, persistent.** Five Kindlings the player names and re-dresses.
   Defaults: Wren, Bramble, Ora, Tuck, Sable. A per-Kindling counter of runs come
@@ -487,6 +858,9 @@ verification code is the proof that it really happened that way.
   they are a rhythm thinning and a frame getting colder.
 - **Individuals are named at the moment of loss.** *"Bramble did not make it."*
   Not "1 runner eliminated".
+- **You choose who takes the thin limb.** The fork picker is the strongest
+  attachment mechanic in the game precisely because it costs nothing
+  mathematically and everything emotionally.
 - **Banking is a rescue, not a cash-out.** The verb in the UI is *bring home*.
   The animation is a door and a bell, not a coin counter.
 - **No permadeath and nothing to buy back.** Every Kindling is on the shelf again
@@ -496,14 +870,10 @@ verification code is the proof that it really happened that way.
   purely cosmetic "scar" (a mended patch, a re-blown lantern) can be enabled by
   the player in settings. It is off by default and it costs nothing.
 
----
+### 10.2 No loss-chasing mechanics
 
-## 10. Responsible design
+These are build requirements, not aspirations. Each has an acceptance check.
 
-These are build requirements, not aspirations. Each one has a corresponding
-acceptance check.
-
-**No loss-chasing mechanics.**
 - No double-or-nothing, no "recover your loss" offer, no re-buy-at-a-discount.
 - No auto-rebet, no auto-play, no one-tap replay from the wipe screen. The wipe
   screen's primary action leads *away* from the stake field.
@@ -513,71 +883,119 @@ acceptance check.
 - Session strip (time played, net position) is always visible and never
   dismissible. A reality check fires at the operator's interval, default 30 min,
   and pauses the game.
+- Side-bet stakes are capped at the route stake and reset to zero every arena
+  (§4), so a player cannot drift into betting the long shot instead of the game.
 
-**No misleading skill framing.**
-- Product copy is forbidden from using: *strategy, skill, outplay, beat the odds,
+### 10.3 No misleading skill framing
+
+- **Banned vocabulary:** *strategy, strategic, skill, outplay, beat the odds,
   master, edge, system, pro.* The words in use are *choose*, *shape*, *risk*.
-- The route screen permanently states that every route returns 95.5%.
+- **Scope: every surface a player reads.** In-client copy, store listings,
+  marketing, and this repository's `README.md`. It does **not** apply to
+  `docs/MATH.md` and `docs/ENGINE.md`, which are engineering documents written
+  for engineers and reviewers and which need the vocabulary of decision theory to
+  say true things. `tests/copy-discipline.test.mjs` greps the player-facing set
+  and fails the build on a hit; the engineering documents are exempted in that
+  test **by name**, so the exemption is visible rather than accidental.
+- **Two exceptions, and only two**, both encoded in the test rather than left to
+  judgement: the phrase *"no skill"* (an explicit denial, which is the thing we
+  want said) and the technical term *"house edge"*. Any other appearance of a
+  banned word on a player-facing surface fails the build.
+- The route screen permanently states that every route returns
+  <!-- fig:rtpPct -->95.5%<!-- /fig -->.
 - Full exact odds are reachable in two taps from any route card.
 - No "recommended" route, no personalised route ordering, no highlighting of the
   bigger multiplier, no leaderboards ranked by return.
+- Route copy is balanced by construction: no card may state an advantage without
+  stating the matching disadvantage on the same face (§3.1).
 - The Kindlings' animations never suggest effort or reward for the player's
   choice — a runner who clears a Narrow lane does not look *better* at running
   than one who clears Wide.
 
-**No latency-sensitive money decisions.**
+### 10.4 No latency-sensitive money decisions, and a floor on speed
+
 - No countdown on any decision. Ever. Rounds persist across app termination.
 - The outcome is committed before the first choice, so input timing is
   mechanically incapable of changing a payout.
-- `skip` is explicitly labelled as skipping the *view*, not the result.
+- A minimum game cycle of <!-- fig:minCycleMs -->2500<!-- /fig --> ms per arena,
+  enforced server-side (§5.1). The game cycle is the arena because that is where
+  money is committed.
+- `skip` is explicitly labelled as skipping the *view*, not the result, and does
+  not shorten the game cycle.
 
-**Honest presentation of money.**
+### 10.5 Honest presentation of money
+
 - Every return is stated relative to the stake. A 0.76x bank says so.
 - No win presentation over a net loss. No "YOU WON 3,820" on a 5,000 stake.
-- No near-miss manufacturing (§6.7 rule 4).
+- Side-bet money is reported separately from the run at every step, so a winning
+  side bet never disguises a losing round.
+- No near-miss manufacturing (§6.9 rule 4).
 - Micro-credit precision means the displayed number is the number credited.
 
-**Regret management for the Ghost Line.**
+### 10.6 Regret management for the Ghost Line
+
 The Ghost Line — the counterfactual replay of the route the player *didn't*
 take — is a genuine fairness feature: it proves the unchosen branches were fixed
-in advance. It is also, obviously, a regret engine. So:
+in advance. So:
+
 - it lives in the verification screen (S8), never in the game flow;
 - it is **off by default** and opt-in per player;
 - it is unavailable for 60 s after a losing round;
 - it shows *who fell and where*, never a counterfactual money figure. The
   player never sees "you would have won 214.80". That single restriction keeps
-  the fairness value and removes most of the regret hook.
+  the fairness value and removes most of the regret hook;
+- it covers unchosen **contracts** and unchosen **fork balances** alike, because
+  the committed table covers both.
 
-**Accessibility.**
+### 10.7 Accessibility
+
 - Full parity with audio off (§7) and with reduced motion (stepped animation and
   handheld camera noise both disable; the transcript readout remains).
 - Colour is never the sole carrier of state: alive/lost is also glyph and text.
 - Minimum 15 pt text, one-handed reach for all primary actions, 44 pt targets.
-- Screen-reader labels state the exact odds of the focused route card.
+- Screen-reader labels state the exact odds of the focused route card, and the
+  fork control announces both balances' numbers rather than a position on a
+  slider.
+- The quality tier is player-overridable (§6.8) so a device that runs hot is a
+  settings problem, never a playability one.
 
 ---
 
 ## 11. Production notes
 
-- **Scene budget (mobile mid-tier):** ≤ 120k triangles on screen, 5 skinned
-  characters at ≤ 8k triangles each, 3 shadow-casting point lights, 3 fog layers,
-  one 2048 atlas for the branch set and one for the Kindlings.
-- **Arena construction:** each of the five branches is one 60 m spline with
-  modular fossil segments, dressed differently per arena. Lane geometry (1 lane
-  vs 2 vs single-file) is authored per branch, not procedural, so the fiction of
-  the fork is physically real in the level.
+- **Arena construction:** five 60 m splines, modular fossil segments, dressed per
+  §6.7. Fork geometry is hand-authored per arena — never procedural — because the
+  fork is a decision surface and has to read correctly at a glance.
+- **Streaming:** arena 1 ships in the boot bundle; arenas 2–5 stream during
+  arena 1's replay. A player who banks after arena 1 never downloads them.
 - **Localisation:** all money strings tabular and RTL-safe; route names are
-  translated but stay ALL CAPS with equal weight.
+  translated but stay ALL CAPS with equal weight. The banned-vocabulary list
+  (§10.3) is maintained per locale, not machine-translated.
 - **Determinism harness:** a CI job replays the frozen fixture transcript through
-  the presentation layer and asserts the same authored clips are selected on every
-  target platform.
-- **What does not ship without the math:** the route cards read their numbers
-  from the same tables `tools/enumerate.mjs` publishes. If the enumerator and the
-  card disagree, the build fails.
+  the presentation layer on every quality tier and asserts the same authored
+  clips are selected and the same credits are produced.
+- **Performance harness:** the same job runs the reference device profile and
+  fails the build on any pass exceeding its §6.8 budget.
+- **What does not ship without the math:** the route cards and the fork control
+  read their numbers from the same tables `tools/enumerate.mjs` publishes. If the
+  enumerator and the card disagree, the build fails — and the same rule now
+  applies to this document, whose every number is a generated slot checked by
+  `npm run docs:check`.
 
 ---
 
-## 12. Related documents
+## 12. Certification boundary
+
+This is a product specification. It is **not** a fairness certificate, an RNG
+certificate, a mathematical certification, regulatory approval, or evidence that
+any deployed build behaves as described. Every responsible-design requirement in
+§10 is a build requirement with an acceptance check, not a compliance
+attestation; jurisdictional review, operator integration audit and any required
+laboratory process are separate work this repository does not do.
+
+---
+
+## 13. Related documents
 
 - [`MATH.md`](./MATH.md) — the exact probability model, paytable and proofs.
 - [`ENGINE.md`](./ENGINE.md) — the Reveal Engine `staged-survival` lifecycle

@@ -62,16 +62,17 @@ export class ByteStream {
  * @param {ByteStream} rng
  * @param {'WIDE'|'SPLIT'|'NARROW'} contractId
  * @param {number} runners
+ * @param {number|null} [laneSplit] the player's chosen lane balance, for SPLIT
  * @returns {number} survivors
  */
-export function simulateArena(rng, contractId, runners) {
+export function simulateArena(rng, contractId, runners, laneSplit = null) {
   const spec = CONTRACTS[contractId];
   const collapseDen = Number(spec.collapse.d);
   const collapseNum = Number(spec.collapse.n);
   const clearDen = Number(spec.clear.d);
   const clearNum = Number(spec.clear.n);
   let survivors = 0;
-  for (const size of laneSizes(contractId, runners)) {
+  for (const size of laneSizes(contractId, runners, laneSplit)) {
     const collapsed = rng.nextBelow(collapseDen) < collapseNum;
     for (let i = 0; i < size; i += 1) {
       const cleared = rng.nextBelow(clearDen) < clearNum;
@@ -115,7 +116,7 @@ export function simulate(policy, rounds, seedHex, stakeMicro = CONFIG.microCredi
       } else {
         contractId = action.contract;
       }
-      const survivors = simulateArena(rng, contractId, running);
+      const survivors = simulateArena(rng, contractId, running, action.laneSplit ?? null);
       const spec = CONTRACTS[contractId];
       const mu = Frac.ONE.div(Frac.ONE.sub(spec.collapse).mul(spec.clear));
       claim = claim.mul(F(BigInt(survivors), BigInt(running))).mul(mu);
@@ -145,11 +146,11 @@ export function simulate(policy, rounds, seedHex, stakeMicro = CONFIG.microCredi
  * Cross-check a single arena's survivor distribution against the exact model.
  * @returns {{survivors:number, exact:Frac, empirical:Frac, absError:Frac}[]}
  */
-export function crossCheckArena(contractId, runners, draws, seedHex) {
+export function crossCheckArena(contractId, runners, draws, seedHex, laneSplit = null) {
   const rng = new ByteStream(seedHex);
   const counts = new Array(runners + 1).fill(0);
-  for (let i = 0; i < draws; i += 1) counts[simulateArena(rng, contractId, runners)] += 1;
-  const exact = survivorDistribution(contractId, runners);
+  for (let i = 0; i < draws; i += 1) counts[simulateArena(rng, contractId, runners, laneSplit)] += 1;
+  const exact = survivorDistribution(contractId, runners, laneSplit);
   return counts.map((count, m) => {
     const empirical = F(BigInt(count), BigInt(draws));
     const diff = empirical.sub(exact[m]);
@@ -177,13 +178,14 @@ function main() {
   process.stdout.write('====================================================================================\n\n');
 
   process.stdout.write('Per-arena survivor distributions (1,000,000 draws each)\n');
-  for (const [contractId, runners] of [
-    ['WIDE', 5],
-    ['SPLIT', 5],
-    ['NARROW', 5],
+  for (const [contractId, runners, laneSplit] of [
+    ['WIDE', 5, null],
+    ['SPLIT', 5, 3],
+    ['SPLIT', 5, 4],
+    ['NARROW', 5, null],
   ]) {
-    process.stdout.write(`  ${contractId}/${runners}\n`);
-    for (const row of crossCheckArena(contractId, runners, 1_000_000, `${seed}`)) {
+    process.stdout.write(`  ${contractId}/${runners}${laneSplit === null ? '' : ` lanes ${laneSplit}+${runners - laneSplit}`}\n`);
+    for (const row of crossCheckArena(contractId, runners, 1_000_000, `${seed}`, laneSplit)) {
       process.stdout.write(
         `    m=${row.survivors}  exact=${toFixedExact(row.exact, 8)}  empirical=${toFixedExact(row.empirical, 8)}  |err|=${toFixedExact(row.absError, 8)}\n`,
       );

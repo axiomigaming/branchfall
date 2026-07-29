@@ -34,13 +34,20 @@ jobs:
         run: npm run typecheck
 
       # The proof. Exits non-zero if any exact invariant fails, including
-      # "no policy beats the target RTP" and "the max-win cap is unreachable".
+      # "no policy or portfolio beats the target RTP" and "no ticket and no
+      # round can reach the max-win cap".
       - name: Enumerate the outcome space
         run: npm run enumerate
 
-      # Fails if docs/MATH.md has drifted from the model.
-      - name: Check the published paytable is current
+      # Fails if any published document — not just docs/MATH.md — has drifted
+      # from the model. Every load-bearing number in the prose is a bound slot.
+      - name: Check every published table and figure is current
         run: npm run docs:check
+
+      # Fails if the frozen wire fixture is no longer what the reference
+      # implementation produces. Regenerating it must be a human decision.
+      - name: Check the frozen wire fixture is current
+        run: npm run fixture:check
 
       - name: Tests
         run: npm test
@@ -48,7 +55,7 @@ jobs:
   crosscheck:
     name: Monte Carlo sanity cross-check
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -64,8 +71,14 @@ jobs:
       - name: Simulate 500,000 rounds
         run: npm run montecarlo -- --rounds 500000
 
-      - name: Reference round (commit, play, reveal, verify)
+      - name: Simulate the lopsided SPLIT policy
+        run: npm run montecarlo -- --rounds 250000 --policy SCOUT_SPLIT
+
+      - name: Reference round (pre-commit, client seed, play, reveal, verify)
         run: npm run transcript
+
+      - name: Pre-committed server-seed chain
+        run: npm run chain
 
       - name: Emit the enumeration artefacts
         run: |
@@ -73,6 +86,7 @@ jobs:
           npm run enumerate --silent > artifacts/enumeration.txt
           npm run enumerate:json --silent > artifacts/enumeration.json
           npm run enumerate:markdown --silent > artifacts/paytable.md
+          npm run enumerate:figures --silent > artifacts/figures.txt
 
       - uses: actions/upload-artifact@v4
         if: always()

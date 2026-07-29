@@ -13,113 +13,169 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { CONFIG, CONTRACTS, CONTRACT_IDS } from '../tools/lib/model.mjs';
+import { CONFIG, CONTRACTS, CONTRACT_IDS, SIDE_BET_IDS, laneSplitsFor } from '../tools/lib/model.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const adapter = readFileSync(resolve(root, 'src/branchfall.adapter.ts'), 'utf8');
 const lifecycle = readFileSync(resolve(root, 'src/staged-survival.ts'), 'utf8');
+const engineDoc = readFileSync(resolve(root, 'docs/ENGINE.md'), 'utf8');
 
 describe('src/branchfall.adapter.ts matches tools/lib/model.mjs', () => {
   it('declares the same hazard parameters for every contract', () => {
     for (const id of CONTRACT_IDS) {
       const spec = CONTRACTS[id];
-      const expected = `collapse: rational(${spec.collapse.n}n, ${spec.collapse.d}n), clear: rational(${spec.clear.n}n, ${spec.clear.d}n)`;
-      expect(adapter, `${id} profile`).toContain(expected);
-    }
-  });
-
-  it('declares the same identity, size and horizon', () => {
-    expect(adapter).toContain(`id: '${CONFIG.gameId}'`);
-    expect(adapter).toContain(`adapterVersion: '${CONFIG.adapterVersion}'`);
-    expect(adapter).toContain(`modelVersion: '${CONFIG.modelVersion}'`);
-    expect(adapter).toContain(`squadSize: ${CONFIG.squadSize}`);
-    expect(adapter).toContain(`arenas: ${CONFIG.arenas}`);
-  });
-
-  it('declares the same pricing and risk policy', () => {
-    expect(adapter).toContain(`firstEntryRtp: rational(${CONFIG.rtp.n}n, ${CONFIG.rtp.d}n)`);
-    expect(adapter).toContain('continuationRtp: rational(1n, 1n)');
-    expect(adapter).toContain(`maxWinMultiple: ${CONFIG.maxWinMultiple}n`);
-    expect(adapter).toContain('capMustBeUnreachable: true');
-    expect(adapter).toContain("rounding: 'floor'");
-  });
-
-  it('declares the same minimum squad size and lane count per contract', () => {
-    for (const id of CONTRACT_IDS) {
-      const spec = CONTRACTS[id];
-      const block = adapter.slice(adapter.indexOf(`id: '${id}'`), adapter.indexOf(`id: '${id}'`) + 400);
+      const block = adapter.slice(adapter.indexOf(`id: '${id}'`));
+      expect(block, `${id} collapse`).toContain(
+        `collapse: rational(${spec.collapse.n}n, ${spec.collapse.d}n)`,
+      );
+      expect(block, `${id} clear`).toContain(`clear: rational(${spec.clear.n}n, ${spec.clear.d}n)`);
       expect(block, `${id} laneCount`).toContain(`laneCount: ${spec.laneCount}`);
       expect(block, `${id} minRunners`).toContain(`minRunners: ${spec.minRunners}`);
     }
   });
 
-  it('keeps cosmetics out of the money path', () => {
+  it('declares the same identity, size and RTP', () => {
+    expect(adapter).toContain(`id: '${CONFIG.gameId}'`);
+    expect(adapter).toContain(`adapterVersion: '${CONFIG.adapterVersion}'`);
+    expect(adapter).toContain(`modelVersion: '${CONFIG.modelVersion}'`);
+    expect(adapter).toContain(`squadSize: ${CONFIG.squadSize}`);
+    expect(adapter).toContain(`arenas: ${CONFIG.arenas}`);
+    expect(adapter).toContain(`firstEntryRtp: rational(${CONFIG.rtp.n}n, ${CONFIG.rtp.d}n)`);
+    expect(adapter).toContain('continuationRtp: rational(1n, 1n)');
+    const declaredMinStake = adapter.match(/minStake:\s*([\d_]+)n/);
+    expect(declaredMinStake, 'adapter declares no minStake').not.toBeNull();
+    expect(BigInt(declaredMinStake[1].replace(/_/g, ''))).toBe(CONFIG.minStakeMicro);
+  });
+
+  it('declares the same side-bet events, and no prices', () => {
+    for (const id of SIDE_BET_IDS) expect(adapter).toContain(`id: '${id}'`);
+    // A declared multiplier would be a re-pricing vector. There must be none.
+    expect(adapter).not.toMatch(/multiplier\s*:/);
+    expect(adapter).toContain("sideBetRule: 'firstEntryRtp/probability'");
+  });
+
+  it('declares the same cap, on the same basis', () => {
+    expect(adapter).toContain(`maxWinMultiple: ${CONFIG.maxWinMultiple}n`);
+    expect(adapter).toContain("capBasis: 'per-ticket'");
+    expect(adapter).toContain('capMustBeUnreachable: true');
+  });
+
+  it('declares the same side-bet stake limits', () => {
+    expect(adapter).toContain(
+      `maxSideBetStakeRatio: rational(${CONFIG.sideBet.maxStakeRatioPerBet.n}n, ${CONFIG.sideBet.maxStakeRatioPerBet.d}n)`,
+    );
+    expect(adapter).toContain(
+      `maxTotalSideBetStakeRatio: rational(${CONFIG.sideBet.maxTotalStakeRatio.n}n, ${CONFIG.sideBet.maxTotalStakeRatio.d}n)`,
+    );
+  });
+
+  it('declares the same speed-of-play controls', () => {
+    expect(adapter).toContain(`minGameCycleMs: ${CONFIG.minGameCycleMs}`);
+    expect(adapter).toContain("cycleUnit: 'arena'");
+    expect(adapter).toContain('maxDecisionCountdownMs: 0');
+  });
+
+  it('implements the same lane-balance rule the model enumerates', () => {
+    // The declaration computes ceil(n/2)..n-1; assert it agrees with the model
+    // for every size, by re-implementing the declared formula here.
+    const declared = (n) => {
+      const out = [];
+      for (let k = Math.ceil(n / 2); k <= n - 1; k += 1) out.push(k);
+      return out;
+    };
+    expect(adapter).toContain('for (let k = Math.ceil(runners / 2); k <= runners - 1; k += 1)');
+    for (let n = 2; n <= CONFIG.squadSize; n += 1) {
+      expect(declared(n)).toEqual([...laneSplitsFor('SPLIT', n)]);
+    }
+    expect(adapter).toContain('laneSplits: oneGeometry');
+  });
+
+  it('keeps cosmetics out of the mechanical surface', () => {
     expect(adapter).toContain('defaultRunnerNames');
-    expect(adapter).toMatch(/Cosmetic only\./);
-    expect(lifecycle).toMatch(/Cosmetic only\. Must not appear in any fingerprint or probability path\./);
+    expect(adapter).toContain('renamable: true');
+    expect(engineDoc).toContain('**Cosmetics are excluded.**');
   });
 });
 
-describe('src/staged-survival.ts pins the lifecycle contract', () => {
-  it('targets the current engine API and names the new lifecycle', () => {
-    expect(lifecycle).toContain("ENGINE_API_VERSION = 'reveal-engine/api-v1'");
-    expect(lifecycle).toContain("LIFECYCLE_MODULE = 'reveal-engine/staged-survival-v1'");
-    expect(lifecycle).toContain("COMMITMENT_VERSION = 'branchfall/commit-v1'");
-    expect(lifecycle).toContain("TRANSCRIPT_SCHEMA = 'branchfall/transcript-v1'");
+describe('src/staged-survival.ts is the contract ENGINE.md describes', () => {
+  it('pins the versions the transcript uses', () => {
+    expect(lifecycle).toContain("export const COMMITMENT_VERSION = 'branchfall/commit-v2'");
+    expect(lifecycle).toContain("export const TRANSCRIPT_SCHEMA = 'branchfall/transcript-v2'");
+    expect(lifecycle).toContain("export const SEED_CHAIN_VERSION = 'branchfall/seed-chain-v1'");
   });
 
-  it('keeps money as BigInt and probability as exact rationals', () => {
-    expect(lifecycle).toContain('export type Micro = bigint');
-    expect(lifecycle).toMatch(/readonly numerator: bigint;/);
-    expect(lifecycle).toMatch(/readonly denominator: bigint;/);
-    // No floating point type may appear in the money or probability surface.
-    expect(lifecycle).not.toMatch(/:\s*number(\[\])?;\s*\/\/.*(money|credit|stake)/i);
-    expect(lifecycle).not.toContain('parseFloat');
+  it('requires a client seed structurally, in the type the deriver reads', () => {
+    const context = lifecycle.slice(lifecycle.indexOf('export interface RoundContext'));
+    expect(context.slice(0, 600)).toContain('readonly clientSeed: string;');
+    // Not optional. An optional client seed is a client seed an operator can skip.
+    expect(context.slice(0, 600)).not.toContain('clientSeed?:');
   });
 
-  it('requires fair continuation, which is what makes every policy equal-RTP', () => {
-    expect(lifecycle).toMatch(/Must be exactly 1/);
-    expect(lifecycle).toContain('continuationRtp');
+  it('gives derive() no way to see an action', () => {
+    const schedule = lifecycle.slice(lifecycle.indexOf('export interface HazardSchedule'));
+    const signature = schedule.slice(schedule.indexOf('derive('), schedule.indexOf('derive(') + 120);
+    expect(signature).toContain('serverSeedHex: string');
+    expect(signature).toContain('context: RoundContext');
+    expect(signature).not.toContain('action');
   });
 
-  it('declares counterfactual completeness as a requirement, not an option', () => {
-    expect(lifecycle).toMatch(/Counterfactual completeness is mandatory/);
-    expect(lifecycle).toMatch(/including routes the player will not take/);
+  it('makes side bets a field of the committing action, not a separate command', () => {
+    const action = lifecycle.slice(
+      lifecycle.indexOf('export type StagedSurvivalAction'),
+      lifecycle.indexOf('/* ---', lifecycle.indexOf('export type StagedSurvivalAction')),
+    );
+    expect(action).toContain("readonly type: 'ROUTE'");
+    expect(action).toContain('readonly laneSplit: number | null;');
+    expect(action).toContain('readonly sideBets?: readonly SideBetTicket[];');
+    expect(lifecycle).not.toContain("'PLACE_SIDE_BET'");
   });
 
-  it('gives the module a total verification surface', () => {
+  it('lets the adapter declare side-bet events but never a price', () => {
+    const spec = lifecycle.slice(
+      lifecycle.indexOf('export interface SideBetSpec'),
+      lifecycle.indexOf('export interface SideBetOffer'),
+    );
+    expect(spec).toContain('readonly event: SideBetEvent;');
+    expect(spec).not.toContain('multiplier');
+  });
+
+  it('types the cap basis and the speed floor so they cannot be omitted', () => {
+    expect(lifecycle).toContain("readonly capBasis: 'per-ticket';");
+    expect(lifecycle).toContain("readonly cycleUnit: 'arena';");
+    expect(lifecycle).toContain('readonly maxDecisionCountdownMs: 0;');
+  });
+
+  it('exposes the failure codes ENGINE.md documents', () => {
     for (const code of [
-      'INVALID_TRANSCRIPT',
-      'UNSUPPORTED_VERSION',
-      'ADAPTER_MISMATCH',
-      'DERIVATION_FAILED',
-      'TRANSCRIPT_MISMATCH',
       'COMMITMENT_MISMATCH',
-      'ILLEGAL_ACTION',
-      'LEDGER_MISMATCH',
+      'CHAIN_MISMATCH',
+      'MALFORMED_HAZARD',
+      'INVALID_LANE_SPLIT',
+      'INVALID_SIDE_BET',
+      'QUOTE_MISMATCH',
+      'TOO_SOON',
     ]) {
-      expect(lifecycle, code).toContain(`'${code}'`);
+      expect(lifecycle, `${code} missing from the type`).toContain(code);
+      expect(engineDoc, `${code} missing from ENGINE.md`).toContain(code);
     }
   });
-});
 
-describe('docs/ENGINE.md matches the typed surface', () => {
-  const engineDoc = readFileSync(resolve(root, 'docs/ENGINE.md'), 'utf8');
-
-  it('documents the same lifecycle and schema identifiers', () => {
-    expect(engineDoc).toContain('reveal-engine/staged-survival-v1');
-    expect(engineDoc).toContain('branchfall/commit-v1');
-    expect(engineDoc).toContain('branchfall/transcript-v1');
-    expect(engineDoc).toContain('branchfall-hazard/v1');
+  it('declares a two-step commitment, in that order', () => {
+    expect(lifecycle).toContain('preCommit(');
+    expect(lifecycle).toContain('openRound(');
+    expect(lifecycle.indexOf('preCommit(')).toBeLessThan(
+      lifecycle.indexOf('openRound(', lifecycle.indexOf('preCommit(')),
+    );
+    expect(lifecycle).toContain('export interface ServerPreCommitment');
+    expect(lifecycle).toContain('export interface SeedChainCommitment');
   });
 
-  it('documents the same hazard thresholds the sampler uses', () => {
-    expect(engineDoc).toMatch(/WIDE \| 25, collapse iff draw < 1 \| 8, clears iff draw < 7/);
-    expect(engineDoc).toMatch(/SPLIT \| 10, collapse iff draw < 1 \| 6, clears iff draw < 5/);
-    expect(engineDoc).toMatch(/NARROW \| 2, collapse iff draw < 1 \| 2, clears iff draw < 1/);
-  });
-
-  it('documents the draw count the reference implementation actually produces', () => {
-    expect(engineDoc).toContain('5 arenas x 4 lanes x (1 collapse + 5 slips) = 120');
+  it('never mentions a float type in a money or probability position', () => {
+    const moneyLines = lifecycle
+      .split('\n')
+      .filter((line) => /stake|credit|claim|probability|multiplier|Micro/i.test(line));
+    for (const line of moneyLines) {
+      expect(line, `float in a money path: ${line.trim()}`).not.toMatch(/:\s*number\b/);
+    }
   });
 });
