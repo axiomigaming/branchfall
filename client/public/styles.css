@@ -671,6 +671,22 @@ button {
   border-color: var(--fossil);
 }
 
+/*
+ * Nothing in a card shrinks below its own content.
+ *
+ * The card is a flex column, and on a short viewport the default `flex-shrink`
+ * let the chart block collapse under its own text — bars, fields and footer
+ * drawn over each other. Only the chart may take spare height, only down to a
+ * floor, and everything else keeps the height it needs; when that does not fit,
+ * the card scrolls, which is a card you can read rather than a card you cannot.
+ */
+.card > *,
+.fields,
+.field,
+.compare-table {
+  flex: none;
+}
+
 .card-head {
   display: flex;
   justify-content: space-between;
@@ -727,7 +743,11 @@ button {
 }
 
 .card-footer {
-  margin-top: auto;
+  /*
+   * Pushed down by the body's own flex growth, not by an auto margin: an auto
+   * margin in a container that has started scrolling positions against the box
+   * rather than the content, and drew the footer over the chart caption.
+   */
   padding-top: 4px;
   border-top: var(--hairline);
   line-height: 1.25;
@@ -795,17 +815,25 @@ button {
   background: var(--extinguish);
 }
 
+/*
+ * The chart is the one thing on the card allowed to give height back, and the
+ * floor is the point where it stops: 28 px of bar (`.bars`) plus its axis row
+ * and caption, which is the least that is still a distribution rather than a
+ * smudge. Below that the card scrolls instead.
+ */
 .bars-block {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  min-height: 62px;
 }
 
 .bars-block .bars {
   margin-bottom: 2px;
 }
 
+/* The one child of a card that takes the spare height. Declared after the
+ * `.card > *` floor above, so it wins on order rather than on `!important`. */
 .card-body {
   flex: 1 1 auto;
   display: flex;
@@ -1372,4 +1400,47 @@ button {
   justify-content: center;
   color: var(--fog-mid);
   font-size: var(--floor-secondary);
+}
+
+/*
+ * Short viewports (an iPhone SE is 667 pt, and a desktop window can be anything).
+ * The rail's floor is what keeps a card whole on the baseline device; on a
+ * shorter screen the card scrolls inside itself rather than pushing the commit
+ * action off the bottom, because a primary action under the fold is the worse
+ * failure by a distance.
+ */
+@media (max-height: 740px) {
+  .card-pager {
+    min-height: 132px;
+  }
+
+  .viewport.compact {
+    flex: 0 1 68px;
+    min-height: 56px;
+  }
+
+  .claim-meter {
+    padding: 4px var(--gutter) 5px;
+  }
+
+  .thesis {
+    padding: 2px var(--gutter) 3px;
+  }
+}
+
+/*
+ * Smaller again (a 360 x 640 Android, the floor of the device ladder in §6.8).
+ * The rail keeps only enough height to show the card's head and the top of its
+ * chart; everything else is reachable by scrolling inside the card, and the
+ * commit action stays on screen.
+ */
+@media (max-height: 660px) {
+  .card-pager {
+    min-height: 72px;
+  }
+
+  .viewport.compact {
+    flex: 0 1 56px;
+    min-height: 48px;
+  }
 }
