@@ -1402,8 +1402,9 @@ async function resolveArena(): Promise<void> {
       // A wipe leaves the model with no action in it, so closing the round is
       // bookkeeping rather than a decision — and the screen should be able to
       // state what was already sheltered or won on a side bet without asking the
-      // player to press a button to find out (§S6).
-      if (next.settlement === null) await finishRound();
+      // player to press a button to find out (§S6). This is already inside a
+      // guarded block, so it settles directly rather than through `finishRound`.
+      if (next.settlement === null) await settleRound();
       state.view = 'wipe';
     } else state.view = 'resolve';
   });
@@ -1599,16 +1600,32 @@ async function bankRound(): Promise<void> {
   });
 }
 
-async function finishRound(): Promise<void> {
+/**
+ * The settle request itself, with no `guard()` around it.
+ *
+ * `guard` is deliberately not re-entrant: it returns immediately when a command
+ * is already in flight, which is what stops a double tap becoming a double
+ * command. That makes it the wrong thing to nest, and nesting it is how a wipe
+ * came to leave the round open on the server — `resolveArena` called the guarded
+ * `finishRound` from inside its own guarded block, the inner call returned
+ * without doing anything, and the settle only landed later when the player
+ * tapped their way off the screen. Callers that are already inside a guard call
+ * this; callers that are not call `finishRound`.
+ */
+async function settleRound(): Promise<void> {
   const frame = state.frame as Frame;
+  const payload = await api<{ frame: Frame; session: Session; wallet: WalletView }>(
+    'POST',
+    `/api/rounds/${frame.roundId}/finish`,
+    { idempotencyKey: idempotencyKey('finish') },
+  );
+  adopt(payload);
+}
+
+async function finishRound(): Promise<void> {
   await guard(async () => {
-    const payload = await api<{ frame: Frame; session: Session; wallet: WalletView }>(
-      'POST',
-      `/api/rounds/${frame.roundId}/finish`,
-      { idempotencyKey: idempotencyKey('finish') },
-    );
-    adopt(payload);
-    state.view = payload.frame.live.length === 0 ? 'wipe' : 'banked';
+    await settleRound();
+    state.view = (state.frame as Frame).live.length === 0 ? 'wipe' : 'banked';
   });
 }
 
@@ -1674,16 +1691,7 @@ function bankedScreen(): HTMLElement {
  */
 async function leaveWipe(view: View, before?: () => void): Promise<void> {
   const frame = state.frame;
-  if (frame && frame.settlement === null) {
-    await guard(async () => {
-      const payload = await api<{ frame: Frame; session: Session; wallet: WalletView }>(
-        'POST',
-        `/api/rounds/${frame.roundId}/finish`,
-        { idempotencyKey: idempotencyKey('finish') },
-      );
-      adopt(payload);
-    });
-  }
+  if (frame && frame.settlement === null) await guard(settleRound);
   before?.();
   state.view = view;
   render();
@@ -2779,12 +2787,29 @@ async function boot(): Promise<void> {
   state.session = session.session;
   state.wallet = session.wallet;
   if (session.openRoundId) {
-    // A round is server-side state; closing the app mid-round is safe and
-    // resuming restores the exact frame (§2.1).
+    /*
+     * A round is server-side state; closing the app mid-round is safe and
+     * resuming restores the exact frame (§2.1). Which screen that frame belongs
+     * on depends on its phase, and the first build sent every phase to the route
+     * screen — so a player who closed the app mid-arena came back to a decision
+     * screen for an arena they had already committed, and `resolveArena` refused
+     * to run because it only runs from the run screen.
+     */
     const payload = await api<{ frame: Frame }>('GET', `/api/rounds/${session.openRoundId}`);
     state.frame = payload.frame;
-    state.view = payload.frame.phase === 'RUNNING' ? 'route' : 'route';
-    if (payload.frame.phase === 'RUNNING') void resolveArena();
+    if (payload.frame.phase === 'RUNNING') {
+      // The arena is committed and the tape already decided it. Land on the run
+      // screen and finish resolving it; if the speed-of-play floor has not passed
+      // the `skip` control is the retry.
+      state.view = 'run';
+      state.runStartedAt = Date.now();
+      void resolveArena();
+    } else if (payload.frame.phase === 'FINISHED') {
+      // Every arena has been run: the claim is decided and the only thing left is
+      // the settle, so take it instead of drawing a decision screen with no
+      // decision on it.
+      await finishRound();
+    } else state.view = 'route';
   }
   render();
   startSessionPoll();
