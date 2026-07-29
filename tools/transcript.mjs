@@ -1108,6 +1108,9 @@ export const SETTLEMENT_FIELDS = Object.freeze([
  * honest scope of the claim: reuse and stalling are DETECTABLE by anyone holding
  * the round ledger, not rejected by a lone verifier.
  *
+ * Returns the consumed indices, any GAPS between them (a link the operator never
+ * revealed), and how many links the terminal has left.
+ *
  * @param {{roundId: string, chain: {terminal: string, length: number, index: number}}[]} rounds
  */
 export function verifyChainLedger(rounds) {
@@ -1155,7 +1158,20 @@ export function verifyChainLedger(rounds) {
     byIndex.set(position.index, entry.roundId);
   }
   const consumed = [...byIndex.keys()].sort((a, b) => a - b);
-  return Object.freeze({ ok: true, terminal, consumed, remaining: length - 1 - consumed.length });
+  // Gaps are reported, not rejected. A chain consumed in reverse should run
+  // down without holes; a hole means a link the operator never revealed, which
+  // is worth seeing and is not by itself proof of anything.
+  const gaps = [];
+  for (let index = consumed[0]; index <= consumed[consumed.length - 1]; index += 1) {
+    if (!byIndex.has(index)) gaps.push(index);
+  }
+  return Object.freeze({
+    ok: true,
+    terminal,
+    consumed: Object.freeze(consumed),
+    gaps: Object.freeze(gaps),
+    remaining: length - 1 - consumed.length,
+  });
 }
 
 /* ------------------------------------------------------------------ *

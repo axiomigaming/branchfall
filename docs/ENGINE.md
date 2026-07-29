@@ -435,8 +435,9 @@ same index both verify perfectly in isolation; the damage — a revealed seed us
 again for a later round, whose table is then computable in advance by anyone who
 saw the first reveal — only becomes visible when the rounds are seen together.
 `verifyChainLedger(rounds)` is that check: it takes a set of round records and
-rejects a duplicated index, a foreign terminal, or a mismatched length, and
-reports how many links remain. Reuse and stalling are therefore **detectable by
+rejects a duplicated index, a foreign terminal or a mismatched length, and
+reports the consumed indices, any gaps between them — a link the operator never
+revealed — and how many links the terminal has left. Reuse and stalling are therefore **detectable by
 anyone holding the round ledger**, and are *not* rejected by a lone verifier.
 Saying otherwise would be claiming a control that does not exist.
 
