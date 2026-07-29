@@ -130,7 +130,7 @@ with an acceptance check:
   reversal record rather than a settlement receipt;
 - it contributes **no turnover**, no bonus or wagering-requirement progress, and
   no RTP figure. A round that pays back 1.00x by not being played is not a
-  95.5% round and must never be counted as one;
+  <!-- fig:rtpPct -->95.5%<!-- /fig --> round and must never be counted as one;
 - no side-bet stake is ever stranded by it: side bets are fields of a route
   action (`ENGINE.md` §3), so at a decision point there is no unresolved
   side-bet money to return;
@@ -338,7 +338,8 @@ and binds it in CI. Two build consequences follow, and they are requirements:
    drafts of this document called it "a genuine, non-dominated trade". It is not
    one, the claim was false, and nothing on the card, in a tooltip, in a store
    listing or in marketing may restate it. The honest sentence is on the card
-   already — *"Same 95.5% either way."* — plus the shape line below.
+   already — *"Same <!-- fig:rtpPct -->95.5%<!-- /fig --> either way."* — plus the
+  shape line below.
 2. **It still may not be labelled as the wrong choice either.** A dial is an
    honest control. A player who wants a real chance of one lantern walking out
    alone is buying exactly that, at the same price as everything else. No
@@ -346,7 +347,8 @@ and binds it in CI. Two build consequences follow, and they are requirements:
 
 So the card carries one added line under the two columns, in the same weight as
 the rest: *"4 + 1 is the wider spread. More of both endings, same average, same
-95.5%."* The distribution bars make it visible without the sentence: rendered on
+<!-- fig:rtpPct -->95.5%<!-- /fig -->."* The distribution bars make it visible
+without the sentence: rendered on
 a shared axis, `4 + 1` is visibly taller at both ends and shorter in the middle.
 That is the whole content of the choice, and the player should be able to see it
 before they read anything.
