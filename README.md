@@ -216,9 +216,12 @@ npm run verify:bundle -- round.json   # check an exported round on any machine
 npm test                   # includes a full round driven through the API
 ```
 
-`npm run dev` bundles the client, serves it, and opens an in-memory free-play
-wallet of 500.00 credits. Nothing here is real money and nothing is persisted:
-restart the process and the session is gone.
+`npm run dev` bundles the client, watches both the TypeScript and the static
+files, serves everything on one port, and opens an in-memory free-play wallet of
+500.00 credits. Nothing here is real money and nothing is persisted: restart the
+process and the session is gone. `npm run dev -- --dev-clock` additionally
+exposes `POST /api/dev/advance-clock`, which is how the tests prove the
+speed-of-play floor and the reality check fire; it is refused otherwise.
 
 **What the graybox is.** The complete product at placeholder-art fidelity. Real
 information architecture, real flows, real mathematics, real fairness: the four
@@ -229,6 +232,30 @@ Ghost Line, and the unstaked three-branch rehearsal on the published seed pair.
 The branch is a rectangle and a Kindling is a stroke with a lantern dot — the art
 direction in `docs/DESIGN.md` §6 is a later wave, and the palette and type
 direction are the only parts of it this build implements.
+
+Three properties of the client are worth stating because they are the ones a
+graybox usually gets wrong:
+
+- **The decision screen is one screen.** On the 390 x 844 baseline, S2 fits the
+  four routes with their prices, the claim, the whole selected card, the controls
+  that name a Kindling and `Commit route` in a single unscrolled viewport, and
+  the page never scrolls. The card the rail is showing is the card the footer
+  commits — the selection follows a settled swipe, and the rail is restored after
+  every render — so the screen and the command can never disagree.
+- **The proof screen recomputes the round on the device.** `client/src/derive.ts`
+  is a second implementation of the engine's derivation — canonical encoding,
+  HMAC sampler, tape digest, lane and entity resolution — written against the
+  published algorithm and importing neither the engine nor the server. `Re-derive`
+  rebuilds the definition fingerprint, the seed commitment, the whole 300-draw
+  tape and every arena's draws in the browser and shows each runner's draw
+  against the threshold that decided them. What the server reports about its own
+  settlement is in its own section, labelled as the server's own word for it.
+- **The responsible-play controls are real and server-enforced.** A reality check
+  at the operator's interval (default 30 min) that pauses the game, a session
+  time limit, a session loss limit, and a one-way self-exclusion hand-off. The
+  buy path consults the same function the settings screen displays, so a client
+  that skipped the screen still cannot stake. `tests/responsible-play.test.mjs`
+  moves the dev clock and proves each of them.
 
 **What the server is.** A Node/TypeScript service consuming
 `@axiom-games/reveal-engine`'s `staged-survival` lifecycle module as a package,
@@ -251,6 +278,7 @@ abandoned round closes.
 | `POST /api/rounds/:id/expire` | the only path that closes an abandoned round: auto-bank where BANK is legal, a full-stake void where it is not |
 | `GET /api/rounds/:id/verify` | the published record, plus a re-derivation of every credited figure |
 | `POST /api/verify` | the same check on any bundle, from any source |
+| `POST /api/session` | the cosmetic and responsible-play settings: runner names, disclosure, reality-check interval, session and loss limits, the self-exclusion hand-off |
 
 In every live frame, monetary `exact` and display rationals are denominated in
 credits; fields named `micro` or ending in `Micro` remain integer micro-credits.

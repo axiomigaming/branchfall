@@ -1397,6 +1397,12 @@ async function resolveArena(): Promise<void> {
     if (next.phase === 'FINISHED' && next.live.length === 0) {
       state.view = 'wipe';
       state.wipeAtMs = Date.now();
+      // A wipe leaves the model with no action in it, so closing the round is
+      // bookkeeping rather than a decision — and the screen should be able to
+      // state what was already sheltered or won on a side bet without asking the
+      // player to press a button to find out (§S6).
+      if (next.settlement === null) await finishRound();
+      state.view = 'wipe';
     } else state.view = 'resolve';
   });
 }
@@ -1657,9 +1663,32 @@ function bankedScreen(): HTMLElement {
   );
 }
 
+/**
+ * Leaves the wipe screen, closing the round first if the settle has not landed.
+ *
+ * The round is normally already settled by the time this screen is drawn; this
+ * covers the case where that request failed, so a player is never stuck on the
+ * screen that says everyone is gone.
+ */
+async function leaveWipe(view: View, before?: () => void): Promise<void> {
+  const frame = state.frame;
+  if (frame && frame.settlement === null) {
+    await guard(async () => {
+      const payload = await api<{ frame: Frame; session: Session; wallet: WalletView }>(
+        'POST',
+        `/api/rounds/${frame.roundId}/finish`,
+        { idempotencyKey: idempotencyKey('finish') },
+      );
+      adopt(payload);
+    });
+  }
+  before?.();
+  state.view = view;
+  render();
+}
+
 function wipeScreen(): HTMLElement {
   const frame = state.frame as Frame;
-  const settled = frame.settlement !== null;
   const sinceLoss = Date.now() - state.wipeAtMs;
   // Two seconds of fog and wind with no UI at all, then the rest fades in.
   if (sinceLoss < 2200) window.setTimeout(() => state.view === 'wipe' && render(), 2300 - sinceLoss);
@@ -1690,64 +1719,35 @@ function wipeScreen(): HTMLElement {
     el(
       'div',
       { class: 'footer' },
-      !settled
-        ? // §S6 names one primary action, and it leads away from the stake
-          // field. Closing the round is bookkeeping the player should not have
-          // to ask for, so the button that says where it goes does both.
-          el('button', {
-            class: 'btn primary',
-            text: 'Back to the squad',
+      // §S6: one primary action, and it leads away from the stake field. The
+      // round is already closed by the time this screen settles, so nothing here
+      // is a money command — and there is no offer, no bonus, no pre-filled
+      // stake and no one-tap replay anywhere on it (§10.2).
+      el('button', {
+        class: 'btn primary',
+        text: 'Back to the squad',
+        onClick: () => void leaveWipe('squad'),
+      }),
+      el('div', { style: 'height:10px' }),
+      el('button', {
+        class: 'btn quiet',
+        text: 'Round summary',
+        onClick: () => void leaveWipe('summary'),
+      }),
+      // `Run again` appears only after 2 s, never pre-fills the previous stake,
+      // and carries no offer of any kind.
+      sinceLoss > 2000
+        ? el('button', {
+            class: 'btn quiet',
+            text: 'Run again',
             onClick: () =>
-              void guard(async () => {
-                const frame = state.frame as Frame;
-                const payload = await api<{ frame: Frame; session: Session; wallet: WalletView }>(
-                  'POST',
-                  `/api/rounds/${frame.roundId}/finish`,
-                  { idempotencyKey: idempotencyKey('finish') },
-                );
-                adopt(payload);
-                state.view = 'squad';
+              void leaveWipe('stake', () => {
+                state.stakeMicro = micro((state.config as Config).money.minStakeMicro);
+                state.clientSeed = newClientSeed();
+                state.frame = null;
               }),
           })
-        : frag(
-            // The primary action leads *away* from the stake field (§10.2).
-            el('button', {
-              class: 'btn primary',
-              text: 'Back to the squad',
-              onClick: () => {
-                state.view = 'squad';
-                render();
-              },
-            }),
-            el('div', { style: 'height:10px' }),
-            el('button', {
-              class: 'btn quiet',
-              text: 'Round summary',
-              onClick: () => {
-                state.view = 'summary';
-                render();
-              },
-            }),
-            // `Run again` appears only after 2 s, never pre-fills the previous
-            // stake, and carries no offer of any kind. Promotional surfaces are
-            // suppressed for 60 s after a losing round, and there are none here
-            // to suppress.
-            sinceLoss > 2000
-              ? el('button', {
-                  class: 'btn quiet',
-                  text: 'Run again',
-                  onClick: () => {
-                    state.stakeMicro = micro(
-                      (state.config as Config).money.minStakeMicro,
-                    );
-                    state.clientSeed = newClientSeed();
-                    state.frame = null;
-                    state.view = 'stake';
-                    render();
-                  },
-                })
-              : null,
-          ),
+        : null,
     ),
   );
 }
@@ -2069,7 +2069,7 @@ function rederiveBlock(nameOf: (slot: number) => string): Child {
             class: `mark${arena.matchesTranscript ? '' : ' bad'}`,
             text: arena.matchesTranscript ? '✓ ' : '✕ ',
           }),
-          `Arena ${arena.index + 1} · ${arena.contractId} — ${arena.survivors.length} of ${arena.running.length} across`,
+          `Arena ${arena.index + 1} · ${routeLabel(arena.contractId, arena.running.length)} — ${arena.survivors.length} of ${arena.running.length} across`,
         ),
         ...arena.lanes.map((lane, index) =>
           el(
@@ -2113,6 +2113,20 @@ function rederiveBlock(nameOf: (slot: number) => string): Child {
       onClick: () => void runRederivation(),
     }),
   );
+}
+
+/**
+ * The engine's contract id, in the game's own words.
+ *
+ * `SPLIT_4` is the module's name for the geometry (`server/definition.ts`
+ * declares one contract per legal lead-lane size); the player chose "4 + 1" and
+ * that is what the proof screen should say back to them.
+ */
+function routeLabel(contractId: string, running: number): string {
+  const split = /^SPLIT_(\d+)$/u.exec(contractId);
+  if (!split) return contractId;
+  const lead = Number(split[1]);
+  return `SPLIT ${lead} + ${running - lead}`;
 }
 
 async function runRederivation(): Promise<void> {
