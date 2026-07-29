@@ -362,6 +362,14 @@ every geometry — that is the fair-continuation property, checked per row.
 claim, runs the remainder on the WIDE profile. Its arena distribution is the
 WIDE row for `n - j` runners.
 
+**There is no `SHELTER(n)`, and BANK is unavailable before arena 1 resolves.**
+Together those two facts mean a purchased ticket always exposes at least `1/n` of
+the claim to the first arena: the action set in state `(1, n)` is
+`{ROUTE(...), SHELTER(1..n-1)}` and every element of it runs at least one runner.
+This is a property of the model, not a UI choice, and `DESIGN.md` §2 and S2 are
+required to surface it — including the rule that the shelter picker must reject
+an all-`n` selection at input time rather than at commit time.
+
 ### 5.4 What runner identity does, and does not, do
 
 Which specific runners are withdrawn to a shelter, and which lane a given runner
@@ -463,6 +471,22 @@ stakes, and responsible design — so they are declared, not left to the operato
 | LAST_LIGHT | NARROW | 4 | 4 | `17/32` | 0.531250000000 | `764/425` | 1.79764706 | `191/200` |
 | LAST_LIGHT | NARROW | 5 | 5 | `33/64` | 0.515625000000 | `1528/825` | 1.85212121 | `191/200` |
 
+**Stake legality, and where the limits degenerate.** The declared limits are:
+minimum route stake 1.00 credit (`minStake = 1_000_000` micro-credits), minimum
+per side bet 1.00 credit, maximum per side bet one route stake, maximum per round
+across all side bets one route stake. These four are not independent at the
+bottom of the range. At the minimum route stake the only legal side-bet
+configuration in an entire round is a single ticket of exactly 1.00 credit; the
+"at most three tickets per arena" ceiling is unreachable below a 3.00 route
+stake, and reaching it consumes the round's whole allowance in one arena. The
+ceiling is a bound, not an entitlement. **No proof in this document depends on
+any of it:** every quantity here is a ratio, RTP is scale-invariant, and §8.2
+proves portfolio invariance for arbitrary non-negative stake vectors, legal or
+not. The limits exist for §9.3's cap argument and for `DESIGN.md` §4's
+responsible-design reasons, and `DESIGN.md` §4 carries the product-side rules
+(hide the control when the remaining allowance is under the minimum; offer the
+remaining allowance as the ceiling).
+
 Side bets are strongly correlated with the main game — LAST LIGHT pays exactly
 when the Route Ticket dies — but expectation is linear, so any combination of
 Route Ticket and side bets returns `r` times total money staked (§8.2). There is
@@ -547,6 +571,18 @@ A side-bet plan can stake a path-dependent total — a plan that bets every aren
 stakes less on a round that ends early — so the only correct definition of return
 is `E[credited] / E[staked]`. The enumerator walks every leaf of every
 combination and computes both expectations exactly.
+
+**These plans are illustrative, and their stake weights carry a floor.** Side-bet
+stakes below are expressed as fractions of the route stake, which is the right
+unit for a scale-invariant table but is not automatically a legal ticket: the
+`1/10`-weight rows need a route stake of at least 10.00 credits to clear the 1.00
+per-ticket minimum, the `1/3`-weight rows need at least 3.00, and the
+"maximum legal stake, arena 1 only" rows are legal at every stake (see §5.5).
+The plans were chosen to span the shape of the space — nothing, a small
+recurring plan on each of the two extreme events, one maximal single ticket, and
+a full three-event arena — not to enumerate a legal-stake product surface. The
+invariance result does not depend on legality: §8.2 proves it for arbitrary
+non-negative stake vectors.
 
 <!-- table:portfolios -->
 | Route policy | Side-bet plan | Leaves | E[staked] | E[credited] | RTP = E[cr]/E[st] | RTP % | Std. dev. | Max return |

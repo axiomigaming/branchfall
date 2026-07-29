@@ -19,8 +19,34 @@ import { describe, expect, it } from 'vitest';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => readFileSync(resolve(root, p), 'utf8');
 
-/** Surfaces a player may read. The ban applies here. */
-const PLAYER_FACING = { 'README.md': read('README.md') };
+const designDocRaw = read('docs/DESIGN.md');
+
+/**
+ * Every in-client string that exists today is a quoted `*"..."*` line inside
+ * DESIGN.md — §3, §4, the S-screens and the §5.2.6 copy sheet. Scanning only
+ * README.md left the one file where player copy actually lives outside the ban.
+ * Generated figure slots are stripped so the extracted string is what a player
+ * would see, not the markdown that produces it.
+ */
+export function extractInClientCopy(text) {
+  const stripped = text.replace(/<!--[\s\S]*?-->/g, '');
+  return [...stripped.matchAll(/\*"([^"]*)"\*/g)].map((m) => m[1].replace(/\s+/g, ' ').trim());
+}
+
+const IN_CLIENT_COPY = extractInClientCopy(designDocRaw);
+
+/** Player-facing *documents*: whole files a player may read end to end. */
+const PLAYER_DOCS = { 'README.md': read('README.md') };
+
+/**
+ * Surfaces a player may read. The ban applies here. This is the documents plus
+ * the in-client strings, which are not a document and must not be held to
+ * document-level rules (a button label carries no certification boundary).
+ */
+const PLAYER_FACING = {
+  ...PLAYER_DOCS,
+  'docs/DESIGN.md in-client copy': IN_CLIENT_COPY.join('\n'),
+};
 
 /**
  * Engineering documents, exempt BY NAME so the exemption is visible in the test
@@ -28,7 +54,16 @@ const PLAYER_FACING = { 'README.md': read('README.md') };
  */
 const ENGINEERING_EXEMPT = ['docs/MATH.md', 'docs/ENGINE.md'];
 
-const designDoc = read('docs/DESIGN.md');
+const designDoc = designDocRaw;
+
+/**
+ * Prose assertions must survive re-flowing a paragraph. Match on the words, with
+ * any whitespace between them, so an editor moving a line break does not fail a
+ * build for a reason that has nothing to do with what the sentence says.
+ */
+const flowed = (phrase) =>
+  new RegExp(phrase.trim().split(/\s+/).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+'));
+
 
 /**
  * The banned vocabulary from DESIGN.md §10.3, with the two — and only two —
@@ -71,6 +106,22 @@ describe('banned vocabulary on player-facing surfaces', () => {
 
   it('still says the thing the ban exists to make us say', () => {
     expect(PLAYER_FACING['README.md']).toMatch(/contains \*\*no skill\*\*/);
+  });
+
+  it('actually reaches the in-client strings, and says so in the spec', () => {
+    // A floor, so that deleting the quoting convention fails the build rather
+    // than silently disabling the guard.
+    expect(IN_CLIENT_COPY.length).toBeGreaterThanOrEqual(20);
+    expect(IN_CLIENT_COPY).toContain('Cosmetics never change the odds.');
+    expect(IN_CLIENT_COPY.some((s) => s.startsWith('Both of these return 95.5%'))).toBe(true);
+    expect(designDoc).toContain('In-client copy lives in this document, so the guard reads this document');
+  });
+
+  it('would catch a banned word introduced into an in-client string', () => {
+    const planted = extractInClientCopy('Somewhere in S2: *"Master the fork."* and prose about edges.');
+    expect(planted).toEqual(['Master the fork.']);
+    const hits = planted.join('\n').match(/\bmaster(y|ed|ing|s)?\b/gi);
+    expect(hits, 'the extractor must surface the string the ban would reject').toHaveLength(1);
   });
 });
 
@@ -135,11 +186,11 @@ describe('honest presentation rules that are copy rules', () => {
       designDoc,
       'docs/MATH.md': read('docs/MATH.md'),
       'docs/ENGINE.md': read('docs/ENGINE.md'),
-      ...PLAYER_FACING,
+      ...PLAYER_DOCS,
     })) {
       expect(text.toLowerCase(), name).toMatch(/certificat/);
     }
-    expect(PLAYER_FACING['README.md']).toContain('**None claimed.**');
+    expect(PLAYER_DOCS['README.md']).toContain('**None claimed.**');
   });
 });
 
@@ -187,15 +238,6 @@ describe('art direction is specific enough to build from', () => {
     expect(section).toMatch(/≤ 5 MB gzipped/);
   });
 
-  it('gives a per-feature millisecond budget that sums within a 60 fps frame', () => {
-    const section = designDoc.slice(designDoc.indexOf('Per-frame budget'), designDoc.indexOf('**What degrades'));
-    const budgets = [...section.matchAll(/\|\s*([0-9.]+) ms\s*\|/g)].map((m) => Number(m[1]));
-    expect(budgets.length).toBeGreaterThanOrEqual(7);
-    const total = budgets.reduce((a, b) => a + b, 0);
-    expect(total).toBeLessThanOrEqual(16.7);
-    expect(total).toBeGreaterThan(15);
-  });
-
   it('replaces the unshippable v1 lighting spec rather than restating it', () => {
     expect(designDoc).not.toMatch(/3 shadow-casting point lights/i);
     expect(designDoc).toMatch(/at most one shadow-casting light exists in the scene, and it is a spot/i);
@@ -207,5 +249,268 @@ describe('art direction is specific enough to build from', () => {
     for (const tier of ['T0 Emberlight', 'T1 Understory', 'T2 Canopy']) {
       expect(designDoc).toContain(tier);
     }
+  });
+});
+
+/**
+ * The v1 per-frame budget summed to 16.0 ms of a 16.6 ms frame — 3.6% headroom —
+ * and this file enforced that tightness with `total <= 16.7`, which made the
+ * spec's own harness a guaranteed failure on the device it named. The budget is
+ * now a shape with rules, and these are the rules.
+ */
+describe('the runtime budget is achievable on the device floor it names', () => {
+  const section = designDoc.slice(designDoc.indexOf('### 6.8'), designDoc.indexOf('### 6.9'));
+
+  /** Parse one budget table: its frame period, its pass rows, its declared total and headroom. */
+  function parseBudget(label) {
+    const start = section.indexOf(label);
+    expect(start, `no budget table labelled ${label}`).toBeGreaterThan(-1);
+    const table = section.slice(start, section.indexOf('\n\n', section.indexOf('Reserved headroom', start)));
+    const period = Number(/frame period ([0-9.]+) ms/.exec(table)[1]);
+    const rows = [...table.matchAll(/^\| *(.+?) *\| *(?:\*\*)?([0-9.]+) ms(?:\*\*)?(.*)$/gm)].map((m) => ({
+      label: m[1].replace(/\*/g, '').toLowerCase(),
+      ms: Number(m[2]),
+      rest: m[3],
+    }));
+    const passes = rows.filter((r) => !/total|headroom/.test(r.label));
+    const total = rows.find((r) => /total/.test(r.label));
+    const headroom = rows.find((r) => /headroom/.test(r.label));
+    return { period, passes, total, headroom };
+  }
+
+  for (const label of ['**T1 at 60 fps', '**T1 at 30 fps']) {
+    describe(label.replace(/\*/g, ''), () => {
+      const { period, passes, total, headroom } = parseBudget(label);
+
+      it('itemises at least seven passes and declares a total that matches them', () => {
+        expect(passes.length).toBeGreaterThanOrEqual(7);
+        const sum = passes.reduce((a, r) => a + r.ms, 0);
+        expect(total, 'no declared total row').toBeDefined();
+        expect(Math.abs(sum - total.ms), `rows sum to ${sum.toFixed(2)}, table claims ${total.ms}`).toBeLessThan(0.05);
+      });
+
+      it('reserves at least 25% of the frame as headroom it may not spend', () => {
+        expect(headroom, 'no declared headroom row').toBeDefined();
+        expect(Math.abs(total.ms + headroom.ms - period)).toBeLessThan(0.15);
+        expect(headroom.ms / period).toBeGreaterThanOrEqual(0.25);
+        expect(headroom.rest).toMatch(/may not spend it/);
+      });
+
+      it('keeps the named passes under the 75% rule', () => {
+        expect(total.ms / period).toBeLessThanOrEqual(0.75);
+        // And the declared percentage in the prose is the real one.
+        const claimed = Number(/([0-9.]+)% of the frame/.exec(total.rest)[1]);
+        expect(Math.abs(claimed - (100 * total.ms) / period)).toBeLessThan(0.2);
+      });
+    });
+  }
+
+  it('states the 75% rule and the soak methodology rather than implying them', () => {
+    expect(section).toMatch(flowed('may not exceed 75% of the frame period'));
+    expect(section).toMatch(flowed('95th percentile frame time'));
+    expect(section).toContain('10-minute soak');
+    expect(section).toContain('co-resident iframe');
+    // And §11's acceptance criteria say the same thing, so the harness that
+    // enforces the budget is specified against the same methodology.
+    expect(designDoc).toMatch(flowed('95th-percentile frame after a 10-minute soak'));
+    expect(designDoc).toContain('headroom never spent');
+  });
+
+  it('does not repeat the v1 budget that left 0.6 ms of a 16.6 ms frame', () => {
+    const rows = [...section.matchAll(/^\| *(?:\*\*)?Reserved headroom/gm)];
+    expect(rows.length).toBe(2);
+    expect(section).not.toMatch(/\| \*\*Headroom\*\* \| \*\*0\.6 ms\*\* \|/);
+  });
+
+  it('separates device class from quality tier, and gives each class its own frame target', () => {
+    // The A54 and the iPhone SE 2020 must not share a frame target.
+    const a54 = /\| \*\*C1 Median\*\* \|[^|]*Galaxy A54[^|]*\|[^|]*\|[^|]*30 fps[^|]*\|/.exec(section);
+    const se = /\| \*\*C2 Fast\*\* \|[^|]*iPhone SE 2020[^|]*\|[^|]*\|[^|]*60 fps[^|]*\|/.exec(section);
+    expect(a54, 'the Galaxy A54 row must declare a 30 fps target').not.toBeNull();
+    expect(se, 'the iPhone SE 2020 row must declare a 60 fps target').not.toBeNull();
+    expect(section).toMatch(flowed('Device class is not the same thing as quality tier'));
+    expect(section).toMatch(flowed('The mid-range phone gets the look'));
+  });
+
+  it('resolves the "custom renderer" ambiguity and books the library it chose', () => {
+    // The ambiguous v1 phrase may survive only as a quotation of what changed,
+    // never as a live decision.
+    for (const m of section.matchAll(/three\.js-class custom WebGL2 renderer/g)) {
+      expect(section.slice(Math.max(0, m.index - 40), m.index)).toMatch(/v1 draft said/);
+    }
+    expect(section).toMatch(/\| Runtime \| \*\*three\.js, with our own render pipeline on top\*\*/);
+    expect(section).toContain('three.js, with our own render pipeline on top');
+    expect(section).toMatch(/tree-shaken three\.js .*\*\*~170 KB gzipped\*\*/s);
+    // The line item must actually appear in the first-load table.
+    expect(section).toMatch(/\| three\.js, tree-shaken \| 170 KB \|/);
+  });
+
+  it('itemises the first-load budget and keeps a real reserve under 5 MB', () => {
+    const table = section.slice(section.indexOf('#### First load'), section.indexOf('Compressed textures'));
+    const rows = [...table.matchAll(/^\| *(.+?) *\| *(?:\*\*)?([\d,]+) KB(?:\*\*)?/gm)].map((m) => ({
+      label: m[1].replace(/\*/g, '').toLowerCase(),
+      kb: Number(m[2].replace(/,/g, '')),
+    }));
+    const items = rows.filter((r) => !/total|reserve/.test(r.label));
+    const total = rows.find((r) => /total/.test(r.label));
+    const reserve = rows.find((r) => /reserve/.test(r.label));
+    expect(items.length).toBeGreaterThanOrEqual(8);
+    expect(items.reduce((a, r) => a + r.kb, 0)).toBe(total.kb);
+    expect(total.kb + reserve.kb).toBe(5000);
+    expect(reserve.kb / 5000).toBeGreaterThanOrEqual(0.2);
+  });
+
+  it('keeps the 12 fps step honest at 30 Hz instead of assuming 60', () => {
+    expect(section).toMatch(flowed('quantised in **time**, not in frames'));
+    expect(section).toContain('2–3–2–3 frame pattern');
+    expect(designDoc).toContain('on a 2–3–2–3 pattern at 30 Hz');
+  });
+
+  it('still admits these are budgets and not measurements', () => {
+    expect(section).toMatch(flowed('These are budgets, not measurements'));
+    expect(designDoc).toContain('95th-percentile frame');
+  });
+});
+
+/**
+ * The round-2 critic's headline finding: no onboarding specification existed
+ * anywhere, against a money rule with two moving variables. These assertions
+ * pin the parts of §5.2 that the product cannot ship without.
+ */
+describe('first-run onboarding is specified, not assumed', () => {
+  const section = designDoc.slice(designDoc.indexOf('### 5.2 The first run'), designDoc.indexOf('### S0 — Squad'));
+
+  it('exists at all, and is reachable by every name a reader would search for', () => {
+    expect(section.length).toBeGreaterThan(6000);
+    for (const term of ['Rehearsal', 'rehearsal', 'practice', 'first-time', 'onboarding']) {
+      expect(designDoc, `nothing in the spec mentions "${term}"`).toContain(term);
+    }
+  });
+
+  it('names the money rule it has to teach, and teaches three facts in order', () => {
+    expect(section).toMatch(flowed("claim' = claim x (survivors / runners) x route multiplier"));
+    for (const fact of ['one **claim**, split into `n` equal shares', 'is multiplied by the route price', 'Routes differ in **shape**, not in return']) {
+      expect(section).toContain(fact);
+    }
+  });
+
+  it('puts the teaching object in the permanent HUD rather than in a tutorial', () => {
+    expect(section).toMatch(flowed('the teaching object *is* the HUD'));
+    expect(section).toMatch(flowed('There is no onboarding widget that gets thrown away'));
+    expect(section).toContain('never "graduates"');
+  });
+
+  it('specifies a free unstaked rehearsal that runs the real model', () => {
+    expect(section).toMatch(flowed('at no stake'));
+    expect(section).toContain('published seed pair');
+    expect(section).toMatch(flowed('no RGS round, no round id, no ledger entry, no balance movement, no practice currency'));
+    expect(section).toMatch(flowed('no separate tutorial state machine'));
+  });
+
+  it('refuses to open with a win, which is the manipulation this category defaults to', () => {
+    expect(section).toMatch(flowed('The rehearsal does not pay, and it is chosen to hurt'));
+    expect(section).toMatch(flowed('We will not build a first experience that pays'));
+    expect(section).toMatch(flowed('Both endings are taught, and neither is a win'));
+  });
+
+  it('demonstrates the thesis with a comparison instead of asserting it', () => {
+    expect(section).toContain('The Two-Card Moment');
+    expect(section).toContain('They are not the same bet');
+    expect(section).toContain('demonstrated');
+    // And the comparison survives onboarding as a permanent control.
+    expect(section).toMatch(flowed('for the life of the product'));
+    expect(designDoc).toContain('permanent form of the Two-Card Moment');
+  });
+
+  it('gates the decision surface progressively, with rules that stop it being manipulation', () => {
+    expect(section).toMatch(flowed('Progressive disclosure of the decision surface'));
+    for (const rule of [
+      '**Additive only.**',
+      '**One tap out.**',
+      '**Never gated on money.**',
+      '**Odds are never gated.**',
+      '**Side bets are opt-in once, explicitly.**',
+      '**No progress theatre.**',
+    ]) {
+      expect(section, `disclosure rule missing: ${rule}`).toContain(rule);
+    }
+    expect(section).toMatch(flowed('The counter is *rounds seen*'));
+  });
+
+  it('ships an implementable copy sheet rather than a paraphrase', () => {
+    const sheet = section.slice(section.indexOf('#### 5.2.6'), section.indexOf('#### 5.2.7'));
+    const strings = extractInClientCopy(sheet);
+    expect(strings.length).toBeGreaterThanOrEqual(12);
+    expect(strings).toContain('Show me everything.');
+    expect(strings).toContain('REHEARSAL — public seed, no stake, no payout.');
+  });
+
+  it('forbids the first-run dark patterns by name', () => {
+    for (const forbidden of [
+      'Never a scripted win',
+      'Never a near-miss authored for the tutorial',
+      'Never a first-round bonus',
+      'Never a suggestion that practice improves outcomes',
+      'Never a forced tutorial',
+    ]) {
+      expect(section, `missing prohibition: ${forbidden}`).toContain(forbidden);
+    }
+  });
+
+  it('makes comprehension a measurable release gate, not a hope', () => {
+    expect(section).toMatch(flowed('How we will know it worked'));
+    expect(section).toMatch(/\| Q1 \|/);
+    expect(section).toMatch(/\| Q2 \|/);
+    expect(section).toMatch(/\| Q3 \|/);
+    expect(section).toMatch(flowed('Q2 is the one that matters'));
+    expect(section).toContain('cash-out ladder');
+    expect(designDoc).toContain('**Comprehension harness:**');
+    expect(designDoc).toContain('Q2 is a release gate');
+  });
+});
+
+/**
+ * Two model facts that were correct in MATH.md and invisible in the UI spec:
+ * a purchased ticket always runs at least one runner through arena 1, and the
+ * side-bet limits collapse to one legal ticket at the minimum stake.
+ */
+describe('model constraints are surfaced where the screen is specified', () => {
+  const mathDoc = read('docs/MATH.md');
+
+  it('says a bought run cannot avoid arena 1, in the loop and at the buy screen', () => {
+    expect(designDoc).toContain('**Buying a run commits you to arena 1.**');
+    expect(designDoc).toMatch(flowed('none of them is an exit'));
+    expect(designDoc).toContain('There is no way back out of the first branch. Banking starts after it.');
+    expect(mathDoc).toContain('There is no `SHELTER(n)`, and BANK is unavailable before arena 1 resolves');
+  });
+
+  it('requires the shelter picker to reject an all-squad selection at input time', () => {
+    expect(designDoc).toContain('**At least one runner must keep running.**');
+    expect(designDoc).toMatch(flowed('the picker must refuse it rather than accept it and fail on commit'));
+    expect(IN_CLIENT_COPY).toContain('One has to run. You can bank the rest after this branch.');
+    expect(mathDoc).toMatch(flowed('reject an all-`n` selection at input time rather than at commit time'));
+  });
+
+  it('qualifies the zero-bust claim as post-commit rather than at the point of choosing', () => {
+    const row = designDoc.slice(designDoc.indexOf('| **SHELTER**'), designDoc.indexOf('\n', designDoc.indexOf('| **SHELTER**')));
+    expect(row).toContain('Once that credit is made');
+    expect(row).toContain('not before');
+    expect(row).toContain('1 <= k <= n-1');
+  });
+
+  it('states where the side-bet stake limits degenerate, on both the product and math sides', () => {
+    expect(designDoc).toMatch(flowed('Where these four limits degenerate'));
+    expect(designDoc).toMatch(flowed('exactly one ticket, at exactly 1.00, in exactly one arena'));
+    expect(designDoc).toMatch(flowed('ceiling, not an entitlement'));
+    expect(mathDoc).toMatch(flowed('Stake legality, and where the limits degenerate'));
+    expect(mathDoc).toMatch(flowed('The ceiling is a bound, not an entitlement'));
+  });
+
+  it('labels the enumerated portfolios as illustrative and gives their stake floors', () => {
+    const note = mathDoc.slice(mathDoc.indexOf('These plans are illustrative'), mathDoc.indexOf('<!-- table:portfolios -->'));
+    expect(note).toContain('at least 10.00 credits');
+    expect(note).toContain('at least 3.00');
+    expect(note).toContain('legal at every stake');
+    expect(note).toMatch(flowed('arbitrary non-negative stake vectors'));
   });
 });

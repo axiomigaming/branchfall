@@ -38,6 +38,14 @@ that fail if the published numbers and the mathematics ever disagree.
 | **5. Bank or continue** | After every arena, no timer. Bank and the lanterns come home. Continue and they run again. |
 | **6. Verify** | The server seed is revealed. Re-derive the entire round yourself — including the routes you didn't take. |
 
+**First time?** There is a rehearsal: three branches, no stake, the real model,
+on a published seed everybody shares. It does not pay — the seed is chosen so
+you lose runners and see what that costs — because a practice run that opens
+with a win teaches a distribution that does not exist. It exists to make one
+picture land: two route cards side by side, two completely different survivor
+distributions, the same <!-- fig:rtpPct -->95.5%<!-- /fig --> under both.
+`docs/DESIGN.md` §5.2 specifies it, down to the strings.
+
 ### The four routes
 
 | Route | Runners | Total wipe (5 alive) | Multiplier | What it buys, and what it costs |
@@ -187,7 +195,7 @@ max-win cap analysis — all as exact fractions.
 
 | Document | What's in it |
 | --- | --- |
-| [`docs/DESIGN.md`](docs/DESIGN.md) | Full product spec: loop, every decision and what it actually changes, bet types and their stake limits, mobile portrait UX screen by screen, speed-of-play floor, art direction (palette, materials, lighting, motion, type, references, five arena briefs), runtime and quality-tier ladder with a named device floor, sound direction, the signature viral moment, responsible-design requirements |
+| [`docs/DESIGN.md`](docs/DESIGN.md) | Full product spec: loop, every decision and what it actually changes, bet types and their stake limits, mobile portrait UX screen by screen, the first-run rehearsal and progressive disclosure with a measurable comprehension gate, speed-of-play floor, art direction (palette, materials, lighting, motion, type, references, five arena briefs), runtime with device classes, per-frame and first-load budgets, sound direction, the signature viral moment, responsible-design requirements |
 | [`docs/MATH.md`](docs/MATH.md) | The exact model: state space, correlated hazard model, complete paytable as fractions, RTP justification, volatility profile, per-ticket and per-round max-win cap proofs, and the proof that no policy and no portfolio beats the target RTP |
 | [`docs/ENGINE.md`](docs/ENGINE.md) | The `staged-survival` Reveal Engine lifecycle module this game needs, its adapter surface as TypeScript, two-seed hazard derivation, commitment format and seed chains, conformance checks, RGS obligations, threat model |
 

@@ -77,6 +77,15 @@ BUY  ->  [ ROUTE -> RUN -> RESOLVE -> BANK? ] x up to 5  ->  SETTLE  ->  VERIFY
 
 A full five-arena run is 90–120 seconds. A cautious two-arena run is ~35 seconds.
 
+**Buying a run commits you to arena 1.** BANK exists from arena 2 onward, and a
+Shelter can withdraw at most `n-1` of `n` runners, so once the stake is debited
+at least one fifth of the claim crosses the first branch — every route on the
+first screen carries risk and none of them is an exit. There is no configuration
+of the first decision that returns the stake untouched. We say this plainly here,
+in S1's buy copy, and in the shelter picker (S2), because a spec that mentions it
+only in the mathematics produces a picker that lets a player select all five and
+then rejects the commit.
+
 ### 2.1 Round persistence — no latency-sensitive money decisions
 
 There is no countdown on any money decision, anywhere, ever. A round is server-
@@ -127,7 +136,7 @@ lie.
 | **WIDE** — *The Broad Bough* | A wide fossil bough. Crosswind, crumbling bark. | One lane, whole squad | Keeps the most runners alive (<!-- fig:wideExpectedSurvivors5 -->4.20<!-- /fig --> of 5 per arena) and clears the whole squad most often (<!-- fig:wideAllClear5 -->49.24%<!-- /fig -->). Everyone shares one shear risk, so a total wipe never drops below <!-- fig:wideWipe5 -->4.00%<!-- /fig -->. Multiplier <!-- fig:wideMult -->1.190x<!-- /fig -->. |
 | **SPLIT** — *The Fork* | The branch divides in two. The squad divides with it. | Two independent lanes; balance is the player's | Kills more runners on average (<!-- fig:splitFallen5 -->1.25<!-- /fig --> per arena vs <!-- fig:wideFallen5 -->0.80<!-- /fig -->) and clears the squad less often (<!-- fig:splitAllClear5 -->32.55%<!-- /fig -->) — but a **total** wipe needs both limbs to fail: <!-- fig:splitWipe5 -->1.30%<!-- /fig --> at five runners. Multiplier <!-- fig:splitMult -->1.333x<!-- /fig -->. |
 | **NARROW** — *The Reach* | A hairline limb across a gap. Single file, point runner first. | One lane, single file | The point runner's fall whips the line and takes everyone: <!-- fig:narrowWipe5 -->51.56%<!-- /fig --> total wipe, and all five clear only <!-- fig:narrowAllClear5 -->1.56%<!-- /fig --> of the time. Multiplier <!-- fig:narrowMult -->4.000x<!-- /fig -->. |
-| **SHELTER** — *The Lamp House* | A brass shelter door mid-branch. | Withdraw `k`, remainder runs Wide | Banks `k/n` of the claim on the spot. Shelter even once and your bust probability becomes exactly **zero** — money is already home. |
+| **SHELTER** — *The Lamp House* | A brass shelter door mid-branch. | Withdraw `k`, remainder runs Wide | Banks `k/n` of the claim on the spot. **Once that credit is made**, the round's bust probability is exactly **zero** — that money is already home. Read at the point of *choosing*, it is a promise about the moment after you commit, not before: a Shelter takes `1 <= k <= n-1`, so at least one runner always crosses the branch in front of you. |
 
 **Wide and Split are a genuine trade, in both directions.** At five runners Split
 is <!-- fig:splitSaferRatio5 -->3.07x<!-- /fig --> safer against losing everyone;
@@ -265,6 +274,27 @@ The stake field shows the ceiling as a hard stop, states it in credits rather
 than as a ratio (*"up to 5.00 — the same as your run"*), and never as a
 percentage of balance.
 
+**Where these four limits degenerate, stated rather than discovered in QA.** The
+minimum route stake is 1.00 credit (`MATH.md` §5.5, `src/branchfall.adapter.ts`),
+and the per-round side-bet allowance is one route stake. So the four limits are
+not independent at the bottom of the range:
+
+| Route stake | Legal side-bet configurations in the whole round |
+| --- | --- |
+| 1.00 (the minimum) | exactly one ticket, at exactly 1.00, in exactly one arena |
+| 2.00 | one ticket at 1.00 or 2.00, or two tickets at 1.00 each |
+| 3.00 or more | the "three tickets in one arena" ceiling becomes reachable — and reaching it spends the entire round's allowance in that arena |
+| 10.00 or more | a 1/10-weight plan across all five arenas becomes legal |
+
+"At most three tickets per arena" is therefore a **ceiling, not an entitlement**,
+and below a 3.00 route stake it is unreachable by arithmetic rather than by
+rule. Two build consequences, both already in S2: the `+ side bet` control is
+**hidden**, not disabled, once the remaining allowance is under 1.00 — a disabled
+control that can never re-enable is worse than no control — and the stake field
+offers the remaining allowance as its ceiling, not the route stake, whenever
+those differ. None of this touches any proof: RTP is scale-invariant, so every
+figure in `MATH.md` holds at every legal stake.
+
 **Last Light is not insurance.** Product copy never uses the words insurance,
 protection, hedge, or safety net for it. It carries the identical 4.5% margin as
 everything else, and the card says so: *"Same 95.5% as every bet here."* Framing
@@ -324,13 +354,285 @@ client cannot beat it and a slow network cannot be punished by it.
 
 ---
 
+### 5.2 The first run — how a player is taught the claim
+
+**Why this section exists.** BRANCHFALL's money rule has two variables moving at
+once:
+
+```
+claim' = claim x (survivors / runners) x route multiplier
+```
+
+A crash game has one number going up. A lane game has one binary state. This has
+a *fraction of a claim* multiplied by a *route price*, and a player who does not
+hold that idea will do the only safe-looking thing — tap the first card, bank,
+repeat — at which point the game is a cash-out ladder wearing a costume and the
+entire premise of §3 is wasted on them. The thesis in §3, *"you are choosing the
+shape of the risk, not the odds"*, is asserted everywhere in this document and
+was, in the previous draft, taught nowhere. This section is the fix, and it is
+product-critical rather than nice-to-have.
+
+#### 5.2.1 What has to be learned, in order
+
+Three facts. Nothing else is first.
+
+| # | The fact | Taught by | Visible forever after, in the shipped game |
+| --- | --- | --- | --- |
+| 1 | The round holds one **claim**, split into `n` equal shares — one per runner. | The claim meter, from the first frame | The claim meter (§5.2.2) |
+| 2 | A share whose runner clears is multiplied by the route price. A share whose runner falls is gone. That is the entire money rule. | The first resolve, with the arithmetic printed | The arithmetic line on S4 |
+| 3 | Every route returns <!-- fig:rtpPct -->95.5%<!-- /fig -->. Routes differ in **shape**, not in return. | The Two-Card Moment (§5.2.4) — by comparison, not by assertion | The route-card footer and the compare control on S2 |
+
+Fork balance, shelter sizing, side bets, the seed pair and the Ghost Line are all
+**deferred**. None of them is required to play a correct round, and all of them
+compete for attention with fact 3, which is the one that makes this game a
+different object from a cash-out ladder.
+
+#### 5.2.2 The claim meter — the teaching object *is* the HUD
+
+The strongest thing we can do for comprehension is refuse to build a
+tutorial-only explanation. There is no onboarding widget that gets thrown away.
+
+```
+        ┌────────────────────────────────┐
+        │            4.775               │   claim, tabular, 28 pt
+        │      ● ● ● ● ●                 │   five pips = five shares
+        │      0.955 each                │   share value, 13 pt
+        └────────────────────────────────┘
+```
+
+- Five pips sit under the claim figure, one per runner, each labelled with its
+  own value. Five shares of 0.955 read as five shares long before anybody reads
+  the word "fifth".
+- On a resolve, the pips of fallen runners go dark **first**, held for 350 ms
+  with the claim figure unchanged, and only then does the claim roll to its new
+  value. Cause before effect, always in that order. A player watching this three
+  times has the money rule whether or not they read anything.
+- Under a Shelter, sheltered pips detach downward into the Lamp House row and
+  keep their value; running pips stay above. The claim figure splits into
+  `banked` and `running` on the same seam. This is the only moment in the game
+  where two money figures are on screen at once, and they are visually separate
+  families (§6.1) precisely so they are never confused.
+- On a Split, the pips group into two clusters matching the lane sizes, and the
+  clusters are drawn apart with a gap. Lane membership is legible in the money
+  object, not only in the 3D scene.
+
+The pip row is present in the rehearsal, in real rounds, at every quality tier,
+and with reduced motion on (where the 350 ms hold becomes an instant state change
+plus a text line). It is never dismissed and never "graduates".
+
+#### 5.2.3 The Rehearsal — free, unstaked, and honest
+
+`Rehearse ▸` sits above `Set the stake ▸` on S0 in a first-ever session, and
+stays available from S0 and S9 forever after. It is three arenas, not five.
+
+**What it actually is.** The same `staged-survival` lifecycle module (`ENGINE.md`
+§2) executing **locally in the client** over a **published seed pair**, at no
+stake. It is not a wallet transaction: no RGS round, no round id, no ledger
+entry, no balance movement, no practice currency, and nothing that could later be
+converted into anything. There is no separate tutorial state machine to drift out
+of sync with the game — which is exactly why the rehearsal cannot mis-teach the
+model.
+
+**The seed pair is fixed, published, and in this repository.** Everyone's first
+rehearsal is the same three branches, so the teaching beats land where this
+document says they land. The pair is printed on the rehearsal's own verification
+card, frozen in `tests/fixtures/rehearsal-v1.json`, re-derivable by
+`npm run rehearsal`, and asserted on every CI run by `tests/rehearsal.test.mjs` —
+the same standard the paytable is held to. In product: *"Practice runs use a
+public seed. Everyone gets the same three branches."*
+
+**The rehearsal does not pay, and it is chosen to hurt.** The published seed is
+selected so that, on the default path (§5.2.5 offers WIDE first in arenas 1
+and 2):
+
+* arena 1 clears the squad — the player sees a claim grow and sees why;
+* arena 2 costs two runners — the player sees the pips go dark and the claim
+  fall, with the arithmetic printed;
+* arena 3, if the player continues, takes the rest. The branch collapses under
+  them, which is the ending we want them to have seen once before it costs
+  anything.
+
+A player who banks after arena 2 finishes **below the stake**, not merely below
+the claim the round opened at. A player who continues finishes with nothing.
+**Both endings are taught, and neither is a win.** We will not build a first
+experience that pays. A demo that opens with a fantasy run is the oldest
+manipulation in this category, and it teaches a distribution that does not exist.
+Where a demo mode is required to be representative of real play, ours runs the
+real model — and where it is deliberately unrepresentative, it is
+unrepresentative in the direction that makes a player *more* cautious, never
+less.
+
+**A player who chooses differently gets a different rehearsal, and that is a
+feature.** The published table fixes the draws for every route in all three
+arenas before the first choice; the beats above describe the default path, not a
+script. Taking NARROW in arena 1 produces a different, equally real rehearsal —
+and the Ghost Line at the end (§8.2) then shows what the route they skipped had
+been holding all along. The one thing onboarding cannot afford to teach by
+accident is that the game reacts to you. It does not.
+
+**Why the rehearsal may hold the hazard table when a real round may not.** S1
+forbids the client from ever receiving a live round's table, because a client
+that holds it can place a side bet on an arena that has already resolved
+(`ENGINE.md` §10.2). The rehearsal holds a table by construction. That is safe
+for exactly one reason — there is no stake, no side bet, no wallet and no ledger
+entry anywhere in the rehearsal — so it is a hard build rule that the rehearsal
+is a **separate entry point that cannot be handed a live round's seeds or a
+wallet handle**, never a `rehearsal: true` boolean threaded through the money
+path. A flag on the money path is precisely how this becomes a disclosure bug.
+
+**And we say the uncomfortable part out loud.** Choosing a seed pair for the
+outcome it produces is, in a money round, exactly the attack `ENGINE.md` §10.1
+exists to prevent, and it is the attack this project treats as its top threat.
+We do it here deliberately, on a pair that pays nothing, that is published in
+advance, and that is banned by construction from real play. Stating that is
+cheaper than having a reviewer discover it.
+
+**Random practice runs.** A `New practice run` control takes a fresh client seed
+and makes no promises about what happens. Same code path, same model, no beats.
+It exists so that "the practice run is fixed" never has to mean "the practice run
+is the only one you may have".
+
+**It is offered, never forced.** Skippable at any point with one tap, repeatable
+forever, and never gated behind an account, a deposit, a verification step or a
+session length. A player who taps `Set the stake ▸` first gets the full game and
+the progressive-disclosure rules in §5.2.5 still apply to their real rounds.
+
+#### 5.2.4 The Two-Card Moment — the thesis, demonstrated
+
+This is the one screen the product cannot ship without. It happens once, before
+the first commitment of the rehearsal, and it is then permanently available as a
+control on S2.
+
+The two cards on offer in rehearsal arena 1 — WIDE and NARROW, deliberately the
+two furthest apart — are pinned side by side on one axis:
+
+```
+┌──────────────────────────────────────────────┐
+│  WIDE  [multiplier]  │  NARROW  [multiplier] │
+│                      │                       │
+│  ▁▁▁▂▅█  survivors   │  █▁▂▂▂▁  survivors    │
+│  0 1 2 3 4 5         │  0 1 2 3 4 5          │
+│                      │                       │
+│  nobody     [ % ]    │  nobody     [ % ]     │
+│  all five   [ % ]    │  all five   [ % ]     │
+│                      │                       │
+│        Both return [ rtp ].                  │
+│      They are not the same bet.              │
+└──────────────────────────────────────────────┘
+```
+
+Two histograms, one shared axis, one shared footer. The sentence
+*"Both of these return <!-- fig:rtpPct -->95.5%<!-- /fig -->. They are not the
+same bet."* is the entire product argument, and it is the only place in the game
+where we say it with a picture instead of a claim. The numbers are the generated
+ones (<!-- fig:wideWipe5 -->4.00%<!-- /fig --> / <!-- fig:narrowWipe5 -->51.56%<!-- /fig -->
+nobody, <!-- fig:wideAllClear5 -->49.24%<!-- /fig --> /
+<!-- fig:narrowAllClear5 -->1.56%<!-- /fig --> all five), read from the same
+tables the enumerator publishes.
+
+**It stays.** A `compare` affordance on every route card pins any two cards into
+that same view, for the life of the product. If a player retains one thing from
+onboarding, it should be *where to look*, not a sentence they were shown once.
+
+#### 5.2.5 Progressive disclosure of the decision surface
+
+S2 in full is four paged route cards, a fork-balance control with an eight-cell
+comparative table, a shelter picker and three side bets. That is the right screen
+for a player who holds the model and the wrong first screen for anyone.
+
+| Stage | Routes offered | Fork balance | Shelter picker | Side bets | Ghost Line |
+| --- | --- | --- | --- | --- | --- |
+| Rehearsal arena 1 | WIDE, NARROW | — | — | — | — |
+| Rehearsal arena 2 | + SPLIT | shown (4–5 runners) | — | — | — |
+| Rehearsal arena 3 | + SHELTER | shown | shown | — | shown once, at the end |
+| Real rounds 1–3 | all four | as the model allows | shown | off; one-tap opt-in | opt-in |
+| Round 4 onward | all four | shown | shown | available | available |
+
+Six rules make this disclosure rather than manipulation. They are requirements,
+not guidance:
+
+1. **Additive only.** Nothing that has appeared is ever taken away.
+2. **One tap out.** `Show me everything` is present on every gated screen, is
+   remembered, and is never re-asked.
+3. **Never gated on money.** Not on deposit, not on stake size, not on session
+   length, not on wins, and above all not on losses. The counter is *rounds
+   seen*. Any gate keyed to spend is a monetisation device pretending to be a
+   tutorial and is forbidden here.
+4. **Odds are never gated.** The full exact odds table (§3.2) is reachable from
+   the first frame of the rehearsal, including for routes not yet on offer. Not
+   *offering* a card and *hiding its numbers* are different acts and we only do
+   the first.
+5. **Side bets are opt-in once, explicitly.** The opt-in states the pricing rule
+   in words, shows one worked example, and states that side bets carry the same
+   <!-- fig:rtpPct -->95.5%<!-- /fig -->. They never appear on a screen the
+   player did not ask to have them on.
+6. **No progress theatre.** No XP, no unlock animation, no badge, no streak, no
+   "new route unlocked" celebration. A disclosure step is a quiet appearance. The
+   moment we reward a player for progressing through a tutorial we have started
+   training the behaviour we spend §10 trying not to train.
+
+#### 5.2.6 The onboarding copy sheet
+
+Exact strings, so a build has something to implement rather than a paraphrase.
+All of these are subject to §10.3 and `tests/copy-discipline.test.mjs`.
+
+| # | Where | String |
+| --- | --- | --- |
+| 1 | S0, first session, above the buttons | *"First time? Three branches, no stake, same rules."* |
+| 2 | Rehearsal A1, over the claim meter | *"Your stake buys one claim. Five runners carry it — one fifth each."* |
+| 3 | Two-Card Moment footer | *"Both of these return <!-- fig:rtpPct -->95.5%<!-- /fig -->. They are not the same bet."* |
+| 4 | First resolve, beside the arithmetic | *"The runners who cleared carry their shares across. The shares that fell are gone."* |
+| 5 | Rehearsal A2, when SPLIT first appears | *"The branch forks. Each lane falls on its own, so losing everyone now takes two failures instead of one."* |
+| 6 | Rehearsal A3, when SHELTER first appears | *"A shelter door. Bring some of them home and that part of the claim stops running."* |
+| 7 | Under the primary action, first three arenas | *"There is no clock on this. Nothing here expires."* |
+| 8 | Rehearsal end, banked | *"That is the whole game. Choose the shape, watch, then bank or send them again."* |
+| 9 | Rehearsal end, wiped | *"That is the other ending. It is <!-- fig:rtpPct -->95.5%<!-- /fig --> either way — the route only changes how often it looks like this."* |
+| 10 | Rehearsal, permanent chip | *"REHEARSAL — public seed, no stake, no payout."* |
+| 11 | Any gated screen | *"Show me everything."* |
+| 12 | Side-bet opt-in, once | *"Side bets are separate money on one arena's result, at the same <!-- fig:rtpPct -->95.5%<!-- /fig -->. They stay off until you turn them on."* |
+
+#### 5.2.7 What the first run must never do
+
+- Never a scripted win, a weighted first round, or a seed chosen to flatter.
+- Never a near-miss authored for the tutorial (§6.9 rule 4 has no exemption for
+  onboarding).
+- Never a first-round bonus, free run, matched stake or "welcome" offer attached
+  to the rehearsal or to the screen after it.
+- Never a suggestion that practice improves outcomes. The rehearsal teaches what
+  the numbers mean; it cannot teach anyone to do better, because §8 of `MATH.md`
+  proves there is no better. Copy that implies otherwise fails §10.3.
+- Never a forced tutorial, and never a re-prompt after a decline.
+- Never a rehearsal figure presented as a balance, a total, or a result.
+
+#### 5.2.8 How we will know it worked
+
+Comprehension is testable, so we test it rather than assume it. Eight or more
+unmoderated first-time testers, after the rehearsal and before any staked round,
+answer three questions with the odds table closed:
+
+| | Question | Correct answer | Bar |
+| --- | --- | --- | --- |
+| Q1 | "Three of your five runners cleared, the route paid 1.190, and your claim was 4.775. Bigger or smaller now, and roughly what?" | Smaller, ≈3.41 | 6 of 8 |
+| Q2 | "Which route gives you back more over time — Wide or Narrow?" | Neither. Both <!-- fig:rtpPct -->95.5%<!-- /fig --> | 7 of 8 |
+| Q3 | "You banked after arena 2. Can anything that happens later take that money?" | No | 7 of 8 |
+
+Q2 is the one that matters. If Q2 fails, the Two-Card Moment is wrong and no
+amount of copy anywhere else will repair it — that is precisely the failure mode
+where the game degenerates into a cash-out ladder. This is an acceptance
+criterion for the client build (§11), not something this repository discharges.
+
+---
+
 ### S0 — Squad
 *Home. The five Kindlings stand on a low stone shelf in half-light.*
 
 - Each Kindling: name, lantern glass colour, cloth, one charm. Tap to rename or
   re-dress. A small "runs come home: 41" counter per Kindling.
 - A permanent line: *"Cosmetics never change the odds."*
-- Bottom: `Set the stake ▸`.
+- Bottom: `Set the stake ▸`. On a first-ever session `Rehearse ▸` sits above it
+  with the line *"First time? Three branches, no stake, same rules."*; after the
+  first staked round the two swap order and `Rehearse ▸` becomes a quiet
+  secondary that never disappears (§5.2.3).
 - Session strip at the very top: time played, net position this session, always
   visible, never dismissible.
 
@@ -339,6 +641,9 @@ client cannot beat it and a slow network cannot be punished by it.
 - Below the stepper, computed live and honestly: *"Buying this run debits 5.00 and
   opens a claim of 4.775 — that's the 95.5% return, charged once, now. It is not
   charged again no matter how far you go."*
+- Directly beneath it, in the same weight, never as fine print:
+  *"There is no way back out of the first branch. Banking starts after it."*
+  (§2.)
 - **Your seed** (collapsed, one tap): the client seed the app generated locally
   for this round, editable, with *"Change this to anything you like. The server
   has already committed to its half and cannot see yours."* (§8.1.)
@@ -355,11 +660,25 @@ client cannot beat it and a slow network cannot be punished by it.
   is visible at the mouth of the branch, lanterns lit, breathing idle.
 - Decision surface: a horizontally paged stack of four route cards (§3.2), one
   per screen-width, with a page indicator. Wide first, then Split, Narrow,
-  Shelter. Card order never changes and is never personalised.
+  Shelter. Card order never changes and is never personalised. **How many cards
+  are on offer depends on the disclosure stage in §5.2.5**; the order of the ones
+  that are present never does.
+- A `compare` affordance on every card pins any two cards into the side-by-side
+  view of §5.2.4. This is the permanent form of the Two-Card Moment.
+- The claim meter (§5.2.2) sits on the viewport seam: the claim figure with one
+  pip per runner beneath it, clustered by lane on a Split.
 - The Split card carries the fork-balance control (§3.3) at four or five runners.
 - Shelter card expands to a Kindling picker: tap the ones to bring home. Live
   readout: *"Banks 1.91 now. 3 keep running."*
-- `+ side bet` collapsed control below the cards.
+  **At least one runner must keep running.** Selecting the whole squad is not a
+  legal shelter and the picker must refuse it rather than accept it and fail on
+  commit: the last unselected pip is inert, and tapping it says *"One has to run.
+  You can bank the rest after this branch."* This mirrors the model exactly —
+  `SHELTER(j)` exists only for `1 <= j <= n-1` (`MATH.md` §5.3) — and it is the
+  single easiest rule for a build to get wrong.
+- `+ side bet` collapsed control below the cards, subject to the opt-in in
+  §5.2.5 rule 5. It is **hidden entirely**, not shown disabled, whenever the
+  round's remaining side-bet allowance is below the 1.00 minimum (§4).
 - Footer: current claim, squad count, `Commit route` (primary, full width).
 - **No countdown, no auto-select, no "recommended" badge, no highlighting of the
   higher-multiplier card.** All four cards have identical visual weight.
@@ -533,7 +852,9 @@ illuminate nothing (§6.7).
   rate; secondary motion (cloth, reed sway, lantern swing) stepped to 12 fps.
   The result reads as hand-made puppetry moving through a real space, and it is
   the single strongest anti-"party game" signal in the whole presentation. It is
-  also, conveniently, a large saving: secondary rigs update on every fifth frame.
+  also, conveniently, a large saving: secondary rigs update on every fifth frame
+  at 60 Hz, and on a 2–3–2–3 pattern at 30 Hz. The 12 Hz clock is defined in
+  time, not in frames, so it is identical on every device class (§6.8).
 - **Falls are weighted-light.** 0.7 g for the first 400 ms so the fall registers
   and the lantern arcs legibly, then full gravity. Ragdoll never flails
   comically: joint limits are tight, and the figure keeps trying to grab.
@@ -681,49 +1002,173 @@ because it changes everything after it.
 
 | Decision | Value | Why |
 | --- | --- | --- |
-| Runtime | **three.js-class custom WebGL2 renderer**, single ES module, no plugin | iGaming content is embedded in an operator lobby iframe with a contractual first-load budget. Unity WebGL is rejected on boot size and heap floor; a native build has no distribution path here |
+| Runtime | **three.js, with our own render pipeline on top** — single ES module, no plugin | iGaming content is embedded in an operator lobby iframe with a contractual first-load budget. Unity WebGL is rejected on boot size and heap floor; a native build has no distribution path here |
 | Graphics API floor | **WebGL2** (ES 3.0). No WebGPU dependency | WebGPU coverage is still not universal on the mid-range Android install base; it may be used as an *optional* fast path, never as a requirement |
-| Frame-rate target | **60 fps** on the default tier, **30 fps hard floor** | below 30 the stepped 12 fps secondary animation stops reading as intentional and starts reading as a bug |
-| Device floor (default tier) | **iPhone SE 2020 (A13)** and **Samsung Galaxy A54 (Mali-G68)** | the realistic median of the mobile casino install base |
-| Device floor (fallback tier) | **Snapdragon 680 / Adreno 610** class | the bottom of what we will accept a session from at all |
-| First-load budget | **≤ 5 MB gzipped** to first playable frame | operator lobby contracts; also the difference between a session and a bounce |
+| Frame-rate target | **60 fps on device classes C2–C3, 30 fps locked on C0–C1.** 30 fps is the hard floor everywhere | below 30 the stepped secondary animation stops reading as intentional and starts reading as a bug. Which class gets which target is the table below, and it is the correction that matters most in this section |
+| Device floor (playable) | **Snapdragon 680 / Adreno 610** class | the bottom of what we will accept a session from at all |
+| Device the look is art-directed for | **Samsung Galaxy A54 (Mali-G68 MP4)** class, at 30 fps | the realistic median of the mobile casino install base. It gets the full T1 feature set — see "the mid-range phone gets the look" below |
+| First-load budget | **≤ 5 MB gzipped** to first playable frame, itemised below | operator lobby contracts; also the difference between a session and a bounce |
 | Total round-trip | **≤ 16 MB** including all five arenas, streamed per arena | arenas 2–5 load during arena 1's replay |
-| GPU memory | **≤ 96 MB** textures on the fallback tier, ≤ 180 MB on the default tier | Adreno 610 devices with 3 GB RAM start evicting well below this |
+| GPU memory | **≤ 96 MB** textures on T0, ≤ 180 MB on T1 | Adreno 610 devices with 3 GB RAM start evicting well below this |
+
+**The runtime decision, stated without ambiguity.** The v1 draft said
+"three.js-class custom WebGL2 renderer", and that phrase hid a schedule
+difference of months: read one way it means writing volumetrics, upsampling,
+skinning, LODs, a compressed-texture pipeline and probes from scratch; read the
+other way "custom" is simply the wrong word. The decision is the second reading,
+and here is the split:
+
+| Layer | Provided by |
+| --- | --- |
+| Scene graph, math, transforms, culling, GPU skinning, glTF + KTX2/Basis loading, WebGL2 state management | **three.js**, tree-shaken to the parts we use |
+| Render pipeline: pass order, render targets, the fog march, the upsample, tone mapping, keyed bloom, the tier ladder, the boot probe | **ours**, written against `WebGLRenderer` as custom materials and explicit targets |
+| Replay driver, transcript playback, authored-clip selection, ragdoll hand-off, audio | **ours** |
+| Runtime rigid-body physics | **none.** Falls are authored clips; the ragdoll is a small constrained solver of ours (~15 bodies) that runs only off-frustum (§6.9) |
+
+That has a cost and we book it: a tree-shaken three.js carrying `WebGLRenderer`,
+core math, `SkinnedMesh`, glTF and KTX2 is **~170 KB gzipped**, and it appears as
+a line item in the first-load table below rather than as an omission.
+
+**What we are not building, cut from the v1 draft because they were a programme
+and not a feature.** None of these changes the look brief in §6.1–6.5; they
+change how much of it we write ourselves.
+
+* **FSR-style upscale → a 5-tap sharpened Catmull-Rom upsample.** At 0.70–0.85
+  render scale on a phone, the difference is not worth a bespoke upscaler.
+* **SSAO on the default tier → removed.** T1 uses baked contact decals only,
+  which is what §6.3's lighting model actually leans on. SSAO survives on T2,
+  where there is room for it.
+* **Two raymarched fog layers on the default tier → one**, 8 steps, quarter-res,
+  blue-noise dithered, depth-aware bilateral upsample.
+* **Per-arena reflection probes → one 64² irradiance probe per arena**, baked
+  offline and shipped, not captured at runtime.
+
+**Device class is not the same thing as quality tier.** This is the v1 defect
+worth naming: it put an A13 iPhone and a Mali-G68 MP4 Android in one row and
+asked both for 60 fps with volumetrics on. Those parts are not in the same
+performance class in a browser, and the Android half of that row would have
+failed its own acceptance harness on day one. Class sets the *frame target and
+the render scale*; tier sets *which features exist*.
+
+| Class | Reference parts | Tier | Frame target | Render scale |
+| --- | --- | --- | --- | --- |
+| **C0 Floor** | Snapdragon 680 / Adreno 610, 3 GB | T0 Emberlight | 30 fps locked | 0.60 |
+| **C1 Median** | **Galaxy A54** (Mali-G68 MP4), Redmi Note 12 class | **T1 Understory** | **30 fps locked** | 0.70 |
+| **C2 Fast** | **iPhone SE 2020** (A13) and later, Snapdragon 8-series, Pixel 7+ | T1 Understory | 60 fps, 45 floor | 0.85 |
+| **C3 High** | A15 / M-series, desktop discrete | T2 Canopy | 60 fps | 1.00 |
+
+**The mid-range phone gets the look.** That is the entire reason for splitting
+class from tier. C1 runs the T1 feature set — the fog march, five per-pixel
+lantern lights, stone translucency, the lantern probe — at 30 fps and 0.70
+scale, instead of being demoted to T0 and losing the four things that make the
+frame resemble the concept art. C1 is the class this game is art-directed for.
+60 fps is claimed only where we believe it holds, and 30 fps for browser
+volumetrics on a Mali-G68 MP4 is the honest number.
+
+**The stepped animation survives the split unchanged.** §6.4's secondary motion
+is quantised in **time**, not in frames: a 1/12 s phase clock. At 60 Hz that
+lands on every fifth frame; at 30 Hz it lands on a 2–3–2–3 frame pattern, which
+is exactly what hand-drawn animation on twos and threes does. No tier and no
+class changes the 12 Hz figure.
 
 **Three tiers.** Selected by a 3-second boot probe (renderer string, max texture
-units, a timed fill-rate test), overridable by the player in S9, and never
-silently changed mid-round.
+units, a timed fill-rate test) which resolves a *class*, from which the tier
+follows by the table above. Player-overridable in S9, and never silently changed
+mid-round.
 
 | | **T0 Emberlight** (fallback) | **T1 Understory** (default) | **T2 Canopy** (high) |
 | --- | --- | --- | --- |
-| Target | 30 fps locked | 60 fps, 45 floor | 60 fps |
-| Render scale | 0.65, bilinear | 0.85, FSR-style upscale | 1.0 |
+| Classes | C0 | C1 at 30 fps, C2 at 60 fps | C3 |
 | Triangles on screen | ≤ 45 k | ≤ 120 k | ≤ 260 k |
 | Kindling mesh | 3.5 k tris, 1 LOD, 22 bones | 8 k tris, 3 LODs, 34 bones | 14 k tris, 3 LODs, 42 bones |
-| Texture atlases | 2 x 1024, ETC2/ASTC 8x8 | 2 x 2048, ASTC 6x6 | 4 x 2048, ASTC 5x5 |
+| Texture atlases | 2 x 1024, ETC2 / ASTC 8x8 | 2 x 2048, ASTC 8x8 | 4 x 2048, ASTC 6x6 |
 | Real-time shadows | none | none | 1 spot, 1024², cascade-free |
-| Contact shadows | baked decals | baked decals + quarter-res SSAO | decals + half-res SSAO |
-| Fog | exponential height fog + 3 scrolling cards + baked shaft sprites | 2 raymarched layers at quarter-res, depth-aware bilateral upsample, shafts from the nearest lantern only | 3 raymarched layers at half-res, shafts from up to 3 lanterns |
+| Contact shadows | baked decals | baked decals | decals + half-res SSAO |
+| Fog | exponential height fog + 3 scrolling cards + baked shaft sprites | **1 raymarched layer**, quarter-res, 8 steps, blue-noise dithered, depth-aware bilateral upsample; shafts from the nearest lantern only | 2 raymarched layers at half-res, 16 steps, shafts from up to 3 lanterns |
 | Lantern lights | 2 nearest, vertex-lit | 5, per-pixel, unshadowed | 5, per-pixel, unshadowed |
-| Lantern glass | fresnel rim + emissive core, no probe | + 64² per-arena probe | + 128² probe refreshed per arena |
+| Lantern glass | fresnel rim + emissive core, no probe | + 64² baked per-arena probe | + 128² baked probe |
 | Stone translucency | off | baked thickness, wrapped diffuse | baked thickness + fresnel warm tint |
 | Ragdoll | off — authored clips only | 1 concurrent, off-frustum only | 3 concurrent, off-frustum only |
-| Post | tonemap only | tonemap + bloom (lanterns only, threshold-keyed) | + subtle chromatic falloff at frame edge |
+| Post | tonemap only | tonemap + keyed bloom (lanterns only) + sharpened Catmull-Rom upsample | + subtle chromatic falloff at the frame border |
 
-**Per-frame budget on T1 at 60 fps (16.6 ms).** These are acceptance thresholds,
-not aspirations; the determinism harness (§11) fails a build that exceeds them on
-the reference device.
+#### Per-frame budgets
+
+Three rules govern these tables, and the third is the one v1 got wrong.
+
+1. **They are sustained budgets, not cold ones.** Acceptance measures the **95th
+   percentile frame time after a 10-minute soak** on a warm device, in a
+   co-resident iframe, on battery — not the median of a first run on a cool
+   phone. A budget that only holds cold is a budget that fails in a session.
+2. **The rows are only the work our code is responsible for.** Everything the
+   rows do not name — browser compositing, the operator's own lobby page in the
+   same process, GC, OS scheduling, driver stalls, thermal drift — is paid out of
+   headroom.
+3. **The named passes may not exceed 75% of the frame period.** v1 budgeted
+   16.0 ms of a 16.6 ms frame: 96.4%, 0.6 ms of slack, and a harness that would
+   have failed on the reference device from the first build. Headroom is a line
+   item with a floor, not the remainder after the interesting rows are filled in.
+
+**T1 at 60 fps — device class C2 — frame period 16.67 ms.**
 
 | Pass | Budget |
 | --- | --- |
-| Environment opaque | 4.0 ms |
-| Skinned characters (5) | 3.5 ms |
-| Fog / volumetrics | 1.8 ms |
-| Lighting + contact shadows | 1.6 ms |
-| Post | 1.5 ms |
-| UI | 1.2 ms |
-| CPU: replay driver, animation, audio | 2.4 ms |
-| **Headroom** | **0.6 ms** |
+| Environment opaque | 3.0 ms |
+| Skinned characters (5) | 2.6 ms |
+| Fog, 1 layer at quarter-res | 1.4 ms |
+| Lighting + contact decals | 1.2 ms |
+| Post: tonemap, keyed bloom, upsample | 1.1 ms |
+| UI | 0.9 ms |
+| CPU: replay driver, animation, audio | 2.0 ms |
+| **Named passes, total** | **12.2 ms** — 73.2% of the frame |
+| **Reserved headroom** | **4.4 ms** — 26.8%, and a build may not spend it |
+
+**T1 at 30 fps — device class C1, the Galaxy A54 row — frame period 33.33 ms.**
+
+| Pass | Budget |
+| --- | --- |
+| Environment opaque | 5.6 ms |
+| Skinned characters (5) | 4.8 ms |
+| Fog, 1 layer at quarter-res | 3.0 ms |
+| Lighting + contact decals | 2.4 ms |
+| Post: tonemap, keyed bloom, upsample | 2.0 ms |
+| UI | 1.4 ms |
+| CPU: replay driver, animation, audio | 3.2 ms |
+| **Named passes, total** | **22.4 ms** — 67.2% of the frame |
+| **Reserved headroom** | **10.9 ms** — 32.8%, and a build may not spend it |
+
+The rows are a serialised wall-clock envelope. CPU and GPU work overlap in
+practice, so treating them as additive is conservative, which is the direction a
+budget should err in.
+
+#### First load, itemised
+
+"≤ 5 MB gzipped" is only a budget if it has parts. To first playable frame:
+
+| Item | gzipped |
+| --- | --- |
+| three.js, tree-shaken | 170 KB |
+| Our renderer, replay driver, lifecycle module, UI | 380 KB |
+| Fonts: Latin subset + numerals, WOFF2 (§6.5) | 190 KB |
+| Kindling mesh set, rig, authored clip library | 240 KB |
+| Arena 1 geometry | 420 KB |
+| Arena 1 **boot** textures: 1 x 2048 + 1 x 1024, ASTC 8x8 / ETC2 | 1,320 KB |
+| Audio: boot bed, UI, arena 1 stems (Opus, mono 48 kbps / stereo 64 kbps) | 640 KB |
+| Shaders, baked probe data, boot probe, manifest | 140 KB |
+| **Total to first playable frame** | **3,500 KB** |
+| **Reserve against the 5 MB ceiling** | **1,500 KB — 30%** |
+
+Compressed textures do not compress again, so they are counted at their GPU size
+and they dominate: the boot bundle deliberately carries a *reduced* arena-1
+atlas set. The full-resolution set and arenas 2–5 stream afterwards — during S0,
+S1 and arena 1's replay, all of which take longer than the transfer — inside the
+≤ 16 MB round-trip budget.
+
+**These are budgets, not measurements, and §11 says so.** There is no renderer,
+no asset set and no device trace behind any figure in this section. What §11's
+performance harness must enforce is the *shape* of the budget — the 75% rule, the
+soak methodology, the class-to-target mapping — not merely each row, because a
+build that meets every row on a cold device and drops frames after ten minutes
+has met the table and failed the player.
 
 **What degrades and what never does.** The tiers change *how* the look is
 achieved. Three things are identical on every tier, because they are the product:
@@ -922,6 +1367,16 @@ These are build requirements, not aspirations. Each has an acceptance check.
   say true things. `tests/copy-discipline.test.mjs` greps the player-facing set
   and fails the build on a hit; the engineering documents are exempted in that
   test **by name**, so the exemption is visible rather than accidental.
+- **In-client copy lives in this document, so the guard reads this document.**
+  There is no client yet: every player-facing string that exists today is a
+  quoted `*"…"*` line in `DESIGN.md` — §3, §4, §5's screens, and the copy sheet
+  in §5.2.6. The test extracts those strings and applies the ban to them
+  individually, while leaving the surrounding engineering prose exempt. Without
+  that, the one place player copy actually lives would be the one place the rule
+  did not reach, and a phrase like `master the fork` could ship inside an S2
+  string with a green build. The extraction is anchored on the quoting convention, and the test
+  asserts a floor on how many strings it found, so deleting the convention fails
+  the build rather than silently disabling the guard.
 - **Two exceptions, and only two**, both encoded in the test rather than left to
   judgement: the phrase *"no skill"* (an explicit denial, which is the thing we
   want said) and the technical term *"house edge"*. Any other appearance of a
@@ -1003,10 +1458,20 @@ of this repository's CI:
 - **Determinism harness:** replay the frozen fixture transcript through the
   presentation layer on every quality tier and assert the same authored clips are
   selected and the same credits are produced.
-- **Performance harness:** run the reference device profile and fail the build on
-  any pass exceeding its §6.8 budget. Until it exists, every figure in §6.8 is a
-  *budget* — a target the build is held to — and not a measurement. There is no
-  renderer, no asset set and no device trace behind them.
+- **Performance harness:** run each reference device class and fail the build on
+  any pass exceeding its §6.8 budget — measured as the **95th-percentile frame
+  after a 10-minute soak**, warm, in a co-resident iframe, not as a cold median.
+  It also enforces the *shape* rules independently of the rows: named passes
+  ≤ 75% of the frame period, headroom never spent, and each class held to its own
+  frame target (C0/C1 at 30 fps, C2/C3 at 60 fps) rather than to a single global
+  number. Until this harness exists, every figure in §6.8 is a *budget* — a
+  target the build is held to — and not a measurement. There is no renderer, no
+  asset set and no device trace behind them.
+- **Comprehension harness:** the three-question test in §5.2.8, run on eight or
+  more unmoderated first-time testers per significant change to S2 or to the
+  rehearsal. Q2 is a release gate: a build where fewer than 7 of 8 testers know
+  that Wide and Narrow return the same amount has broken the product's thesis,
+  whatever else it has achieved.
 
 **What does not ship without the math:** the route cards and the fork control
 read their numbers from the same tables `tools/enumerate.mjs` publishes. If the
