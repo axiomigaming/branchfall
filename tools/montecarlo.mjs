@@ -19,7 +19,17 @@
 
 import { createHash } from 'node:crypto';
 import { F, Frac, toFixedExact } from './lib/exact.mjs';
-import { CONFIG, CONTRACTS, POLICIES, laneSizes, survivorDistribution } from './lib/model.mjs';
+import {
+  CONFIG,
+  CONTRACTS,
+  POLICIES,
+  SIDE_BET_PLANS,
+  committedConfiguration,
+  laneSizes,
+  sideBet,
+  sideBetOffers,
+  survivorDistribution,
+} from './lib/model.mjs';
 
 /** Deterministic byte stream: SHA-256 in counter mode. */
 export class ByteStream {
@@ -91,9 +101,13 @@ export function simulateArena(rng, contractId, runners, laneSplit = null) {
  * @param {string} seedHex
  * @param {bigint} stakeMicro
  */
-export function simulate(policy, rounds, seedHex, stakeMicro = CONFIG.microCreditsPerCredit) {
+export function simulate(policy, rounds, seedHex, stakeMicro = CONFIG.microCreditsPerCredit, plan = () => []) {
   const rng = new ByteStream(seedHex);
   let creditedTotal = 0n;
+  let wagered = 0n;
+  let routeCreditedTotal = 0n;
+  let sideCreditedTotal = 0n;
+  let sideWagered = 0n;
   let busts = 0;
   let atLeastStake = 0;
   let best = 0n;
@@ -102,6 +116,9 @@ export function simulate(policy, rounds, seedHex, stakeMicro = CONFIG.microCredi
     let alive = CONFIG.squadSize;
     let claim = CONFIG.rtp;
     let credited = 0n;
+    let sideCredited = 0n;
+    let sideStake = 0n;
+    wagered += stakeMicro;
 
     for (let arena = 1; arena <= CONFIG.arenas && alive > 0; arena += 1) {
       const action = policy(arena, alive);
@@ -116,7 +133,30 @@ export function simulate(policy, rounds, seedHex, stakeMicro = CONFIG.microCredi
       } else {
         contractId = action.contract;
       }
-      const survivors = simulateArena(rng, contractId, running, action.laneSplit ?? null);
+      const laneSplit = action.laneSplit ?? null;
+
+      // Side bets are committed BEFORE the arena resolves, exactly as the
+      // transcript does it, and priced off the committed geometry.
+      const config = committedConfiguration(action, alive);
+      const offers = sideBetOffers(config.contract, config.runners, config.laneSplit);
+      const tickets = (plan(arena, alive, action, config) ?? []).map((t) => {
+        const offer = offers.find((o) => o.bet === t.bet);
+        if (!offer) throw new Error(`side bet ${t.bet} is not offered here`);
+        return { offer, spec: sideBet(t.bet), stake: t.weight.mul(F(stakeMicro)).floor() };
+      });
+      for (const t of tickets) {
+        sideStake += t.stake;
+        wagered += t.stake;
+        sideWagered += t.stake;
+      }
+
+      const survivors = simulateArena(rng, contractId, running, laneSplit);
+      for (const t of tickets) {
+        if (t.spec.predicate(survivors, config.runners)) {
+          sideCredited += t.offer.multiplier.mul(F(t.stake)).floor();
+        }
+      }
+
       const spec = CONTRACTS[contractId];
       const mu = Frac.ONE.div(Frac.ONE.sub(spec.collapse).mul(spec.clear));
       claim = claim.mul(F(BigInt(survivors), BigInt(running))).mul(mu);
@@ -124,17 +164,22 @@ export function simulate(policy, rounds, seedHex, stakeMicro = CONFIG.microCredi
     }
 
     credited += claim.mul(F(stakeMicro)).floor();
-    creditedTotal += credited;
-    if (credited === 0n) busts += 1;
-    if (credited >= stakeMicro) atLeastStake += 1;
-    if (credited > best) best = credited;
+    routeCreditedTotal += credited;
+    sideCreditedTotal += sideCredited;
+    const total = credited + sideCredited;
+    creditedTotal += total;
+    if (total === 0n) busts += 1;
+    if (total >= stakeMicro + sideStake) atLeastStake += 1;
+    if (total > best) best = total;
   }
 
-  const wagered = BigInt(rounds) * stakeMicro;
   return {
     rounds,
     wagered,
+    sideWagered,
     creditedTotal,
+    routeCreditedTotal,
+    sideCreditedTotal,
     empiricalRtp: F(creditedTotal, wagered),
     bustRate: F(BigInt(busts), BigInt(rounds)),
     atLeastStakeRate: F(BigInt(atLeastStake), BigInt(rounds)),
@@ -203,6 +248,16 @@ function main() {
   process.stdout.write(`  bust rate         ${toFixedExact(result.bustRate, 8)}\n`);
   process.stdout.write(`  P(credit >= 1x)   ${toFixedExact(result.atLeastStakeRate, 8)}\n`);
   process.stdout.write(`  best round        ${toFixedExact(result.bestReturn, 6)}x\n`);
+
+  process.stdout.write(`\nPortfolios under policy ${policyKey} (route ticket plus a side-bet plan)\n`);
+  process.stdout.write('  RTP here is credited / staked, counting side-bet money on both sides.\n');
+  for (const [planKey, plan] of Object.entries(SIDE_BET_PLANS)) {
+    const portfolio = simulate(policy.fn, Math.max(1, Math.floor(rounds / 4)), seed, CONFIG.microCreditsPerCredit, plan.fn);
+    process.stdout.write(
+      `  ${planKey.padEnd(24)} staked=${portfolio.wagered} (side ${portfolio.sideWagered})  ` +
+        `RTP=${toFixedExact(portfolio.empiricalRtp, 6)}  (exact ${toFixedExact(CONFIG.rtp, 6)})\n`,
+    );
+  }
 }
 
 const invokedDirectly = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;

@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { ByteStream, crossCheckArena, simulate, simulateArena } from '../tools/montecarlo.mjs';
-import { CONFIG, POLICIES, survivorDistribution } from '../tools/lib/model.mjs';
+import { CONFIG, POLICIES, SIDE_BET_PLANS, sideBetOffers, survivorDistribution } from '../tools/lib/model.mjs';
 import { F } from '../tools/lib/exact.mjs';
 
 const SEED = 'b7a11cf0d3e94a5586c2ef0913d4bb2f77e1c0aa4d5b9631f2e8c07a4d19b3e5';
@@ -128,5 +128,53 @@ describe('full-round RTP agrees with the exact value', () => {
     const result = simulate(POLICIES.ALL_NARROW.fn, 40_000, SEED);
     expect(result.bestReturn.lte(F(24448n, 25n))).toBe(true);
     expect(result.bestReturn.lt(F(CONFIG.maxWinMultiple))).toBe(true);
+  });
+});
+
+describe('portfolios cross-check against the exact model', () => {
+  it('reproduces 95.5% when side-bet money is on both sides of the ratio', () => {
+    // These two plans stake a tenth of the route stake per arena, so the added
+    // variance is small enough for a tight band at 60k rounds.
+    for (const key of ['NONE', 'SWEEP_EVERY_ARENA', 'LAST_LIGHT_EVERY_ARENA']) {
+      const result = simulate(
+        POLICIES.ALL_WIDE.fn,
+        60_000,
+        SEED,
+        CONFIG.microCreditsPerCredit,
+        SIDE_BET_PLANS[key].fn,
+      );
+      expect(Math.abs(result.empiricalRtp.toNumber() - CONFIG.rtp.toNumber()), key).toBeLessThan(0.02);
+      if (key !== 'NONE') {
+        expect(result.sideWagered, key).toBeGreaterThan(0n);
+        expect(result.sideCreditedTotal, key).toBeGreaterThan(0n);
+        expect(result.routeCreditedTotal + result.sideCreditedTotal).toBe(result.creditedTotal);
+      }
+    }
+  });
+
+  it('sees each side-bet event at the frequency it is priced for', () => {
+    // The empirical survivor distribution is the ground truth for all three
+    // events at once: m = n, m = 1, m = 0.
+    const draws = 400_000;
+    for (const [contract, runners, laneSplit] of [
+      ['WIDE', 5, null],
+      ['SPLIT', 5, 4],
+      ['NARROW', 5, null],
+    ]) {
+      const rows = crossCheckArena(contract, runners, draws, SEED, laneSplit);
+      const empirical = {
+        CLEAN_SWEEP: rows[runners].empirical,
+        SOLE_SURVIVOR: rows[1].empirical,
+        LAST_LIGHT: rows[0].empirical,
+      };
+      for (const offer of sideBetOffers(contract, runners, laneSplit)) {
+        const p = offer.probability.toNumber();
+        const sigma = Math.sqrt(Math.max(p * (1 - p), 1e-9) / draws);
+        const observed = empirical[offer.bet].toNumber();
+        expect(Math.abs(observed - p), `${offer.bet}@${offer.key}`).toBeLessThan(5 * sigma + 1e-4);
+        // And the price the player is quoted really is r over that frequency.
+        expect(Math.abs(offer.probability.mul(offer.multiplier).toNumber() - CONFIG.rtp.toNumber())).toBe(0);
+      }
+    }
   });
 });

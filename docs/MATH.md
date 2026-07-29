@@ -819,7 +819,8 @@ exactly, which is a genuine cross-check: two different algorithms over the same
 state space agreeing on `24448/25`.
 
 And note the middle row. A round *can* credit more than 1000x of the **route**
-stake — 1039.04x — which is precisely why the basis has to be stated and stated
+stake — <!-- fig:reachableRoundTotal -->1039.04x<!-- /fig --> — which is precisely
+why the basis has to be stated and stated
 correctly. It is not over the cap, because it staked 2x the route stake to get
 there and no individual ticket came near its own ceiling.
 
