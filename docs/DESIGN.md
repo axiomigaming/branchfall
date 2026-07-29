@@ -1025,9 +1025,13 @@ and here is the split:
 | Replay driver, transcript playback, authored-clip selection, ragdoll hand-off, audio | **ours** |
 | Runtime rigid-body physics | **none.** Falls are authored clips; the ragdoll is a small constrained solver of ours (~15 bodies) that runs only off-frustum (§6.9) |
 
-That has a cost and we book it: a tree-shaken three.js carrying `WebGLRenderer`,
-core math, `SkinnedMesh`, glTF and KTX2 is **~170 KB gzipped**, and it appears as
-a line item in the first-load table below rather than as an omission.
+That has a cost and we book it in three parts, because booking it in one is how
+the cost gets understated: a tree-shaken three.js core (`WebGLRenderer`, math,
+`SkinnedMesh`, our materials) is **~150 KB gzipped**; `GLTFLoader` and
+`KTX2Loader` are **addons rather than core** and add ~35 KB; and KTX2 needs a
+**Basis transcoder** — WASM plus glue, ~110 KB — which cannot be lazy because
+nothing renders before the first texture. **~295 KB gzipped of engine**, all
+three as separate line items in the first-load table below.
 
 **What we are not building, cut from the v1 draft because they were a programme
 and not a feature.** None of these changes the look brief in §6.1–6.5; they
@@ -1062,8 +1066,25 @@ class from tier. C1 runs the T1 feature set — the fog march, five per-pixel
 lantern lights, stone translucency, the lantern probe — at 30 fps and 0.70
 scale, instead of being demoted to T0 and losing the four things that make the
 frame resemble the concept art. C1 is the class this game is art-directed for.
-60 fps is claimed only where we believe it holds, and 30 fps for browser
-volumetrics on a Mali-G68 MP4 is the honest number.
+
+**And the size of that claim, stated exactly.** A frame target with no pixel
+count, no draw-call ceiling and no overdraw bound is not a claim, it is a mood.
+On C1 the budget is:
+
+| Quantity | C1 budget | Why it is the one that bites |
+| --- | --- | --- |
+| Render target | 0.70 x 1080 x 2340 = **756 x 1638**, ~1.24 Mpx | fill rate, not triangles, is what a Mali-G68 MP4 runs out of |
+| Fog march | quarter-res of that: 189 x 410, ~0.08 Mpx x 8 steps | ~0.62 M samples/frame, which is what makes one raymarched layer arguable at 30 fps and two not |
+| Draw calls | **≤ 90** per frame, ≤ 20 of them skinned | the WebGL2 driver overhead on this class is a bigger risk than shader cost |
+| Average overdraw | **≤ 1.8x** opaque, ≤ 2.4x including the transparent lantern and fog composite | the fog composite is a full-screen blend and it is where overdraw hides |
+| Texture bandwidth | ≤ 40 MB/frame sampled | Mali tilers punish this before they punish arithmetic |
+
+**We are not claiming this has been measured.** It has not: there is no
+renderer, no asset set and no device trace behind any of it (§11). What we are
+claiming is narrower and it is the thing the previous draft got wrong — that
+*60 fps* for this feature set on this part was not a defensible number to write
+down, and that 30 fps with these bounds is. Both remain budgets until the
+performance harness exists, and the harness is what turns either into a fact.
 
 **The stepped animation survives the split unchanged.** §6.4's secondary motion
 is quantised in **time**, not in frames: a 1/12 s phase clock. At 60 Hz that
@@ -1120,7 +1141,7 @@ Three rules govern these tables, and the third is the one v1 got wrong.
 | UI | 0.9 ms |
 | CPU: replay driver, animation, audio | 2.0 ms |
 | **Named passes, total** | **12.2 ms** — 73.2% of the frame |
-| **Reserved headroom** | **4.4 ms** — 26.8%, and a build may not spend it |
+| **Reserved headroom** | **4.47 ms** — 26.8%, and a build may not spend it |
 
 **T1 at 30 fps — device class C1, the Galaxy A54 row — frame period 33.33 ms.**
 
@@ -1134,7 +1155,7 @@ Three rules govern these tables, and the third is the one v1 got wrong.
 | UI | 1.4 ms |
 | CPU: replay driver, animation, audio | 3.2 ms |
 | **Named passes, total** | **22.4 ms** — 67.2% of the frame |
-| **Reserved headroom** | **10.9 ms** — 32.8%, and a build may not spend it |
+| **Reserved headroom** | **10.93 ms** — 32.8%, and a build may not spend it |
 
 The rows are a serialised wall-clock envelope. CPU and GPU work overlap in
 practice, so treating them as additive is conservative, which is the direction a
@@ -1146,22 +1167,53 @@ budget should err in.
 
 | Item | gzipped |
 | --- | --- |
-| three.js, tree-shaken | 170 KB |
+| three.js core, tree-shaken: `WebGLRenderer`, math, `SkinnedMesh`, our material set | 150 KB |
+| three.js addons: `GLTFLoader`, `KTX2Loader` — addons, not core, so booked separately | 35 KB |
+| KTX2 / Basis transcoder, WASM + glue — needed *before* the first frame, so it is boot, not lazy | 110 KB |
 | Our renderer, replay driver, lifecycle module, UI | 380 KB |
 | Fonts: Latin subset + numerals, WOFF2 (§6.5) | 190 KB |
 | Kindling mesh set, rig, authored clip library | 240 KB |
 | Arena 1 geometry | 420 KB |
-| Arena 1 **boot** textures: 1 x 2048 + 1 x 1024, ASTC 8x8 / ETC2 | 1,320 KB |
-| Audio: boot bed, UI, arena 1 stems (Opus, mono 48 kbps / stereo 64 kbps) | 640 KB |
+| Arena 1 **boot** textures — worst case, see below | 1,750 KB |
+| Audio: boot bed, UI, arena 1 opening stem (Opus, mono 48 kbps / stereo 64 kbps) | 480 KB |
 | Shaders, baked probe data, boot probe, manifest | 140 KB |
-| **Total to first playable frame** | **3,500 KB** |
-| **Reserve against the 5 MB ceiling** | **1,500 KB — 30%** |
+| **Total to first playable frame** | **3,895 KB** |
+| **Reserve against the 5 MB ceiling** | **1,105 KB — 22.1%** |
 
-Compressed textures do not compress again, so they are counted at their GPU size
-and they dominate: the boot bundle deliberately carries a *reduced* arena-1
-atlas set. The full-resolution set and arenas 2–5 stream afterwards — during S0,
-S1 and arena 1's replay, all of which take longer than the transfer — inside the
-≤ 16 MB round-trip budget.
+**The texture line, worked, because it is the one that dominates and the one
+that is easiest to get wrong.** ASTC 8x8 is 2 bits per texel; ETC2 RGB is 4 —
+double. Writing "ASTC 8x8 / ETC2" as if they were one number, as the first
+version of this table did, understates the fallback path by a factor of two
+before mipmaps. Counted properly, with the full mip chain (+33%):
+
+| Class | Format | Boot atlas set | Base | With the full mip chain |
+| --- | --- | --- | --- | --- |
+| C1–C3 | ASTC 8x8, 2 bpp | 1 x 2048 + 1 x 1024 | 1,311 KB | **1,748 KB** |
+| C0 | ETC2 RGB, 4 bpp | 2 x 1024 (T0 never loads a 2048 atlas — see the tier table above) | 1,049 KB | **1,398 KB** |
+
+So the ASTC row is the worst case and it is the one budgeted, at 1,750 KB. The
+C0 path is smaller because T0's atlas ladder is smaller, not because ETC2 is
+cheaper — it is not, and a build that ever shipped a 2048 ETC2 boot atlas would
+blow this table by ~2.8 MB on its own.
+
+**Units, since they are the other quiet factor.** KB in these tables is 1,000
+bytes, everywhere, and every texture figure includes the mip chain (+33%). A
+budget that mixes KiB with KB and omits mips understates itself by about 36% on
+its largest line, which is the difference between a 5 MB ceiling and a 6 MB
+one.
+
+Compressed texture payloads do not usefully compress again, so they are counted
+at their GPU size. The full-resolution atlas set and arenas 2–5 stream
+afterwards — during S0, S1 and arena 1's replay, all of which take longer than
+the transfer — inside the ≤ 16 MB round-trip budget.
+
+**The engine lines are targets against a named artifact, not measurements.**
+"Tree-shaken three.js" is only a number once a version and a bundle are pinned;
+the build must publish `dist/stats.json` and CI must fail if any of the three
+engine rows regresses past its budget. Until then, treat 295 KB of engine as the
+line we are holding ourselves to and not as a fact we have established — the
+addon and transcoder rows exist precisely because the first version of this
+table quietly assumed loaders were part of core and that Basis was free.
 
 **These are budgets, not measurements, and §11 says so.** There is no renderer,
 no asset set and no device trace behind any figure in this section. What §11's
@@ -1374,9 +1426,21 @@ These are build requirements, not aspirations. Each has an acceptance check.
   individually, while leaving the surrounding engineering prose exempt. Without
   that, the one place player copy actually lives would be the one place the rule
   did not reach, and a phrase like `master the fork` could ship inside an S2
-  string with a green build. The extraction is anchored on the quoting convention, and the test
-  asserts a floor on how many strings it found, so deleting the convention fails
-  the build rather than silently disabling the guard.
+  string with a green build. The extraction is anchored on the quoting
+  convention, and the test asserts a floor on how many strings it found, so
+  deleting the convention fails the build rather than silently disabling the
+  guard. The convention itself is enforced too — no curly quotes and no
+  character entities anywhere in this document — because either one would render
+  as ordinary copy while being invisible to the grep.
+- **And the limit of the guard, recorded rather than implied.** The test binds
+  this repository. Copy that will eventually live in client source, store
+  listings and marketing is bound by *rule* and not by *test*, because it does
+  not exist yet. When the client does exist its string catalogue joins the
+  scanned set on the same terms; a client carrying copy the guard cannot read
+  has moved the rule out of reach, and that is a review finding rather than a
+  technicality. The per-string form matters as much as the scope: the ban is
+  decided inside each string, so an adjacent *"no skill"* can never license a
+  different string's use of the word.
 - **Two exceptions, and only two**, both encoded in the test rather than left to
   judgement: the phrase *"no skill"* (an explicit denial, which is the thing we
   want said) and the technical term *"house edge"*. Any other appearance of a

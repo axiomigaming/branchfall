@@ -81,20 +81,48 @@ const BANNED = [
   { word: 'pro', pattern: /\bpro\b/gi },
 ];
 
+/**
+ * Scan one surface for one banned word.
+ *
+ * `units` matters: for a document the unit is the whole file, but for in-client
+ * copy the unit is each individual string. Joining the strings and scanning the
+ * blob let an adjacent line's "no skill" whitelist a different string's "skill",
+ * because the exception is decided from a context window.
+ */
+function offences(units, { pattern, allow }) {
+  const found = [];
+  for (const unit of units) {
+    for (const match of unit.matchAll(pattern)) {
+      const context = unit.slice(Math.max(0, match.index - 30), match.index + match[0].length + 10);
+      if (allow && allow.test(context)) continue;
+      found.push(context.replace(/\n/g, ' '));
+    }
+  }
+  return found;
+}
+
+/** name -> the units the ban is applied to, independently. */
+const BAN_SURFACES = {
+  'README.md': [PLAYER_DOCS['README.md']],
+  'docs/DESIGN.md in-client copy': IN_CLIENT_COPY,
+};
+
 describe('banned vocabulary on player-facing surfaces', () => {
-  for (const [name, text] of Object.entries(PLAYER_FACING)) {
-    for (const { word, pattern, allow } of BANNED) {
-      it(`${name} does not say "${word}"`, () => {
-        const offending = [];
-        for (const match of text.matchAll(pattern)) {
-          const context = text.slice(Math.max(0, match.index - 30), match.index + match[0].length + 10);
-          if (allow && allow.test(context)) continue;
-          offending.push(context.replace(/\n/g, ' '));
-        }
-        expect(offending, `${name}: banned word "${word}"`).toEqual([]);
+  for (const [name, units] of Object.entries(BAN_SURFACES)) {
+    for (const banned of BANNED) {
+      it(`${name} does not say "${banned.word}"`, () => {
+        expect(offences(units, banned), `${name}: banned word "${banned.word}"`).toEqual([]);
       });
     }
   }
+
+  it('decides each exception inside its own string, not from a neighbour', () => {
+    const skill = BANNED.find((b) => b.word === 'skill');
+    // Joined, the allowed "no skill" would whitelist the adjacent violation.
+    expect(offences([['This game has no skill.', 'Reward your skill.'].join('\n')], skill)).toEqual([]);
+    // Per string, it does not. This is the bug the joined form had.
+    expect(offences(['This game has no skill.', 'Reward your skill.'], skill)).toHaveLength(1);
+  });
 
   it('scopes the ban explicitly, and names the exemptions and the exceptions', () => {
     expect(designDoc).toContain('Scope: every surface a player reads');
@@ -115,6 +143,19 @@ describe('banned vocabulary on player-facing surfaces', () => {
     expect(IN_CLIENT_COPY).toContain('Cosmetics never change the odds.');
     expect(IN_CLIENT_COPY.some((s) => s.startsWith('Both of these return 95.5%'))).toBe(true);
     expect(designDoc).toContain('In-client copy lives in this document, so the guard reads this document');
+  });
+
+  it('closes the typography and entity bypasses around the extractor', () => {
+    // The extractor is anchored on ASCII `*"..."*`. Anything that renders as
+    // player copy without matching it would be invisible to the ban, so the
+    // convention itself is enforced: no curly quotes, no character entities.
+    expect(designDoc, 'curly quotes would hide a string from the copy guard').not.toMatch(/[\u201C\u201D]/);
+    expect(designDoc, 'character entities would hide a banned word from the guard').not.toMatch(/&#?[a-zA-Z0-9]+;/);
+    // Known and accepted limit, recorded rather than implied: copy that will
+    // live in client source, store listings and marketing is out of this
+    // repository's reach. DESIGN.md §10.3 binds those surfaces by rule; only
+    // this repository's copy is bound by test.
+    expect(designDoc).toContain('In-client copy, store listings,');
   });
 
   it('would catch a banned word introduced into an in-client string', () => {
@@ -258,7 +299,14 @@ describe('art direction is specific enough to build from', () => {
  * spec's own harness a guaranteed failure on the device it named. The budget is
  * now a shape with rules, and these are the rules.
  */
-describe('the runtime budget is achievable on the device floor it names', () => {
+describe('the runtime budget is internally consistent and reserves real headroom', () => {
+  // NOTE ON WHAT THIS CAN AND CANNOT DO. Nothing here proves the budget is
+  // achievable — no test in a specification repository can, and pretending
+  // otherwise is how a green build becomes a false claim. DESIGN.md §11 assigns
+  // achievability to a performance harness on real hardware. What these tests
+  // enforce is that the published budget is arithmetically honest, that it obeys
+  // its own stated rules, and that the v1 failure (96.4% of the frame spent,
+  // enforced as a ceiling) cannot silently return.
   const section = designDoc.slice(designDoc.indexOf('### 6.8'), designDoc.indexOf('### 6.9'));
 
   /** Parse one budget table: its frame period, its pass rows, its declared total and headroom. */
@@ -267,15 +315,28 @@ describe('the runtime budget is achievable on the device floor it names', () => 
     expect(start, `no budget table labelled ${label}`).toBeGreaterThan(-1);
     const table = section.slice(start, section.indexOf('\n\n', section.indexOf('Reserved headroom', start)));
     const period = Number(/frame period ([0-9.]+) ms/.exec(table)[1]);
+    // Every body row must parse. A row the parser cannot read is a row that
+    // could carry an unbudgeted cost past the sum, so it fails rather than
+    // being skipped.
+    const bodyRows = table
+      .split('\n')
+      .filter((l) => l.startsWith('|') && !/^\|\s*-+/.test(l) && !/^\| *Pass *\|/.test(l));
     const rows = [...table.matchAll(/^\| *(.+?) *\| *(?:\*\*)?([0-9.]+) ms(?:\*\*)?(.*)$/gm)].map((m) => ({
       label: m[1].replace(/\*/g, '').toLowerCase(),
       ms: Number(m[2]),
       rest: m[3],
     }));
+    expect(rows.length, `${label}: ${bodyRows.length - rows.length} row(s) the budget parser cannot read`).toBe(
+      bodyRows.length,
+    );
     const passes = rows.filter((r) => !/total|headroom/.test(r.label));
-    const total = rows.find((r) => /total/.test(r.label));
-    const headroom = rows.find((r) => /headroom/.test(r.label));
-    return { period, passes, total, headroom };
+    const totals = rows.filter((r) => /total/.test(r.label));
+    const headrooms = rows.filter((r) => /headroom/.test(r.label));
+    // Exactly one of each, so a second "total" row cannot shadow the real one.
+    expect(totals, `${label}: expected exactly one total row`).toHaveLength(1);
+    expect(headrooms, `${label}: expected exactly one headroom row`).toHaveLength(1);
+    expect(new Set(passes.map((r) => r.label)).size, `${label}: duplicate pass labels`).toBe(passes.length);
+    return { period, passes, total: totals[0], headroom: headrooms[0] };
   }
 
   for (const label of ['**T1 at 60 fps', '**T1 at 30 fps']) {
@@ -291,9 +352,16 @@ describe('the runtime budget is achievable on the device floor it names', () => 
 
       it('reserves at least 25% of the frame as headroom it may not spend', () => {
         expect(headroom, 'no declared headroom row').toBeDefined();
-        expect(Math.abs(total.ms + headroom.ms - period)).toBeLessThan(0.15);
+        expect(Math.abs(total.ms + headroom.ms - period)).toBeLessThan(0.05);
         expect(headroom.ms / period).toBeGreaterThanOrEqual(0.25);
         expect(headroom.rest).toMatch(/may not spend it/);
+        // The stated headroom percentage must be the real one too. Checking only
+        // the total's percentage let two wrong headroom figures through.
+        const claimed = Number(/([0-9.]+)%/.exec(headroom.rest)[1]);
+        expect(
+          Math.abs(claimed - (100 * headroom.ms) / period),
+          `headroom claims ${claimed}%, arithmetic gives ${((100 * headroom.ms) / period).toFixed(2)}%`,
+        ).toBeLessThan(0.1);
       });
 
       it('keeps the named passes under the 75% rule', () => {
@@ -340,24 +408,64 @@ describe('the runtime budget is achievable on the device floor it names', () => 
     }
     expect(section).toMatch(/\| Runtime \| \*\*three\.js, with our own render pipeline on top\*\*/);
     expect(section).toContain('three.js, with our own render pipeline on top');
-    expect(section).toMatch(/tree-shaken three\.js .*\*\*~170 KB gzipped\*\*/s);
-    // The line item must actually appear in the first-load table.
-    expect(section).toMatch(/\| three\.js, tree-shaken \| 170 KB \|/);
+    expect(section).toMatch(flowed('~295 KB gzipped of engine'));
+    expect(section).toMatch(flowed('addons rather than core'));
+    expect(section).toMatch(flowed('cannot be lazy because nothing renders before the first texture'));
+    // And it is booked in the first-load table, split into core, addons and the
+    // Basis transcoder rather than as one number that quietly omits two of them.
+    expect(section).toMatch(/\| three\.js core, tree-shaken[^|]*\| 150 KB \|/);
   });
 
   it('itemises the first-load budget and keeps a real reserve under 5 MB', () => {
-    const table = section.slice(section.indexOf('#### First load'), section.indexOf('Compressed textures'));
+    const table = section.slice(section.indexOf('#### First load'), section.indexOf('**The texture line, worked'));
+    const bodyRows = table
+      .split('\n')
+      .filter((l) => l.startsWith('|') && !/^\|\s*-+/.test(l) && !/^\| *Item *\|/.test(l));
     const rows = [...table.matchAll(/^\| *(.+?) *\| *(?:\*\*)?([\d,]+) KB(?:\*\*)?/gm)].map((m) => ({
       label: m[1].replace(/\*/g, '').toLowerCase(),
       kb: Number(m[2].replace(/,/g, '')),
     }));
+    expect(rows.length, `${bodyRows.length - rows.length} first-load row(s) the parser cannot read`).toBe(
+      bodyRows.length,
+    );
     const items = rows.filter((r) => !/total|reserve/.test(r.label));
-    const total = rows.find((r) => /total/.test(r.label));
-    const reserve = rows.find((r) => /reserve/.test(r.label));
+    const totals = rows.filter((r) => /total/.test(r.label));
+    const reserves = rows.filter((r) => /reserve/.test(r.label));
+    expect(totals).toHaveLength(1);
+    expect(reserves).toHaveLength(1);
     expect(items.length).toBeGreaterThanOrEqual(8);
-    expect(items.reduce((a, r) => a + r.kb, 0)).toBe(total.kb);
-    expect(total.kb + reserve.kb).toBe(5000);
-    expect(reserve.kb / 5000).toBeGreaterThanOrEqual(0.2);
+    expect(items.reduce((a, r) => a + r.kb, 0)).toBe(totals[0].kb);
+    expect(totals[0].kb + reserves[0].kb).toBe(5000);
+    expect(reserves[0].kb / 5000).toBeGreaterThanOrEqual(0.2);
+  });
+
+  it('does not conflate ASTC with ETC2, which halves the fallback path on paper', () => {
+    // 2 bpp against 4 bpp. The first version of this table wrote them as one
+    // number and understated the ETC2 path by a factor of two before mipmaps.
+    expect(section).not.toMatch(/ASTC 8x8 \/ ETC2 \| 1,320 KB/);
+    expect(section).toMatch(flowed('ASTC 8x8 is 2 bits per texel; ETC2 RGB is 4'));
+    expect(section).toMatch(flowed('every texture figure includes the mip chain'));
+    expect(section).toMatch(/\| \*\*1,748 KB\*\* \|/);
+    expect(section).toMatch(/\| \*\*1,398 KB\*\* \|/);
+    // And the budgeted line must be the worse of the two, not the nicer one.
+    expect(section).toMatch(/Arena 1 \*\*boot\*\* textures[^|]*\| 1,750 KB \|/);
+  });
+
+  it('books the engine as core plus addons plus transcoder, not as one hopeful number', () => {
+    for (const row of [/three\.js core, tree-shaken/, /three\.js addons/, /KTX2 \/ Basis transcoder/]) {
+      expect(section, `missing engine line ${row}`).toMatch(row);
+    }
+    expect(section).toMatch(flowed('targets against a named artifact, not measurements'));
+    expect(section).toMatch(flowed('dist/stats.json'));
+  });
+
+  it('bounds the C1 claim with the numbers that actually decide it', () => {
+    const table = section.slice(section.indexOf('And the size of that claim'), section.indexOf('**We are not claiming'));
+    for (const quantity of ['Render target', 'Fog march', 'Draw calls', 'Average overdraw', 'Texture bandwidth']) {
+      expect(table, `the C1 budget does not bound ${quantity}`).toContain(quantity);
+    }
+    expect(table).toMatch(/756 x 1638/);
+    expect(section).toMatch(flowed('We are not claiming this has been measured'));
   });
 
   it('keeps the 12 fps step honest at 30 Hz instead of assuming 60', () => {
