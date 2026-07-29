@@ -44,6 +44,8 @@ import { Wallet } from './wallet.js';
 import { ENTRY_RETURN } from './definition.js';
 
 const MAX_BODY_BYTES = 256 * 1024;
+const MAX_RUNNER_NAME_CHARACTERS = 16;
+const MAX_RUNNER_NAME_BYTES = 64;
 
 export interface Session {
   /** `DESIGN.md` §5.2.5 rule 3: the counter is rounds seen. Never spend, never losses. */
@@ -55,6 +57,30 @@ export interface Session {
   reducedMotion: boolean;
   readonly startedAtMs: number;
   runnerNames: string[];
+  /**
+   * The responsible-play controls (`DESIGN.md` §10.2 and §S9), which that
+   * section opens by calling *"build requirements, not aspirations"*.
+   *
+   * They live on the server rather than in the client for the same reason the
+   * speed-of-play floor does: a control a modified client can skip is not a
+   * control. The reality check is measured against the session clock the server
+   * keeps, so `POST /api/dev/advance-clock` moves it and a test can prove it
+   * fires — and a real deployment would move all four of these to the operator's
+   * account, which is where a session limit that survives closing the app has to
+   * live. This is a free-play prototype with one in-memory session; the shape is
+   * right and the persistence is not there, and the settings screen says so.
+   */
+  realityCheckIntervalMs: number;
+  realityCheckAcknowledgedAtMs: number;
+  /** Minutes of play after which staking stops for this session. */
+  sessionLimitMinutes: number | null;
+  /** Net loss, in micro-credits, after which staking stops for this session. */
+  sessionLossLimitMicro: bigint | null;
+  /** The hand-off: once true, nothing in this session may be staked again. */
+  selfExcluded: boolean;
+  audioEnabled: boolean;
+  /** §6.8's quality ladder. In the graybox it only moves the placeholder scene. */
+  qualityTier: 'auto' | 'high' | 'medium' | 'low';
 }
 
 export interface AppOptions {
@@ -103,6 +129,58 @@ async function readBody(request: IncomingMessage): Promise<unknown> {
   } catch {
     throw new RoundError('INVALID_ARGUMENT', 'Body is not JSON', 400);
   }
+}
+
+function objectBody(raw: unknown): Record<string, unknown> {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw))
+    throw new RoundError('INVALID_ARGUMENT', 'Request body must be a JSON object', 400, '$');
+  return raw as Record<string, unknown>;
+}
+
+/**
+ * Cosmetic names are still untrusted input.
+ *
+ * They do not enter the game fingerprint or any arithmetic, but duplicates make
+ * the fork's permutation ambiguous and coercing objects to strings makes five
+ * distinct JSON values look identical. The character limit matches the shipped
+ * input while the byte limit bounds multi-byte text without pretending that
+ * JavaScript code units are storage bytes.
+ */
+function runnerNames(raw: unknown): string[] {
+  if (!Array.isArray(raw) || raw.length !== SQUAD_SIZE)
+    throw new RoundError(
+      'INVALID_ARGUMENT',
+      `Runner names must be a list of exactly ${SQUAD_SIZE} names`,
+      400,
+      '$.runnerNames',
+    );
+  const names = raw.map((value, index) => {
+    const path = `$.runnerNames[${index}]`;
+    if (typeof value !== 'string')
+      throw new RoundError('INVALID_ARGUMENT', 'A runner name is printable text', 400, path);
+    const name = value.trim();
+    if (
+      name.length === 0 ||
+      Array.from(name).length > MAX_RUNNER_NAME_CHARACTERS ||
+      Buffer.byteLength(name, 'utf8') > MAX_RUNNER_NAME_BYTES ||
+      /[\x00-\x1f\x7f]/u.test(name)
+    )
+      throw new RoundError(
+        'INVALID_ARGUMENT',
+        `A runner name is 1 to ${MAX_RUNNER_NAME_CHARACTERS} printable characters`,
+        400,
+        path,
+      );
+    return name;
+  });
+  if (new Set(names).size !== names.length)
+    throw new RoundError(
+      'INVALID_ARGUMENT',
+      'Runner names must be distinct after trimming',
+      400,
+      '$.runnerNames',
+    );
+  return names;
 }
 
 const MIME: Record<string, string> = {
@@ -191,6 +269,42 @@ export function createApp(options: AppOptions = {}): App {
     reducedMotion: false,
     startedAtMs: clock.now(),
     runnerNames: [...DEFAULT_RUNNER_NAMES],
+    // §10.2: "a reality check fires at the operator's interval, default 30 min".
+    realityCheckIntervalMs: 30 * 60 * 1000,
+    realityCheckAcknowledgedAtMs: 0,
+    sessionLimitMinutes: null,
+    sessionLossLimitMicro: null,
+    selfExcluded: false,
+    audioEnabled: false,
+    qualityTier: 'auto',
+  };
+
+  /**
+   * Why staking is closed, or `null` if it is open.
+   *
+   * One function, consulted by the buy path and published to the client, so the
+   * screen that explains the block and the code that enforces it can never
+   * disagree about which limit was reached.
+   */
+  const stakingBlock = (): { code: string; message: string } | null => {
+    if (session.selfExcluded)
+      return {
+        code: 'SELF_EXCLUDED',
+        message: 'You closed this session yourself. Staking stays off until the server restarts.',
+      };
+    const minutes = session.sessionLimitMinutes;
+    if (minutes !== null && clock.now() - session.startedAtMs >= minutes * 60_000)
+      return {
+        code: 'SESSION_LIMIT_REACHED',
+        message: `You set a ${minutes}-minute limit on this session and it has passed.`,
+      };
+    const loss = session.sessionLossLimitMicro;
+    if (loss !== null && wallet.netMicro <= -loss)
+      return {
+        code: 'LOSS_LIMIT_REACHED',
+        message: `You set a loss limit of ${credits(loss, 2)} for this session and it has been reached.`,
+      };
+    return null;
   };
   const staticRoot = options.staticRoot ?? resolve(process.cwd(), 'client/dist');
   const config = configPayload();
@@ -200,7 +314,21 @@ export function createApp(options: AppOptions = {}): App {
     return {
       session: {
         ...session,
+        sessionLossLimitMicro:
+          session.sessionLossLimitMicro === null ? null : session.sessionLossLimitMicro.toString(),
         elapsedMs: clock.now() - session.startedAtMs,
+        /**
+         * The reality check is due when this much of the session has passed
+         * since it was last acknowledged. The client draws the pause; the number
+         * that decides it is this one, on the server clock.
+         */
+        realityCheckDueMs: Math.max(
+          0,
+          session.realityCheckAcknowledgedAtMs +
+            session.realityCheckIntervalMs -
+            (clock.now() - session.startedAtMs),
+        ),
+        stakingBlock: stakingBlock(),
         /**
          * `DESIGN.md` §5.2.5: disclosure is keyed to rounds seen and to nothing
          * else. A gate keyed to spend is a monetisation device pretending to be
@@ -275,8 +403,13 @@ export function createApp(options: AppOptions = {}): App {
               ghostAvailable: true,
             });
           }
-          const body = (await readBody(request)) as Record<string, unknown>;
+          const body = objectBody(await readBody(request));
           if (method === 'POST' && action === '/open') {
+            // The limits are enforced where the money is, not where the button
+            // is: a client that skipped the screen still cannot stake.
+            const blocked = stakingBlock();
+            if (blocked)
+              return json(response, 403, { ...blocked, ...sessionPayload() });
             const round = await store.open(roundId, body);
             return json(response, 200, { frame: frameOf(round, store), ...sessionPayload() });
           }
@@ -319,28 +452,84 @@ export function createApp(options: AppOptions = {}): App {
         }
 
         if (method === 'POST' && path === '/api/verify') {
-          const body = (await readBody(request)) as { bundle?: unknown };
+          const body = objectBody(await readBody(request));
           return json(response, 200, verifyBundle(body.bundle ?? body));
         }
 
         if (method === 'POST' && path === '/api/rehearsal/replay') {
-          const body = (await readBody(request)) as { choices?: unknown };
+          const body = objectBody(await readBody(request));
           const choices = Array.isArray(body.choices) ? body.choices : [];
           session.rehearsalSeen = true;
           return json(response, 200, { result: replay(choices as never[]), ...sessionPayload() });
         }
 
         if (method === 'POST' && path === '/api/session') {
-          const body = (await readBody(request)) as Record<string, unknown>;
+          const body = objectBody(await readBody(request));
+          // Validate the whole rename before applying any setting in the same
+          // request. A rejected cosmetic field must not partially mutate the
+          // session any more than a rejected money command may partially debit.
+          const names = body.runnerNames === undefined ? null : runnerNames(body.runnerNames);
           if (typeof body.showEverything === 'boolean') session.showEverything = body.showEverything;
           if (typeof body.sideBetsOptedIn === 'boolean') session.sideBetsOptedIn = body.sideBetsOptedIn;
           if (typeof body.ghostLineEnabled === 'boolean') session.ghostLineEnabled = body.ghostLineEnabled;
           if (typeof body.reducedMotion === 'boolean') session.reducedMotion = body.reducedMotion;
-          if (Array.isArray(body.runnerNames) && body.runnerNames.length === SQUAD_SIZE) {
-            session.runnerNames = body.runnerNames.map((name, index) => {
-              const text = String(name).trim().slice(0, 16);
-              return text.length > 0 ? text : (DEFAULT_RUNNER_NAMES[index] as string);
-            });
+          if (typeof body.audioEnabled === 'boolean') session.audioEnabled = body.audioEnabled;
+          if (body.qualityTier !== undefined) {
+            if (
+              body.qualityTier !== 'auto' &&
+              body.qualityTier !== 'high' &&
+              body.qualityTier !== 'medium' &&
+              body.qualityTier !== 'low'
+            )
+              return json(response, 400, {
+                code: 'INVALID_SETTING',
+                message: 'Quality tier must be auto, high, medium or low',
+                path: '$.qualityTier',
+              });
+            session.qualityTier = body.qualityTier;
+          }
+          if (body.realityCheckMinutes !== undefined) {
+            const minutes = body.realityCheckMinutes;
+            if (typeof minutes !== 'number' || !Number.isInteger(minutes) || minutes < 1 || minutes > 240)
+              return json(response, 400, {
+                code: 'INVALID_SETTING',
+                message: 'A reality-check interval is a whole number of minutes between 1 and 240',
+                path: '$.realityCheckMinutes',
+              });
+            session.realityCheckIntervalMs = minutes * 60_000;
+          }
+          if (body.acknowledgeRealityCheck === true)
+            session.realityCheckAcknowledgedAtMs = clock.now() - session.startedAtMs;
+          if (body.sessionLimitMinutes !== undefined) {
+            const minutes = body.sessionLimitMinutes;
+            if (
+              minutes !== null &&
+              (typeof minutes !== 'number' || !Number.isInteger(minutes) || minutes < 1 || minutes > 1440)
+            )
+              return json(response, 400, {
+                code: 'INVALID_SETTING',
+                message: 'A session limit is null or a whole number of minutes between 1 and 1440',
+                path: '$.sessionLimitMinutes',
+              });
+            session.sessionLimitMinutes = minutes;
+          }
+          if (body.sessionLossLimitMicro !== undefined) {
+            const raw = body.sessionLossLimitMicro;
+            if (raw === null) session.sessionLossLimitMicro = null;
+            else if (typeof raw !== 'string' || !/^[0-9]{1,15}$/u.test(raw) || BigInt(raw) <= 0n)
+              return json(response, 400, {
+                code: 'INVALID_SETTING',
+                message: 'A loss limit is null or a positive integer of micro-credits',
+                path: '$.sessionLossLimitMicro',
+              });
+            else session.sessionLossLimitMicro = BigInt(raw);
+          }
+          // The hand-off is one-way on purpose. A control that can be switched
+          // off in the same breath is not a self-exclusion, and the screen says
+          // in plain words what this prototype's version of it does.
+          if (body.selfExclude === true) session.selfExcluded = true;
+          if (names) {
+            session.runnerNames = names;
             const open = store.openRound;
             if (open)
               open.runners.forEach((runner, index) => {
@@ -351,7 +540,7 @@ export function createApp(options: AppOptions = {}): App {
         }
 
         if (method === 'POST' && path === '/api/dev/advance-clock') {
-          const body = (await readBody(request)) as { ms?: unknown };
+          const body = objectBody(await readBody(request));
           const ms = typeof body.ms === 'number' ? body.ms : MIN_GAME_CYCLE_MS;
           try {
             return json(response, 200, { nowMs: clock.advance(ms) });
