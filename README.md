@@ -139,7 +139,7 @@ and fail-closed handling of hostile input.
 ### The paytable is proved, not asserted
 
 `tools/enumerate.mjs` enumerates the entire outcome space in exact fractions and
-checks **<!-- fig:invariantCount -->1767<!-- /fig --> invariants** on every CI
+checks **<!-- fig:invariantCount -->1805<!-- /fig --> invariants** on every CI
 run — including the one that matters:
 
 > **No decision policy beats the target RTP.** The house margin is charged once
@@ -171,8 +171,8 @@ across policies at a constant <!-- fig:rtpPct -->95.5%<!-- /fig --> RTP; that
 | Biggest single side-bet multiplier | Sole Survivor on a full Wide squad, `97792/105` = **<!-- fig:soleSurvivorMax -->931.35x<!-- /fig -->** |
 | Max-win cap | **<!-- fig:capMultiple -->1000x<!-- /fig --> per ticket, against that ticket's own stake** — proved unreachable per ticket *and* over the round total, so it can never clip an advertised win |
 | Bet types | Route Ticket, plus Clean Sweep / Sole Survivor / Last Light side bets, all at the same <!-- fig:rtpPct -->95.5%<!-- /fig --> |
-| Side-bet stake limit | never more than the route stake, per bet and per round |
-| Minimum game cycle | <!-- fig:minCycleMs -->5000<!-- /fig --> ms per arena (UKGC RTS 14G, the non-slot casino rule — not RTS 14D's 2.5 s, which is for slots), enforced server-side |
+| Stake limits | 1.00 to <!-- fig:maxStakeCredits -->1,000<!-- /fig -->.00 credits on the run; a side bet never more than **half** the route stake, per bet and per round, so at most <!-- fig:sideBetRoundShare -->33.3%<!-- /fig --> of a round's money can be on the long shots |
+| Minimum game cycle | <!-- fig:minCycleMs -->5000<!-- /fig --> ms per arena (<!-- fig:rtsStandard -->UKGC RTS<!-- /fig --> <!-- fig:rtsEdition -->RTS 2021-10-31<!-- /fig -->, <!-- fig:rtsProvision -->RTS 14G<!-- /fig --> — the non-slot casino rule, not RTS 14D's 2.5 s, which is for slots), enforced server-side. The edition is pinned and declared; the lettering has **not** been checked against a certified copy |
 | Money unit | micro-credits; worst-case floor-rounding loss <!-- fig:maxRoundingLoss -->0.000005<!-- /fig --> credits on the route ticket, <!-- fig:maxRoundingLossRound -->0.000020<!-- /fig --> across a round that also carries side bets |
 
 ---

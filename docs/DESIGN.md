@@ -383,42 +383,63 @@ once.
 
 | Limit | Value |
 | --- | --- |
+| Minimum, route stake | 1.00 credit |
+| Maximum, route stake | <!-- fig:maxStakeCredits -->1,000<!-- /fig -->.00 credits |
 | Minimum, per side bet | 1.00 credit |
-| Maximum, per side bet | **the route stake** |
-| Maximum, per round, all side bets together | **the route stake** |
+| Maximum, per side bet | **half the route stake** |
+| Maximum, per round, all side bets together | **half the route stake** |
 | Tickets per arena | at most one per event, three in total |
 
-A player can never put more money on a <!-- fig:soleSurvivorMax -->931.35x<!-- /fig -->
-long shot than on the game they came to play. This is three things at once: it is
-what makes "1000x" a well-defined statement when a round contains several stakes
-(`MATH.md` §9.3), it is what keeps the max-win cap unreachable, and it is a
-responsible-design limit — an unbounded side-bet stake turns a staged-survival
-game into a one-in-a-thousand lottery wearing its costume.
+A player can never put more than half the money on a
+<!-- fig:soleSurvivorMax -->931.35x<!-- /fig --> long shot that they put on the
+game they came to play — so at most
+<!-- fig:sideBetRoundShare -->33.3%<!-- /fig --> of a round's money can sit on the
+side bets, and the run is always at least twice all of them together. This is
+three things at once: it is what makes "1000x" a well-defined statement when a
+round contains several stakes (`MATH.md` §9.3), it is what keeps the max-win cap
+unreachable, and it is a responsible-design limit — an unbounded side-bet stake
+turns a staged-survival game into a one-in-a-thousand lottery wearing its
+costume.
+
+**And the third of those was false at the v2 limit, which is why it moved.** Both
+ratios used to be the full route stake. At parity the maximum legal configuration
+in the game — a route ticket beside a maximum-stake Sole Survivor — was the most
+volatile product in the whole specification, above the all-Narrow route ticket:
+the limit stopped the long shot *exceeding* the game and did nothing to stop it
+*substituting* for it, which is the behaviour §10.2 claims to prevent.
+`MATH.md` §5.5 has the arithmetic and §9.6 records the change. At half a route
+stake the most volatile thing the game offers is the game, and CI asserts that
+over every enumerated portfolio rather than this paragraph asserting it.
 
 The stake field shows the ceiling as a hard stop, states it in credits rather
-than as a ratio (*"up to 5.00 — the same as your run"*), and never as a
-percentage of balance.
+than as a ratio (*"up to 2.50 — half your run"*), and never as a percentage of
+balance.
 
-**Where these four limits degenerate, stated rather than discovered in QA.** The
+**Where these limits degenerate, stated rather than discovered in QA.** The
 minimum route stake is 1.00 credit (`MATH.md` §5.5, `src/branchfall.adapter.ts`),
-and the per-round side-bet allowance is one route stake. So the four limits are
-not independent at the bottom of the range:
+and the per-round side-bet allowance is half a route stake. So the limits are
+not independent at the bottom of the range, and halving the allowance moved where
+they collide:
 
 | Route stake | Legal side-bet configurations in the whole round |
 | --- | --- |
-| 1.00 (the minimum) | exactly one ticket, at exactly 1.00, in exactly one arena |
-| 2.00 | one ticket at 1.00 or 2.00, or two tickets at 1.00 each |
-| 3.00 or more | the "three tickets in one arena" ceiling becomes reachable — and reaching it spends the entire round's allowance in that arena |
-| 10.00 or more | a 1/10-weight plan across all five arenas becomes legal |
+| 1.00 (the minimum) | **none.** Half of 1.00 is below the 1.00 per-ticket minimum, so the control never appears |
+| <!-- fig:minRouteStakeForASideBet -->2.00<!-- /fig --> | exactly one ticket, at exactly 1.00, in exactly one arena |
+| 4.00 | one ticket at 1.00 or 2.00, or two tickets at 1.00 each |
+| 6.00 or more | the "three tickets in one arena" ceiling becomes reachable — and reaching it spends the entire round's allowance in that arena |
+| 20.00 or more | a 1/10-weight plan across all five arenas becomes legal |
 
 "At most three tickets per arena" is therefore a **ceiling, not an entitlement**,
-and below a 3.00 route stake it is unreachable by arithmetic rather than by
-rule. Two build consequences, both already in S2: the `+ side bet` control is
-**hidden**, not disabled, once the remaining allowance is under 1.00 — a disabled
-control that can never re-enable is worse than no control — and the stake field
-offers the remaining allowance as its ceiling, not the route stake, whenever
-those differ. None of this touches any proof: RTP is scale-invariant, so every
-figure in `MATH.md` holds at every legal stake.
+and below a 6.00 route stake it is unreachable by arithmetic rather than by
+rule. Three build consequences, the first two already in S2: the `+ side bet`
+control is **hidden**, not disabled, once the remaining allowance is under 1.00 —
+a disabled control that can never re-enable is worse than no control — the stake
+field offers the remaining allowance as its ceiling, not half the route stake,
+whenever those differ, and **a minimum-stake player never sees the side-bet
+control at all**, which is a consequence worth stating out loud rather than
+discovering: the smallest run in the game is the run with no long shot attached.
+None of this touches any proof: RTP is scale-invariant, so every figure in
+`MATH.md` holds at every legal stake.
 
 **Last Light is not insurance.** Product copy never uses the words insurance,
 protection, hedge, or safety net for it. It carries the identical 4.5% margin as
@@ -450,6 +471,30 @@ reel-based, so building to 14D would be assuming a classification in our own
 favour. RTS 8 is the **autoplay prohibition**, which is a different requirement
 that we satisfy separately by having no autoplay at all (§10.2); the v1 draft
 cited it for the timing rule, which was simply wrong.
+
+**Which edition, because a letter without one cannot be checked.** RTS provision
+lettering has moved across revisions, so "RTS 14G" on its own is a citation that
+can be neither verified nor falsified — which is the same class of error §5.1 was
+written to fix, one level up. The edition this specification is written against
+is therefore declared, and fingerprinted alongside `cycleUnit`:
+
+| Declared field | Value |
+| --- | --- |
+| `speed.standard` | <!-- fig:rtsStandard -->UKGC RTS<!-- /fig --> |
+| `speed.standardEdition` | <!-- fig:rtsEdition -->RTS 2021-10-31<!-- /fig --> |
+| `speed.provision` | <!-- fig:rtsProvision -->RTS 14G<!-- /fig --> |
+| `speed.provisionVerifiedAgainstCertifiedCopy` | **false** |
+
+That last row is the honest one and it is deliberately in the declaration rather
+than in a footnote. **This repository has not checked the lettering against a
+certified copy of the operative edition in any jurisdiction, and does not claim
+the citation is correct.** What it claims is narrower and is the thing that was
+missing: the pin exists, it is visible, it is part of the game's declared
+identity, and if it is wrong it is wrong in exactly one place. Verifying it
+against the operative edition for a target jurisdiction is pre-submission work
+this repository does not do (§12), and shipping
+`provisionVerifiedAgainstCertifiedCopy: true` without having done it is the
+defect — not declaring `false`.
 
 **Which unit is the cycle, and what we are not claiming.** We declare the
 **arena** as the game cycle, because the arena is where money is committed and
@@ -1566,8 +1611,15 @@ These are build requirements, not aspirations. Each has an acceptance check.
 - Session strip (time played, net position) is always visible and never
   dismissible. A reality check fires at the operator's interval, default 30 min,
   and pauses the game.
-- Side-bet stakes are capped at the route stake and reset to zero every arena
-  (§4), so a player cannot drift into betting the long shot instead of the game.
+- Side-bet stakes are capped at **half** the route stake, per bet and per round,
+  and reset to zero every arena (§4), so a player cannot drift into betting the
+  long shot instead of the game: the run always carries at least twice the money
+  of every side bet in the round put together. **Acceptance check, and it is a
+  real one:** no configuration a player can legally build is more volatile than
+  the most volatile route ticket. `MATH.md` §5.5 publishes both standard
+  deviations and `tools/enumerate.mjs` asserts the inequality over every
+  enumerated portfolio, because at the v2 parity limit this bullet was false and
+  the document's own §7.1 table said so.
 
 ### 10.3 No misleading skill framing
 
@@ -1623,8 +1675,12 @@ These are build requirements, not aspirations. Each has an acceptance check.
 - The outcome is committed before the first choice, so input timing is
   mechanically incapable of changing a payout.
 - A minimum game cycle of <!-- fig:minCycleMs -->5000<!-- /fig --> ms per arena
-  (UKGC RTS 14G, non-slot), enforced server-side (§5.1). The classification of
-  the cycle unit is stated as a position, not as a settled fact.
+  (<!-- fig:rtsStandard -->UKGC RTS<!-- /fig -->
+  <!-- fig:rtsEdition -->RTS 2021-10-31<!-- /fig -->,
+  <!-- fig:rtsProvision -->RTS 14G<!-- /fig -->, non-slot), enforced server-side
+  (§5.1). Both the classification of the cycle unit and the provision citation
+  are stated as declared positions with an edition pinned, not as settled facts,
+  and neither has been verified against a certified copy.
 - `skip` is explicitly labelled as skipping the *view*, not the result, and does
   not shorten the game cycle.
 

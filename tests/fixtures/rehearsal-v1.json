@@ -10,19 +10,19 @@
   "published": {
     "schema": "branchfall/transcript-v2",
     "gameId": "branchfall",
-    "adapterVersion": "2.0.0",
+    "adapterVersion": "3.0.0",
     "modelVersion": "branchfall-hazard/v2",
     "roundId": "branchfall-rehearsal-v1",
     "clientSeed": "branchfall-rehearsal-00134",
     "preCommitment": {
       "version": "branchfall/commit-v2",
       "gameId": "branchfall",
-      "adapterVersion": "2.0.0",
+      "adapterVersion": "3.0.0",
       "modelVersion": "branchfall-hazard/v2",
       "roundId": "branchfall-rehearsal-v1",
-      "commitment": "f560a39a607a49332343a018c272843b272bdf7c82cabf287697400dc3556fb3"
+      "commitment": "c35e45c1ecf0b6a18ea88b664e964b731d3f452ab9dae72cc7b6dc58885fb44a"
     },
-    "hazardDigest": "367fce67b872e45cca00952d68156ceb16f2db48d87a71ba0d867df58ec2db6b"
+    "hazardDigest": "9da6cbe95a3ed3dfc52629217d10b4f653f88d63a182e05aab7d702bffafb9b8"
   },
   "path": [
     {

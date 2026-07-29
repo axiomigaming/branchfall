@@ -162,7 +162,7 @@ describe('cross-document consistency', () => {
     expect(mathDoc).toContain('Maximum per round, all side bets');
     expect(designDoc).toContain('Maximum, per round, all side bets together');
     expect(engineDoc).toContain('maxTotalSideBetStakeRatio');
-    expect(readme).toContain('never more than the route stake');
+    expect(readme).toContain('never more than **half** the route stake');
   });
 
   it('states the minimum game cycle, names its unit, and cites the right rule', () => {

@@ -506,9 +506,32 @@ export function runInvariants() {
     'a single side bet cannot exceed the round-wide side-bet allowance',
   );
   check(
-    CONFIG.sideBet.maxTotalStakeRatio.lte(F(1n)),
-    'side bets can never carry more money than the route ticket they ride on',
+    CONFIG.sideBet.maxTotalStakeRatio.lte(F(1n, 2n)),
+    'the route ticket always carries at least twice every side bet in the round put together',
   );
+  check(
+    CONFIG.maxStakeMicro > CONFIG.minStakeMicro,
+    'the declared maximum route stake is above the minimum',
+  );
+  check(
+    CONFIG.maxStakeMicro % CONFIG.microCreditsPerCredit === 0n,
+    'the declared maximum route stake is a whole number of credits',
+  );
+
+  //     And the responsible-design half of those limits, which the v2 draft
+  //     asserted in DESIGN.md §10.2 and the portfolio table contradicted: at
+  //     parity a maximum-stake SOLE SURVIVOR beside a route ticket was the most
+  //     volatile product in the document. It may not be. The most volatile thing
+  //     the game offers has to be the game.
+  const policyVariances = policyRows().map((r) => r.variance);
+  const worstPolicyVariance = policyVariances.reduce((m, v) => (v.gt(m) ? v : m), Frac.ZERO);
+  for (const row of portfolioRows()) {
+    if (row.planKey === 'NONE') continue;
+    check(
+      row.variance.lte(worstPolicyVariance),
+      `portfolio ${row.policyKey} + ${row.planKey}: adding side bets does not exceed the most volatile route ticket`,
+    );
+  }
 
   // 16. Speed of play. UKGC RTS 14G is 5000 ms for casino games other than slots
   //     and peer-to-peer poker; RTS 14D's 2500 ms is the SLOTS rule and RTS 8 is
@@ -822,6 +845,21 @@ export function buildTables() {
       ['Max round total, per unit of route stake (both limits maxed)', `\`${capReport.maxRoundTotalPerRouteStake}\``, toFixedExact(capReport.maxRoundTotalPerRouteStake, 6)],
       ['Side-bet stake limit, per bet', `\`${CONFIG.sideBet.maxStakeRatioPerBet}\``, `${toFixedExact(CONFIG.sideBet.maxStakeRatioPerBet, 2)} x route stake`],
       ['Side-bet stake limit, per round', `\`${CONFIG.sideBet.maxTotalStakeRatio}\``, `${toFixedExact(CONFIG.sideBet.maxTotalStakeRatio, 2)} x route stake`],
+      [
+        'Minimum route stake',
+        `\`${CONFIG.minStakeMicro}\` uc`,
+        `${toFixedExact(F(CONFIG.minStakeMicro, CONFIG.microCreditsPerCredit), 2)} credits`,
+      ],
+      [
+        'Maximum route stake (declared ceiling)',
+        `\`${CONFIG.maxStakeMicro}\` uc`,
+        `${grouped(CONFIG.maxStakeMicro / CONFIG.microCreditsPerCredit)}.00 credits`,
+      ],
+      [
+        'Liability ceiling, one route ticket at the maximum stake',
+        `\`${CONFIG.maxStakeMicro * CONFIG.maxWinMultiple}\` uc`,
+        `${grouped((CONFIG.maxStakeMicro / CONFIG.microCreditsPerCredit) * CONFIG.maxWinMultiple)}.00 credits`,
+      ],
       ['Minimum game cycle', `\`${CONFIG.minGameCycleMs}\` ms`, `${(CONFIG.minGameCycleMs / 1000).toFixed(1)} s per arena`],
       ['Money unit', '`1/1000000` credit', '0.000001'],
       ['Max floor-rounding loss, route ticket', '`5/1000000` credit', '0.000005'],
@@ -984,9 +1022,33 @@ export function buildFigures() {
     capHeadroom: mult(capReport.headroom, 2),
     topPrizeOdds: `1 in ${grouped(topOdds.floor())}`,
 
+    /* stake limits */
+    maxStakeCredits: grouped(CONFIG.maxStakeMicro / CONFIG.microCreditsPerCredit),
+    maxTicketLiabilityCredits: grouped(
+      (CONFIG.maxStakeMicro / CONFIG.microCreditsPerCredit) * CONFIG.maxWinMultiple,
+    ),
+    sideBetStakeRatio: `${toFixedExact(CONFIG.sideBet.maxStakeRatioPerBet, 2)}`,
+    sideBetRoundShare: pct(
+      CONFIG.sideBet.maxTotalStakeRatio.div(Frac.ONE.add(CONFIG.sideBet.maxTotalStakeRatio)),
+      1,
+    ),
+    minRouteStakeForASideBet: toFixedExact(
+      F(CONFIG.minStakeMicro, CONFIG.microCreditsPerCredit).div(CONFIG.sideBet.maxTotalStakeRatio),
+      2,
+    ),
+    rtsStandard: CONFIG.speedStandard.standard,
+    rtsEdition: CONFIG.speedStandard.edition,
+    rtsProvision: CONFIG.speedStandard.provision,
+
     /* volatility */
     sdMin: sqrtFixed(minVar, 2),
     sdMax: sqrtFixed(maxVar, 2),
+    maxSideBetPortfolioSd: sqrtFixed(
+      portfolioRows()
+        .filter((r) => r.planKey !== 'NONE')
+        .reduce((m, r) => (r.variance.gt(m) ? r.variance : m), Frac.ZERO),
+      2,
+    ),
     sdSpread: `${sqrtFixed(maxVar.div(minVar), 1)}x`,
     keeperBust: pct(policies.find((p) => p.key === 'SHELTER_LADDER').bust, 2),
     keeperMax: mult(policies.find((p) => p.key === 'SHELTER_LADDER').maxReturn, 2),

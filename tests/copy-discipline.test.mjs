@@ -661,8 +661,11 @@ describe('model constraints are surfaced where the screen is specified', () => {
   });
 
   it('states where the side-bet stake limits degenerate, on both the product and math sides', () => {
-    expect(designDoc).toMatch(flowed('Where these four limits degenerate'));
+    expect(designDoc).toMatch(flowed('Where these limits degenerate'));
     expect(designDoc).toMatch(flowed('exactly one ticket, at exactly 1.00, in exactly one arena'));
+    // At the minimum route stake the control does not exist at all, which is a
+    // product consequence of halving the allowance and is stated, not implied.
+    expect(designDoc).toMatch(flowed('a minimum-stake player never sees the side-bet'));
     expect(designDoc).toMatch(flowed('ceiling, not an entitlement'));
     expect(mathDoc).toMatch(flowed('Stake legality, and where the limits degenerate'));
     expect(mathDoc).toMatch(flowed('The ceiling is a bound, not an entitlement'));
@@ -671,8 +674,8 @@ describe('model constraints are surfaced where the screen is specified', () => {
   it('labels the enumerated portfolios as illustrative and gives their stake floors', () => {
     const note = mathDoc.slice(mathDoc.indexOf('These plans are illustrative'), mathDoc.indexOf('<!-- table:portfolios -->'));
     expect(note).toContain('at least 10.00 credits');
-    expect(note).toContain('at least 3.00');
-    expect(note).toContain('legal at every stake');
+    expect(note).toContain('at least 6.00');
+    expect(note).toMatch(flowed('half a route stake since'));
     expect(note).toMatch(flowed('arbitrary non-negative stake vectors'));
   });
 });

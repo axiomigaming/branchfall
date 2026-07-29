@@ -61,7 +61,7 @@ function fail(code, message, path) {
  */
 export const CONFIG = Object.freeze({
   gameId: 'branchfall',
-  adapterVersion: '2.0.0',
+  adapterVersion: '3.0.0',
   modelVersion: 'branchfall-hazard/v2',
   /** Runners in a fresh squad. */
   squadSize: 5,
@@ -81,6 +81,18 @@ export const CONFIG = Object.freeze({
   /** Minimum stake in micro-credits (1.00 credit), for the route ticket and for each side bet. */
   minStakeMicro: 1_000_000n,
   /**
+   * Maximum route stake in micro-credits: 1,000.00 credits.
+   *
+   * This is a declared liability ceiling and not a placeholder. Multiplied by the
+   * per-ticket cap it bounds a single route ticket's liability at 1,000,000.00
+   * credits, and the round bound in docs/MATH.md §9.3 turns it into a number a
+   * risk model can hold. The v2 draft declared `10^15` micro-credits — one
+   * billion credits per ticket, a 10^12-credit liability ceiling — fingerprinted
+   * it, and justified it nowhere. An operator may configure a lower ceiling; it
+   * may not configure a higher one without changing the game's identity.
+   */
+  maxStakeMicro: 1_000_000_000n,
+  /**
    * Minimum game cycle in milliseconds, measured from committing an arena to the
    * moment the next money control unlocks.
    *
@@ -93,14 +105,46 @@ export const CONFIG = Object.freeze({
    * regulator and a test house, not something this repository can settle.
    */
   minGameCycleMs: 5000,
-  /** Side-bet limits. Load-bearing for the cap proof and for responsible design. */
+  /**
+   * The rule the cycle floor is built to, pinned by document AND edition.
+   *
+   * Provision lettering has moved across RTS revisions, so a citation by letter
+   * with no edition cannot be checked and cannot be wrong — which is the defect
+   * this field exists to remove. It is declarative and fingerprinted for the same
+   * reason `cycleUnit` is: which provision an operator claims to satisfy is part
+   * of the game's declared identity.
+   *
+   * This repository has NOT verified the lettering against a certified copy of
+   * the operative edition in any jurisdiction, and does not claim the pin is
+   * correct. It claims the pin exists, is visible, and can be corrected in one
+   * place. See docs/DESIGN.md §5.1 and the certification boundary in §12.
+   */
+  speedStandard: Object.freeze({
+    standard: 'UKGC RTS',
+    edition: 'RTS 2021-10-31',
+    provision: 'RTS 14G',
+    verifiedAgainstCertifiedCopy: false,
+  }),
+  /**
+   * Side-bet limits. Load-bearing for the cap proof and for responsible design.
+   *
+   * The ratios were `1/1` through v2, which delivered the cap argument and not
+   * the responsible-design one: at parity the maximum legal configuration — a
+   * route ticket beside a maximum-stake SOLE SURVIVOR — was the most volatile
+   * product in the whole specification (std. dev. 14.895961 against the
+   * all-NARROW route ticket's 14.464388), i.e. exactly the "one-in-a-thousand
+   * lottery wearing its costume" the limit was written to prevent. At `1/2` the
+   * run is always at least twice every side bet in the round put together, the
+   * most volatile product in the game is a route ticket again, and the
+   * enumerator asserts it rather than the prose claiming it.
+   */
   sideBet: Object.freeze({
     /** Side bets are only offered when at least this many runners are running. */
     minRunners: 2,
     /** Each side bet's stake, as a multiple of the route stake. */
-    maxStakeRatioPerBet: F(1n, 1n),
+    maxStakeRatioPerBet: F(1n, 2n),
     /** All side bets in a round together, as a multiple of the route stake. */
-    maxTotalStakeRatio: F(1n, 1n),
+    maxTotalStakeRatio: F(1n, 2n),
     /** At most one ticket per event per arena. */
     maxTicketsPerArena: 3,
   }),
@@ -1370,10 +1414,14 @@ export const SIDE_BET_PLANS = Object.freeze({
         : [],
   },
   ALL_THREE_FIRST_ARENA: {
-    label: '+ all three side bets on arena 1 at 1/3 the route stake each',
+    label: '+ all three side bets on arena 1 at 1/6 the route stake each',
+    /** Three tickets that together spend the round's whole side-bet allowance. */
     fn: (arena, _alive, _action, config) =>
       arena === 1 && config.runners >= CONFIG.sideBet.minRunners
-        ? SIDE_BET_IDS.map((bet) => ({ bet, weight: F(1n, 3n) }))
+        ? SIDE_BET_IDS.map((bet) => ({
+            bet,
+            weight: CONFIG.sideBet.maxTotalStakeRatio.div(F(BigInt(SIDE_BET_IDS.length))),
+          }))
         : [],
   },
 });

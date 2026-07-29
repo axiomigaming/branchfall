@@ -589,11 +589,46 @@ stakes, and responsible design — so they are declared, not left to the operato
 
 | Limit | Value | Why |
 | --- | --- | --- |
+| Minimum route stake | 1.000000 credit | the unit everything else is a ratio of |
+| Maximum route stake | **<!-- fig:maxStakeCredits -->1,000<!-- /fig -->.00 credits** | a declared liability ceiling: <!-- fig:maxTicketLiabilityCredits -->1,000,000<!-- /fig -->.00 credits on one route ticket at the 1000x cap (below) |
 | Minimum per side bet | 1.000000 credit | same floor as the route ticket |
-| Maximum per side bet | **1x the route stake** | a side bet may never carry more money than the run it rides on |
-| Maximum per round, all side bets | **1x the route stake** | at most half the money in a round can be on side bets |
+| Maximum per side bet | **<!-- fig:sideBetStakeRatio -->0.50<!-- /fig --> x the route stake** | a side bet may never carry more than half the money of the run it rides on |
+| Maximum per round, all side bets | **<!-- fig:sideBetStakeRatio -->0.50<!-- /fig --> x the route stake** | the run is always at least twice every side bet in the round put together, so at most <!-- fig:sideBetRoundShare -->33.3%<!-- /fig --> of a round's money can sit on the long shots |
 | Maximum tickets per arena | 3 | one per event; the same event cannot be staked twice |
 | Stake persistence | none | side-bet stakes reset to zero every arena and are never inherited |
+
+**Why a half and not parity, which is what the v2 draft declared.** Both ratios
+were `1/1`, and that delivered the cap argument (§9.3) while quietly failing the
+responsible-design one it was also sold on. At parity the maximum legal
+configuration in the game — a route ticket beside a maximum-stake SOLE SURVIVOR
+on arena 1 — had a standard deviation of **14.895961**, above the all-NARROW
+route ticket's **14.464388**. In other words the most volatile product in the
+entire specification was a side bet at its ceiling: half the round's money on a
+1-in-975 shot at <!-- fig:soleSurvivorMax -->931.35x<!-- /fig -->, which is
+precisely the "one-in-a-thousand lottery wearing its costume" this limit exists
+to prevent. A limit at parity bounds the long shot from *exceeding* the game; it
+does not stop it *substituting* for the game.
+
+At `1/2` the most volatile enumerated portfolio that adds side bets to a route
+ticket has standard deviation
+<!-- fig:maxSideBetPortfolioSd -->10.96<!-- /fig -->, below the
+<!-- fig:sdMax -->14.46<!-- /fig --> of the route ticket alone. **The most
+volatile thing the game offers is the game**, and §8.4 asserts it over all
+<!-- fig:portfolioCount -->45<!-- /fig --> portfolios rather than leaving it to
+this paragraph. `DESIGN.md` §10.2 carries the product-side claim, which is now
+the claim the build discharges.
+
+**Why the maximum route stake is declared at all.** It was `10^15`
+micro-credits through v2 — one billion credits per ticket, a `10^18` micro-credit
+liability ceiling — fingerprinted, and justified in no document, while every
+other limit in the adapter got a paragraph. `MATH.md` §9.4 says the cap exists to
+give operators and RGS risk limits "a hard liability ceiling"; a ceiling nobody
+can state is not one. At <!-- fig:maxStakeCredits -->1,000<!-- /fig -->.00
+credits the number a risk model needs is
+<!-- fig:maxTicketLiabilityCredits -->1,000,000<!-- /fig -->.00 credits per route
+ticket, and the round bound in §9.3 turns that into a round figure by the same
+arithmetic. An operator may configure lower; configuring higher changes the
+adapter fingerprint, which is the point.
 
 <!-- table:sidebets -->
 | Side bet | Contract | Runners | Lane balance | Exact probability | Probability | Exact multiplier | Multiplier | Exact RTP |
@@ -642,13 +677,18 @@ stakes, and responsible design — so they are declared, not left to the operato
 | LAST_LIGHT | NARROW | 5 | 5 | `33/64` | 0.515625000000 | `1528/825` | 1.85212121 | `191/200` |
 
 **Stake legality, and where the limits degenerate.** The declared limits are:
-minimum route stake 1.00 credit (`minStake = 1_000_000` micro-credits), minimum
-per side bet 1.00 credit, maximum per side bet one route stake, maximum per round
-across all side bets one route stake. These four are not independent at the
-bottom of the range. At the minimum route stake the only legal side-bet
-configuration in an entire round is a single ticket of exactly 1.00 credit; the
-"at most three tickets per arena" ceiling is unreachable below a 3.00 route
-stake, and reaching it consumes the round's whole allowance in one arena. The
+minimum route stake 1.00 credit (`minStake = 1_000_000` micro-credits), maximum
+route stake <!-- fig:maxStakeCredits -->1,000<!-- /fig -->.00 credits, minimum per
+side bet 1.00 credit, maximum per side bet half a route stake, maximum per round
+across all side bets half a route stake. These are not independent at the bottom
+of the range, and the halved ratio moves where they collide. **Below a
+<!-- fig:minRouteStakeForASideBet -->2.00<!-- /fig --> credit route stake no side
+bet is legal at all**, because half of anything smaller is under the 1.00
+per-ticket minimum; at exactly
+<!-- fig:minRouteStakeForASideBet -->2.00<!-- /fig --> the only legal
+configuration in an entire round is a single ticket of exactly 1.00 credit; and
+the "at most three tickets per arena" ceiling is unreachable below a 6.00 route
+stake, where reaching it consumes the round's whole allowance in one arena. The
 ceiling is a bound, not an entitlement. **No proof in this document depends on
 any of it:** every quantity here is a ratio, RTP is scale-invariant, and §8.2
 proves portfolio invariance for arbitrary non-negative stake vectors, legal or
@@ -746,13 +786,22 @@ combination and computes both expectations exactly.
 stakes below are expressed as fractions of the route stake, which is the right
 unit for a scale-invariant table but is not automatically a legal ticket: the
 `1/10`-weight rows need a route stake of at least 10.00 credits to clear the 1.00
-per-ticket minimum, the `1/3`-weight rows need at least 3.00, and the
-"maximum legal stake, arena 1 only" rows are legal at every stake (see §5.5).
+per-ticket minimum, the `1/6`-weight rows need at least 6.00, and the
+"maximum legal stake, arena 1 only" rows — half a route stake since §5.5 — need
+at least <!-- fig:minRouteStakeForASideBet -->2.00<!-- /fig -->.
 The plans were chosen to span the shape of the space — nothing, a small
 recurring plan on each of the two extreme events, one maximal single ticket, and
 a full three-event arena — not to enumerate a legal-stake product surface. The
 invariance result does not depend on legality: §8.2 proves it for arbitrary
 non-negative stake vectors.
+
+**And one row is a claim, not an illustration.** No portfolio here that adds side
+bets to a route ticket is more volatile than the most volatile route ticket
+alone: the highest is
+<!-- fig:maxSideBetPortfolioSd -->10.96<!-- /fig --> against
+<!-- fig:sdMax -->14.46<!-- /fig -->. That is the responsible-design property the
+side-bet ceiling exists for, it was false at the v2 parity limit, and §8.4
+asserts it across all <!-- fig:portfolioCount -->45<!-- /fig --> portfolios.
 
 <!-- table:portfolios -->
 | Route policy | Side-bet plan | Leaves | E[staked] | E[credited] | RTP = E[cr]/E[st] | RTP % | Std. dev. | Max return |
@@ -760,23 +809,23 @@ non-negative stake vectors.
 | Ranger (Wide x5) | route ticket only | 252 | `1/1` | `191/200` | `191/200` | 95.5000 | 0.647270 | `74609375/32672808` = 2.283531 |
 | Ranger (Wide x5) | + Clean Sweep every arena at 1/10 the route stake | 252 | `398061086597639532239/274877906944000000000` | `76029667540149150657649/54975581388800000000000` | `191/200` | 95.5000 | 0.565711 | `106293983/49009212` = 2.168857 |
 | Ranger (Wide x5) | + Last Light every arena at 1/10 the route stake | 252 | `398061086597639532239/274877906944000000000` | `76029667540149150657649/54975581388800000000000` | `191/200` | 95.5000 | 0.511207 | `97792/45089` = 2.168866 |
-| Ranger (Wide x5) | + Sole Survivor at the maximum legal stake, arena 1 only | 252 | `2/1` | `191/100` | `191/200` | 95.5000 | 14.895961 | `152224096991/326728080` = 465.904544 |
-| Ranger (Wide x5) | + all three side bets on arena 1 at 1/3 the route stake each | 252 | `2/1` | `191/100` | `191/200` | 95.5000 | 5.002890 | `50791105247/326728080` = 155.453750 |
+| Ranger (Wide x5) | + Sole Survivor at the maximum legal stake, arena 1 only | 252 | `3/2` | `573/400` | `191/200` | 95.5000 | 9.929897 | `76149353183/245046060` = 310.755264 |
+| Ranger (Wide x5) | + all three side bets on arena 1 at 1/6 the route stake each | 252 | `3/2` | `573/400` | `191/200` | 95.5000 | 3.340277 | `25432857311/245046060` = 103.788069 |
 | Forker (Split x5 balanced, Wide when alone) | route ticket only | 252 | `1/1` | `191/200` | `191/200` | 95.5000 | 0.837499 | `24448/6075` = 4.024362 |
 | Forker (Split x5 balanced, Wide when alone) | + Clean Sweep every arena at 1/10 the route stake | 252 | `25199022443/18119393280` | `4813013286613/3623878656000` | `191/200` | 95.5000 | 0.720183 | `8339824/2278125` = 3.660828 |
 | Forker (Split x5 balanced, Wide when alone) | + Last Light every arena at 1/10 the route stake | 252 | `25199022443/18119393280` | `4813013286613/3623878656000` | `191/200` | 95.5000 | 1.042547 | `9168/1375` = 6.667636 |
-| Forker (Split x5 balanced, Wide when alone) | + Sole Survivor at the maximum legal stake, arena 1 only | 252 | `2/1` | `191/100` | `191/200` | 95.5000 | 2.519501 | `10891995223/758475900` = 14.360371 |
-| Forker (Split x5 balanced, Wide when alone) | + all three side bets on arena 1 at 1/3 the route stake each | 252 | `2/1` | `191/100` | `191/200` | 95.5000 | 1.583144 | `1528/125` = 12.224000 |
+| Forker (Split x5 balanced, Wide when alone) | + Sole Survivor at the maximum legal stake, arena 1 only | 252 | `3/2` | `573/400` | `191/200` | 95.5000 | 1.704834 | `5542989799/568856925` = 9.744084 |
+| Forker (Split x5 balanced, Wide when alone) | + all three side bets on arena 1 at 1/6 the route stake each | 252 | `3/2` | `573/400` | `191/200` | 95.5000 | 1.119443 | `3056/375` = 8.149333 |
 | Knife (Narrow x5) | route ticket only | 252 | `1/1` | `191/200` | `191/200` | 95.5000 | 14.464388 | `24448/25` = 977.920000 |
 | Knife (Narrow x5) | + Clean Sweep every arena at 1/10 the route stake | 252 | `48298619/41943040` | `9225036229/8388608000` | `191/200` | 95.5000 | 10.968723 | `16808/25` = 672.320000 |
 | Knife (Narrow x5) | + Last Light every arena at 1/10 the route stake | 252 | `48298619/41943040` | `9225036229/8388608000` | `191/200` | 95.5000 | 10.895312 | `48896/75` = 651.946667 |
-| Knife (Narrow x5) | + Sole Survivor at the maximum legal stake, arena 1 only | 252 | `2/1` | `191/100` | `191/200` | 95.5000 | 7.409716 | `12224/25` = 488.960000 |
-| Knife (Narrow x5) | + all three side bets on arena 1 at 1/3 the route stake each | 252 | `2/1` | `191/100` | `191/200` | 95.5000 | 7.371907 | `37436/75` = 499.146667 |
+| Knife (Narrow x5) | + Sole Survivor at the maximum legal stake, arena 1 only | 252 | `3/2` | `573/400` | `191/200` | 95.5000 | 9.700552 | `48896/75` = 651.946667 |
+| Knife (Narrow x5) | + all three side bets on arena 1 at 1/6 the route stake each | 252 | `3/2` | `573/400` | `191/200` | 95.5000 | 9.696105 | `148216/225` = 658.737778 |
 | Keeper (Shelter half, then Wide) | route ticket only | 20 | `1/1` | `191/200` | `191/200` | 95.5000 | 0.304026 | `5459539607/4084101000` = 1.336779 |
 | Keeper (Shelter half, then Wide) | + Clean Sweep every arena at 1/10 the route stake | 20 | `18629/16000` | `3558139/3200000` | `191/200` | 95.5000 | 0.313507 | `6596658107/4900921200` = 1.346004 |
 | Keeper (Shelter half, then Wide) | + Last Light every arena at 1/10 the route stake | 20 | `18629/16000` | `3558139/3200000` | `191/200` | 95.5000 | 0.428369 | `89197/36850` = 2.420543 |
-| Keeper (Shelter half, then Wide) | + Sole Survivor at the maximum legal stake, arena 1 only | 20 | `2/1` | `191/100` | `191/200` | 95.5000 | 2.328240 | `102481016957/8168202000` = 12.546337 |
-| Keeper (Shelter half, then Wide) | + all three side bets on arena 1 at 1/3 the route stake each | 20 | `2/1` | `191/100` | `191/200` | 95.5000 | 0.976753 | `36443912957/8168202000` = 4.461681 |
+| Keeper (Shelter half, then Wide) | + Sole Survivor at the maximum legal stake, arena 1 only | 20 | `3/2` | `573/400` | `191/200` | 95.5000 | 1.538396 | `52953188957/6126151500` = 8.643794 |
+| Keeper (Shelter half, then Wide) | + all three side bets on arena 1 at 1/6 the route stake each | 20 | `3/2` | `573/400` | `191/200` | 95.5000 | 0.630530 | `19934636957/6126151500` = 3.254023 |
 
 Every row is exactly `191/200`. Side bets move variance and the shape of the
 tail; they cannot move the edge, in either direction.
@@ -898,7 +947,7 @@ of playing has the same edge. They emphatically do not have the same experience.
 ### 8.4 Exhaustive verification, not just a proof
 
 `tools/enumerate.mjs` verifies the theorems mechanically rather than trusting
-them, checking <!-- fig:invariantCount -->1767<!-- /fig --> exact invariants:
+them, checking <!-- fig:invariantCount -->1805<!-- /fig --> exact invariants:
 
 1. **Per-action check.** For every state `(a, n)` and every legal action —
    including every lane balance — it computes
@@ -925,7 +974,10 @@ them, checking <!-- fig:invariantCount -->1767<!-- /fig --> exact invariants:
    every one of them crossed with every one of
    <!-- fig:sideBetPlanCount -->5<!-- /fig --> named side-bet plans —
    <!-- fig:portfolioCount -->45<!-- /fig --> portfolios — has its
-   `E[credited] / E[staked]` asserted equal to `191/200`.
+   `E[credited] / E[staked]` asserted equal to `191/200`. Every portfolio that
+   adds side bets is also asserted **no more volatile than the most volatile
+   route ticket**, which is the responsible-design claim `DESIGN.md` §10.2 makes
+   and the one the v2 parity limit falsified (§5.5).
 5. **The dominance lattice.** Every one of the
    <!-- fig:dominancePairs -->19<!-- /fig --> pairs of geometries a player can be
    offered at a single squad size has its exact second-order relation computed
@@ -977,10 +1029,13 @@ That basis is the correction the v1 draft needed and §9.5 records why.
 | Cap headroom | `552/25` | 22.080000 |
 | Max round total, per unit of total round stake (bound) | `24448/25` | 977.920000 |
 | Max round total, per unit of total round stake (reachable) | `24448/25` | 977.920000 |
-| Max round total, per unit of route stake (reachable) | `25976/25` | 1039.040000 |
-| Max round total, per unit of route stake (both limits maxed) | `1002368/525` | 1909.272381 |
-| Side-bet stake limit, per bet | `1/1` | 1.00 x route stake |
-| Side-bet stake limit, per round | `1/1` | 1.00 x route stake |
+| Max round total, per unit of route stake (reachable) | `25212/25` | 1008.480000 |
+| Max round total, per unit of route stake (both limits maxed) | `757888/525` | 1443.596190 |
+| Side-bet stake limit, per bet | `1/2` | 0.50 x route stake |
+| Side-bet stake limit, per round | `1/2` | 0.50 x route stake |
+| Minimum route stake | `1000000` uc | 1.00 credits |
+| Maximum route stake (declared ceiling) | `1000000000` uc | 1,000.00 credits |
+| Liability ceiling, one route ticket at the maximum stake | `1000000000000` uc | 1,000,000.00 credits |
 | Minimum game cycle | `5000` ms | 5.0 s per arena |
 | Money unit | `1/1000000` credit | 0.000001 |
 | Max floor-rounding loss, route ticket | `5/1000000` credit | 0.000005 |
@@ -1032,13 +1087,13 @@ published stake interval exactly rather than resting on the argument:
 | Allocation | Upper bound on round total, per unit of total round stake |
 | --- | --- |
 | Route ticket only | <!-- fig:maxRoundRatio -->977.92x<!-- /fig --> |
-| Route ticket plus the maximum legal side-bet stake | <!-- fig:ratioMaxSideBets -->954.64x<!-- /fig --> |
+| Route ticket plus the maximum legal side-bet stake | <!-- fig:ratioMaxSideBets -->962.40x<!-- /fig --> |
 
 and in absolute terms, with both stake limits maxed out, a round's total credit is
-bounded by <!-- fig:worstCaseRoundTotal -->1909.27x<!-- /fig --> of the route
-stake — against 2x the route stake actually wagered, which is the
-<!-- fig:ratioMaxSideBets -->954.64x<!-- /fig --> above. Every one of these is
-strictly below 1000x.
+bounded by <!-- fig:worstCaseRoundTotal -->1443.60x<!-- /fig --> of the route
+stake — against the 1.5 route stakes actually wagered to get there, which is the
+<!-- fig:ratioMaxSideBets -->962.40x<!-- /fig --> above. Every one of these
+is strictly below 1000x.
 
 Those are bounds, and a bound is what the cap obligation needs. They are also
 loose, because the route ceiling needs NARROW five times with all five clearing
@@ -1057,7 +1112,7 @@ result is the round that actually pays the most:
 | | Reachable maximum |
 | --- | --- |
 | Route ticket | <!-- fig:routeTicketMax -->977.92x<!-- /fig --> of the route stake, via NARROW five times with all five clearing |
-| Round total, per unit of route stake | <!-- fig:reachableRoundTotal -->1039.04x<!-- /fig --> — the same line, plus a Clean Sweep at the maximum stake winning on every arena |
+| Round total, per unit of route stake | <!-- fig:reachableRoundTotal -->1008.48x<!-- /fig --> — the same line, plus a Clean Sweep at the maximum stake winning on every arena |
 | Round total, per unit of **total round stake** | <!-- fig:reachableRoundRatio -->977.92x<!-- /fig --> |
 
 The exhaustive walk reproduces the backward induction's route-ticket ceiling
@@ -1065,13 +1120,13 @@ exactly, which is a genuine cross-check: two different algorithms over the same
 state space agreeing on `24448/25`.
 
 And note the middle row. A round *can* credit more than 1000x of the **route**
-stake — <!-- fig:reachableRoundTotal -->1039.04x<!-- /fig --> — which is precisely
+stake — <!-- fig:reachableRoundTotal -->1008.48x<!-- /fig --> — which is precisely
 why the basis has to be stated and stated
-correctly. It is not over the cap, because it staked 2x the route stake to get
+correctly. It is not over the cap, because it staked 1.5x the route stake to get
 there and no individual ticket came near its own ceiling.
 
 Note where the side-bet stake limits earn their keep: without the "a side bet may
-never carry more money than the run it rides on" rule, a large enough SOLE
+never carry more than half the money of the run it rides on" rule, a large enough SOLE
 SURVIVOR stake would make the round total unbounded as a multiple of the *route*
 stake, and any per-round claim expressed against the route stake would be
 meaningless. The limit is what makes the sentence well defined.
@@ -1124,8 +1179,29 @@ the cap on its own, with no route line required at all.
 
 Two changes fix it, and both are now enforced by the enumerator rather than
 asserted in prose: the cap basis is per ticket (§9.1), and side-bet stakes are
-bounded by the route stake (§5.5). The claim in the README is now the claim the
-build actually discharges.
+bounded against the route stake (§5.5). The claim in the README is now the claim
+the build actually discharges.
+
+### 9.6 What changed from the v2 draft, and why
+
+The v2 draft set both side-bet ratios at `1/1` and declared `maxStake` at `10^15`
+micro-credits. Neither figure was wrong for the cap proof; both were wrong for
+what they were also sold as.
+
+* **The side-bet ratio at parity made the long shot the game.** §5.5 records the
+  arithmetic: the maximum legal configuration was the most volatile product in
+  the document, above every route ticket, which contradicts `DESIGN.md` §10.2's
+  loss-chasing requirement. The ratio is now `1/2` and the property is asserted
+  over every enumerated portfolio.
+* **A one-billion-credit ticket ceiling is not a liability ceiling.** §9.4 says
+  the cap exists to give a hard liability number; `10^18` micro-credits is not a
+  number a risk model recognises, and it appeared in no document. It is now
+  <!-- fig:maxStakeCredits -->1,000<!-- /fig -->.00 credits, published in the
+  invariants table with the liability figure it implies.
+
+Both are fingerprinted fields, so both changes are a new `adapterVersion`
+(`3.0.0`) rather than a silent retune. Every figure in §9.3 moved with them and
+was regenerated, not edited.
 
 ---
 

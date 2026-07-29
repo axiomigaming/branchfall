@@ -106,19 +106,29 @@ describe('the largest side bet the game can produce', () => {
     const offer = sideBetOffers('WIDE', 5).find((o) => o.bet === 'SOLE_SURVIVOR');
     expect(offer.multiplier.toString()).toBe('97792/105');
 
+    // The side ceiling is half the route stake and the side FLOOR is 1.00
+    // credit, so the smallest round that can carry a maximum-stake side bet
+    // stakes 2.00 on the run. That collision is documented in MATH.md §5.5 and
+    // it is the reason this test cannot use the minimum route stake.
+    const routeStake = 2n * STAKE;
+    const sideStake = routeStake / 2n;
+    expect(sideStake).toBe(CONFIG.minStakeMicro);
+
     const replay = replayRound(
       { roundId: 'cap', clientSeed: 'cap', hazard: soleSurvivorHazard(2) },
       {
-        stakeMicro: STAKE,
-        // The side stake is at the published ceiling: equal to the route stake.
-        actions: [{ type: 'ROUTE', contract: 'WIDE', sideBets: [{ bet: 'SOLE_SURVIVOR', stakeMicro: STAKE }] }],
+        stakeMicro: routeStake,
+        actions: [
+          { type: 'ROUTE', contract: 'WIDE', sideBets: [{ bet: 'SOLE_SURVIVOR', stakeMicro: sideStake }] },
+        ],
       },
     );
 
     const entry = replay.sideLedger[0];
     expect(entry.won).toBe(true);
-    expect(BigInt(entry.creditedMicro)).toBe(offer.multiplier.mul(F(STAKE)).floor());
-    expect(BigInt(entry.creditedMicro)).toBeLessThan(STAKE * CONFIG.maxWinMultiple);
+    expect(BigInt(entry.creditedMicro)).toBe(offer.multiplier.mul(F(sideStake)).floor());
+    // The cap is per ticket, against THAT ticket's own stake.
+    expect(BigInt(entry.creditedMicro)).toBeLessThan(sideStake * CONFIG.maxWinMultiple);
     expect(replay.capped).toBe(false);
   });
 });
@@ -129,10 +139,11 @@ describe('the round total', () => {
     // Sweep at the maximum legal stake on the first arena. Under the v1 basis
     // this round was over the cap; under the per-ticket basis it is not.
     const round = { roundId: 'cap', clientSeed: 'cap', hazard: allClearHazard() };
+    const routeStake = 2n * STAKE;
     const replay = replayRound(round, {
-      stakeMicro: STAKE,
+      stakeMicro: routeStake,
       actions: [
-        { type: 'ROUTE', contract: 'NARROW', sideBets: [{ bet: 'CLEAN_SWEEP', stakeMicro: STAKE }] },
+        { type: 'ROUTE', contract: 'NARROW', sideBets: [{ bet: 'CLEAN_SWEEP', stakeMicro: routeStake / 2n }] },
         { type: 'ROUTE', contract: 'NARROW' },
         { type: 'ROUTE', contract: 'NARROW' },
         { type: 'ROUTE', contract: 'NARROW' },
@@ -145,7 +156,7 @@ describe('the round total', () => {
 
     const credited = BigInt(replay.creditedMicro);
     const staked = BigInt(replay.totalStakeMicro);
-    expect(staked).toBe(2n * STAKE);
+    expect(staked).toBe(routeStake + routeStake / 2n);
 
     // The binding statement: the round total, per unit of TOTAL round stake, is
     // under the cap — and under the per-ticket ceiling, as the weighted-mean
@@ -241,11 +252,12 @@ describe('the exhaustive reachable-maximum search', () => {
   });
 
   it('finds a round that pays over 1000x of the ROUTE stake, which is why the basis matters', () => {
-    // 977.92x route ticket plus a Clean Sweep winning on all five NARROW arenas.
-    expect(reachable.roundTotalPerRouteStakeMax.toString()).toBe('25976/25');
+    // 977.92x route ticket plus a Clean Sweep at the whole side allowance
+    // winning on that line: 24448/25 + (1528/25)(1/2) = 25212/25 = 1008.48x.
+    expect(reachable.roundTotalPerRouteStakeMax.toString()).toBe('25212/25');
     expect(reachable.roundTotalPerRouteStakeMax.gt(F(CONFIG.maxWinMultiple))).toBe(true);
-    // ... and yet nothing is capped, because it staked 2x the route stake for it
-    // and no ticket came near its own ceiling.
+    // ... and yet nothing is capped, because it staked 1.5x the route stake for
+    // it and no ticket came near its own ceiling.
     expect(reachable.roundRatioMax.lt(F(CONFIG.maxWinMultiple))).toBe(true);
   });
 });

@@ -62,7 +62,7 @@ export const CHAIN_VERSION = 'branchfall/seed-chain-v1';
 export const LIMITS = Object.freeze({
   maxRoundIdBytes: 64,
   maxClientSeedBytes: 64,
-  maxStakeMicro: 10n ** 15n,
+  maxStakeMicro: CONFIG.maxStakeMicro,
   seedHexLength: 64,
   maxChainLength: 1_000_000,
 });

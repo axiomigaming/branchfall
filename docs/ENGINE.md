@@ -189,6 +189,7 @@ export interface StagedSurvivalDefinition {
   };
   readonly limits: {
     readonly minStake: Micro;
+    /** A declared liability ceiling, not a placeholder. See MATH.md §5.5. */
     readonly maxStake: Micro;
     readonly maxSideBetStakeRatio: Rational;
     readonly maxTotalSideBetStakeRatio: Rational;
@@ -205,6 +206,12 @@ export interface StagedSurvivalDefinition {
     /** RTS 14G (non-slot casino) is 5000; RTS 14D (slots) is 2500. */
     readonly minGameCycleMs: number;
     readonly maxDecisionCountdownMs: 0;
+    /** The citation, pinned by EDITION — a letter alone cannot be checked. */
+    readonly standard: string;
+    readonly standardEdition: string;
+    readonly provision: string;
+    /** Declaring `false` is honest; declaring `true` without the check is the defect. */
+    readonly provisionVerifiedAgainstCertifiedCopy: boolean;
   };
   readonly cosmetics: {
     readonly defaultRunnerNames: readonly string[];
@@ -243,7 +250,7 @@ export const branchfall = {
   apiVersion: 'reveal-engine/api-v1',
   lifecycle: 'reveal-engine/staged-survival-v1',
   id: 'branchfall',
-  adapterVersion: '2.0.0',
+  adapterVersion: '3.0.0',
   squadSize: 5,
   arenas: 5,
   contracts: [
@@ -262,10 +269,12 @@ export const branchfall = {
   hazard:  { modelVersion: 'branchfall-hazard/v2', arenas: 5, squadSize: 5, derive },
   pricing: { firstEntryRtp: 191n/200n, continuationRtp: 1n/1n,
              sideBetRule: 'firstEntryRtp/probability', rounding: 'floor' },
-  limits:  { minStake: 1_000_000n, maxStake: 10n ** 15n,
-             maxSideBetStakeRatio: 1n/1n, maxTotalSideBetStakeRatio: 1n/1n },
+  limits:  { minStake: 1_000_000n, maxStake: 1_000_000_000n,      // 1.00 .. 1,000.00 credits
+             maxSideBetStakeRatio: 1n/2n, maxTotalSideBetStakeRatio: 1n/2n },
   risk:    { maxWinMultiple: 1000n, capBasis: 'per-ticket', capMustBeUnreachable: true },
-  speed:   { cycleUnit: 'arena', minGameCycleMs: 5000, maxDecisionCountdownMs: 0 },
+  speed:   { cycleUnit: 'arena', minGameCycleMs: 5000, maxDecisionCountdownMs: 0,
+             standard: 'UKGC RTS', standardEdition: 'RTS 2021-10-31',
+             provision: 'RTS 14G', provisionVerifiedAgainstCertifiedCopy: false },
   cosmetics: { defaultRunnerNames: ['Wren','Bramble','Ora','Tuck','Sable'], renamable: true },
 };
 ```
@@ -542,8 +551,13 @@ Mechanical, adapter-agnostic, and evidence — not certification.
    value re-charges margin per stage and silently destroys the equal-RTP
    guarantee.
 8. `firstEntryRtp` in `(0, 1]`; the adapter's declared band is enforced by CI.
-9. `limits.maxSideBetStakeRatio <= limits.maxTotalSideBetStakeRatio <= 1`.
-   Without this the cap proof does not close (§9 of `MATH.md`).
+9. `limits.maxSideBetStakeRatio <= limits.maxTotalSideBetStakeRatio <= 1`, and
+   `limits.minStake < limits.maxStake`. Without the first the cap proof does not
+   close (§9 of `MATH.md`); without the second the declared liability ceiling is
+   not a ceiling. BRANCHFALL declares both ratios at `1/2` for a responsible-design
+   reason on top of the cap one, and that reason is itself a CI assertion: no
+   legal side-bet configuration may be more volatile than the most volatile route
+   ticket (`MATH.md` §5.5).
 10. `derive()` is deterministic in both seeds: called twice with the same server
     seed and context it returns identical tables; called with a different
     `clientSeed`, `roundId` or server seed it does not.
@@ -557,7 +571,10 @@ Mechanical, adapter-agnostic, and evidence — not certification.
     interval are strictly below `maxWinMultiple`.
 13. `speed.minGameCycleMs >= 5000` for a non-slot classification (`>= 2500` if a
     regulator has classified the game as a slot), and
-    `speed.maxDecisionCountdownMs == 0`.
+    `speed.maxDecisionCountdownMs == 0`. `speed.standard`, `speed.standardEdition`
+    and `speed.provision` are all non-empty: a provision cited without an edition
+    cannot be checked against anything, which is the defect the edition field
+    exists to remove (`DESIGN.md` §5.1).
 14. `openRound()` rejects a `preCommitment` its server seed does not open, and
     the returned published record has no `hazard` field.
 14a. `expire()` returns `AUTO_BANK` exactly when `BANK` is in the frame's legal
@@ -583,7 +600,7 @@ Mechanical, adapter-agnostic, and evidence — not certification.
 
 Checks 1–6, 9, 12 and 13 are already implemented and run on every CI run here by
 [`../tools/enumerate.mjs`](../tools/enumerate.mjs)
-(<!-- fig:invariantCount -->1767<!-- /fig --> exact invariants).
+(<!-- fig:invariantCount -->1805<!-- /fig --> exact invariants).
 
 ---
 
@@ -599,7 +616,15 @@ declaration order its id, `event` and `minRunners`; then `firstEntryRtp`,
 `continuationRtp`, `sideBetRule`, `rounding`; then `minStake`, `maxStake`,
 `maxSideBetStakeRatio`, `maxTotalSideBetStakeRatio`; then `maxWinMultiple`,
 `capBasis`, `capMustBeUnreachable`; then `cycleUnit`, `minGameCycleMs`,
-`maxDecisionCountdownMs`.
+`maxDecisionCountdownMs`, `standard`, `standardEdition`, `provision`,
+`provisionVerifiedAgainstCertifiedCopy`.
+
+**Why the citation is fingerprinted.** Which provision an operator claims to
+satisfy, in which edition, and whether anyone checked it, are declarations about
+the game's regulatory posture. They move the same way `cycleUnit` moves: rarely,
+deliberately, and never without a reviewer seeing it. A citation that can be
+edited without changing the game's identity is a citation nobody has to be right
+about.
 
 **Why the lane SIZES and not only the balances.** `laneSplits(n)` names the
 choices; `laneSizes(n, k)` is what actually determines the survivor distribution.
@@ -628,7 +653,7 @@ they are playing.
 | --- | --- | --- |
 | Engine API | `reveal-engine/api-v1` | new value for a breaking runtime/type contract |
 | Lifecycle | `reveal-engine/staged-survival-v1` | new value for a breaking lifecycle contract |
-| Adapter | `branchfall` @ `2.0.0` | bump for **any** replay-visible change |
+| Adapter | `branchfall` @ `3.0.0` | bump for **any** replay-visible change |
 | Hazard model | `branchfall-hazard/v2` | bump for any change to derivation behaviour |
 | Commitment | `branchfall/commit-v2` | new rounds use current; old is verification-only |
 | Transcript | `branchfall/transcript-v2` | bounded migration parser; unknown versions fail closed |
@@ -643,10 +668,18 @@ frozen as the conformance vector for that rejection.
 
 Changing a `collapse`, a `clear`, a lane-balance rule, `squadSize`, `arenas`,
 lane assignment, `firstEntryRtp`, the side-bet rule or events, a stake limit,
-rounding, the cap or its basis is replay-visible: bump `adapterVersion`, re-run
+rounding, the cap or its basis, or the declared speed citation is
+replay-visible or identity-visible: bump `adapterVersion`, re-run
 `npm run docs:sync`, re-publish `docs/MATH.md`, and let the paytable test confirm
 it. An integration must retain the exact adapter implementation for as long as
 any round it settled remains verifiable.
+
+`2.0.0 -> 3.0.0` is that rule being followed: both side-bet stake ratios moved
+from `1/1` to `1/2`, `maxStake` from `10^15` to `10^9` micro-credits, and the
+speed citation gained an edition. `MATH.md` §9.6 records why. No hazard draw
+changes — the derivation does not read `adapterVersion` — but the commitment and
+the hazard digest do, so both frozen fixtures were regenerated rather than
+edited.
 
 ---
 

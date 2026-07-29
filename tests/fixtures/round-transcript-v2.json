@@ -52,19 +52,19 @@
   "published": {
     "schema": "branchfall/transcript-v2",
     "gameId": "branchfall",
-    "adapterVersion": "2.0.0",
+    "adapterVersion": "3.0.0",
     "modelVersion": "branchfall-hazard/v2",
     "roundId": "branchfall-fixture-0002",
     "clientSeed": "wren-bramble-ora-tuck-sable-74",
     "preCommitment": {
       "version": "branchfall/commit-v2",
       "gameId": "branchfall",
-      "adapterVersion": "2.0.0",
+      "adapterVersion": "3.0.0",
       "modelVersion": "branchfall-hazard/v2",
       "roundId": "branchfall-fixture-0002",
-      "commitment": "922cbd0ff1a575f27174d94342653feb502415d5f3cbeb7982fb787def231db8"
+      "commitment": "eac810e036ba20ad71ecac4e448c076569bbde1d9001b1198d300b9ba0068dde"
     },
-    "hazardDigest": "fb3f1750e4d4888755dba4879372d4a54d3edfb1d0fd6a0887ac19651f1d9d88"
+    "hazardDigest": "60f25c40971e25e3803f93f2a333e298e8ea9ef5906a0e17654bf8f0213608f9"
   },
   "hazard": [
     {

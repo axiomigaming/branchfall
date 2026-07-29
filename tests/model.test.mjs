@@ -313,7 +313,8 @@ describe('policy enumeration', () => {
     expect(everyArena.expectedStake.gt(Frac.ONE)).toBe(true);
     const firstArenaOnly = enumeratePolicy(POLICIES.ALL_WIDE.fn, SIDE_BET_PLANS.MAX_SOLE_SURVIVOR.fn);
     expect(firstArenaOnly.stakeDeterministic).toBe(true);
-    expect(firstArenaOnly.expectedStake.toString()).toBe('2/1');
+    // One route unit plus the whole side allowance, staked once on arena 1.
+    expect(firstArenaOnly.expectedStake.toString()).toBe('3/2');
   });
 
   it('changes variance when only the lane balance changes', () => {

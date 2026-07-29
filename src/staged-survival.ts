@@ -329,6 +329,23 @@ export interface StagedSurvivalSpeed {
   readonly minGameCycleMs: number;
   /** No countdown may ever appear on a money decision. Structural, not configurable. */
   readonly maxDecisionCountdownMs: 0;
+  /** The standards body whose rule the floor is built to. */
+  readonly standard: string;
+  /**
+   * The EDITION of that standard, pinned. Provision lettering has moved across
+   * revisions, so a citation by letter with no edition can neither be checked nor
+   * be wrong. Declaring the edition makes the citation falsifiable and repairable
+   * in one fingerprinted field.
+   */
+  readonly standardEdition: string;
+  /** The provision itself, e.g. `RTS 14G`. */
+  readonly provision: string;
+  /**
+   * Whether the lettering was checked against a certified copy of the operative
+   * edition for the target jurisdiction. `false` is an honest declaration, not a
+   * defect; shipping `true` without the check is the defect.
+   */
+  readonly provisionVerifiedAgainstCertifiedCopy: boolean;
 }
 
 export interface StagedSurvivalDefinition {

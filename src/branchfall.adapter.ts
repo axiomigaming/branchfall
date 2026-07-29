@@ -115,7 +115,7 @@ export const branchfall: Omit<StagedSurvivalDefinition, 'hazard'> & {
   apiVersion: ENGINE_API_VERSION,
   lifecycle: LIFECYCLE_MODULE,
   id: 'branchfall',
-  adapterVersion: '2.0.0',
+  adapterVersion: '3.0.0',
   squadSize: 5,
   arenas: 5,
   contracts: Object.freeze([WIDE, SPLIT, NARROW]),
@@ -133,10 +133,16 @@ export const branchfall: Omit<StagedSurvivalDefinition, 'hazard'> & {
   limits: Object.freeze({
     /** 1.00 credit. */
     minStake: 1_000_000n,
-    maxStake: 10n ** 15n,
-    /** A side bet may never carry more money than the run it rides on. */
-    maxSideBetStakeRatio: rational(1n, 1n),
-    maxTotalSideBetStakeRatio: rational(1n, 1n),
+    /**
+     * 1,000.00 credits. A declared liability ceiling, not a placeholder: with
+     * the 1000x per-ticket cap it bounds one route ticket at 1,000,000.00
+     * credits. See docs/MATH.md §5.5. An operator may configure lower.
+     */
+    maxStake: 1_000_000_000n,
+    /** A side bet may never carry more than half the money of the run it rides on. */
+    maxSideBetStakeRatio: rational(1n, 2n),
+    /** All side bets in a round together, so the run is always at least twice them. */
+    maxTotalSideBetStakeRatio: rational(1n, 2n),
   }),
   risk: Object.freeze({
     maxWinMultiple: 1000n,
@@ -154,6 +160,17 @@ export const branchfall: Omit<StagedSurvivalDefinition, 'hazard'> & {
     /** UKGC RTS 14G — 5 s for casino games other than slots. A delay, never a countdown. */
     minGameCycleMs: 5000,
     maxDecisionCountdownMs: 0 as const,
+    /**
+     * The citation, pinned by edition. Lettering has moved across RTS revisions,
+     * so a citation by letter alone cannot be checked and cannot be wrong. This
+     * repository has not verified the lettering against a certified copy of the
+     * operative edition and does not claim it is correct — it claims the pin is
+     * visible and correctable in one fingerprinted place (docs/DESIGN.md §5.1).
+     */
+    standard: 'UKGC RTS' as const,
+    standardEdition: 'RTS 2021-10-31',
+    provision: 'RTS 14G',
+    provisionVerifiedAgainstCertifiedCopy: false,
   }),
   /**
    * Cosmetic only. Excluded from the adapter fingerprint by design: a player
