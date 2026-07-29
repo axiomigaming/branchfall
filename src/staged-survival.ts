@@ -487,6 +487,34 @@ export interface StagedSurvivalSettlement {
   readonly sideBets: readonly SideBetResolution[];
 }
 
+/**
+ * How a round abandoned past the operator's expiry window is closed.
+ *
+ * The rule this type exists to make structural: **expiry may never resolve a
+ * round with an action the model does not have.** `BANK` is illegal in state
+ * `(1, n)` — buying a run commits it to arena 1 — so a round abandoned before
+ * arena 1 resolves cannot be auto-banked. It is voided: the wager is cancelled
+ * and the route stake returned in full.
+ *
+ * A void is not a settlement. It credits nothing, contributes no turnover and no
+ * bonus progress, and is not a played round (`DESIGN.md` §2.1). Modelling the two
+ * outcomes as one "auto-resolve as BANK" is what let the product's action space
+ * drift away from the enumerated one.
+ */
+export type RoundExpiryResolution =
+  | {
+      readonly kind: 'AUTO_BANK';
+      /** Exactly the BANK the player could have taken. Legal only once an arena has resolved. */
+      readonly action: { readonly type: 'BANK' };
+      readonly creditMicro: Micro;
+    }
+  | {
+      readonly kind: 'VOID';
+      /** The route stake, returned whole. No side-bet money can be outstanding at a decision point. */
+      readonly refundMicro: Micro;
+      readonly reason: 'BANK_ILLEGAL_BEFORE_FIRST_RESOLUTION';
+    };
+
 export type VerificationFailureCode =
   | 'INVALID_TRANSCRIPT'
   | 'UNSUPPORTED_VERSION'
@@ -583,6 +611,22 @@ export interface StagedSurvivalModule {
     readonly debitMicro: Micro;
     readonly creditMicro: Micro;
   };
+  /**
+   * Closes a round abandoned past the operator's expiry window.
+   *
+   * MUST derive the outcome from the frame's own legal action set rather than
+   * from a policy: `AUTO_BANK` exactly when `BANK` is legal in the current
+   * state, and `VOID` otherwise. It may never emit a route or a shelter — expiry
+   * is never a forced run — and it may never emit a BANK the player could not
+   * have taken. The expiry window itself is operator configuration and is
+   * deliberately not a declared field: it cannot move an outcome or a price.
+   */
+  expire(
+    game: StagedSurvivalDefinition,
+    transcript: StagedSurvivalTranscript,
+    frame: StagedSurvivalFrame,
+    nowMs: number,
+  ): RoundExpiryResolution;
   /**
    * Re-derives everything from the revealed server seed, replays the action list,
    * and — when a published settlement is supplied — compares every credited

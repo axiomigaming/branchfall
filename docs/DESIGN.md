@@ -80,20 +80,66 @@ A full five-arena run is 90–120 seconds. A cautious two-arena run is ~35 secon
 **Buying a run commits you to arena 1.** BANK exists from arena 2 onward, and a
 Shelter can withdraw at most `n-1` of `n` runners, so once the stake is debited
 at least one fifth of the claim crosses the first branch — every route on the
-first screen carries risk and none of them is an exit. There is no configuration
-of the first decision that returns the stake untouched. We say this plainly here,
+first screen carries risk and none of them is an exit. There is no *action* in
+the first decision that returns the stake untouched. We say this plainly here,
 in S1's buy copy, and in the shelter picker (S2), because a spec that mentions it
 only in the mathematics produces a picker that lets a player select all five and
 then rejects the commit.
 
-### 2.1 Round persistence — no latency-sensitive money decisions
+The one thing that returns an untouched stake is not an action and is not
+reachable by playing: an unplayed round that the operator cancels at expiry
+(§2.1). It is stated on the same screen rather than left as a discrepancy
+between the buy copy and the terms.
+
+### 2.1 Round persistence, and how an abandoned round ends
 
 There is no countdown on any money decision, anywhere, ever. A round is server-
 side state; closing the app mid-round is safe and resuming restores the exact
-frame. If a round is abandoned for longer than the operator's expiry window
-(default 24 h), it auto-resolves as **BANK** — the player's own money, returned —
-never as a forced run. Network latency, frame rate and input timing cannot change
-a payout, because the outcome was fixed before the player chose.
+frame. Network latency, frame rate and input timing cannot change a payout,
+because the outcome was fixed before the player chose.
+
+A round still has to end. An operator cannot hold a stake against an unresolved
+round indefinitely, so a round abandoned past the operator's expiry window
+(default 24 h) is closed by the server. **The rule that governs how is that
+expiry may never invent an action the model does not have** (`MATH.md` §5.3,
+`tools/lib/model.mjs:actionsFor`):
+
+| Where the round was abandoned | How it closes | What that is |
+| --- | --- | --- |
+| At any decision point from arena 2 on — a branch has already resolved | **auto-BANK**, exactly the BANK the player could have taken | a settlement. The claim is credited, the round is played, it counts |
+| At the arena-1 decision point — nothing has resolved | **VOID**: the wager is cancelled and the stake refunded in full | not a settlement. Nothing is credited, and the round did not happen |
+
+Never a forced run, in either row.
+
+**Why the second row cannot be an auto-BANK.** BANK does not exist in state
+`(1, n)`. The action set there is `{ROUTE(...), SHELTER(1..n-1)}` and every
+element of it runs at least one runner (`MATH.md` §5.3). An expiry rule that
+banked a round before arena 1 resolved would be crediting an action the game does
+not have, would make S1's copy false, and would create a deterministic
+<!-- fig:rtpPct -->95.5%<!-- /fig --> zero-variance line that appears nowhere in
+the volatility profile in `MATH.md` §7 — which is exactly the fixed-cost
+conversion route a bonus-abuse model looks for. The v2 draft of this document
+granted precisely that, eight lines after asserting the opposite. It is the kind
+of contradiction that survives review because the two sentences are never read
+together, so the table above exists to make them one statement.
+
+**A cancelled wager is a wager that did not happen.** Build requirements, each
+with an acceptance check:
+
+- a VOID credits nothing, returns the route stake exactly, and produces a
+  reversal record rather than a settlement receipt;
+- it contributes **no turnover**, no bonus or wagering-requirement progress, and
+  no RTP figure. A round that pays back 1.00x by not being played is not a
+  95.5% round and must never be counted as one;
+- no side-bet stake is ever stranded by it: side bets are fields of a route
+  action (`ENGINE.md` §3), so at a decision point there is no unresolved
+  side-bet money to return;
+- the void rate is published, per `ENGINE.md` §10.1 — an operator that cancels
+  rounds it dislikes is the selective-non-reveal threat, and the countable void
+  rate is the control;
+- deliberate repeated abandonment is a fraud-monitoring matter for the operator,
+  not a game rule. This document does not add a penalty for it, because a penalty
+  on a player who closed an app is worse than the behaviour it prices.
 
 ---
 
@@ -677,8 +723,18 @@ criterion for the client build (§11), not something this repository discharges.
   opens a claim of 4.775 — that's the 95.5% return, charged once, now. It is not
   charged again no matter how far you go."*
 - Directly beneath it, in the same weight, never as fine print:
-  *"There is no way back out of the first branch. Banking starts after it."*
-  (§2.)
+  *"Every route on the next screen sends at least one Kindling across. Banking
+  starts after the first branch."* (§2.)
+  **This string was changed and the change is the point.** It used to read
+  *"There is no way back out of the first branch."* — which §2.1's expiry rule
+  made false, because an unplayed round that expires is cancelled and refunded.
+  A buy-screen statement about the terms of a wager may not be falsified by a
+  rule twelve lines away in its own specification. The replacement says the true
+  thing, which is also the thing the model actually guarantees: every *action*
+  runs a runner.
+- Beneath that, collapsed, one tap: *"Leave mid-round and the round waits. If it
+  is still waiting after 24 hours we close it for you — banked if a branch has
+  resolved, cancelled and refunded in full if none has."* (§2.1.)
 - **Your seed** (collapsed, one tap): the client seed the app generated locally
   for this round, editable, with *"Change this to anything you like. The server
   has already committed to its half and cannot see yours."* (§8.1.)

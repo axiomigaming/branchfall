@@ -209,6 +209,25 @@ describe('src/staged-survival.ts is the contract ENGINE.md describes', () => {
     expect(lifecycle).toContain('export interface SeedChainCommitment');
   });
 
+  it('types round expiry so it cannot bank a round the model cannot bank', () => {
+    const expiry = lifecycle.slice(
+      lifecycle.indexOf('export type RoundExpiryResolution'),
+      lifecycle.indexOf('export type VerificationFailureCode'),
+    );
+    expect(expiry).toContain("readonly kind: 'AUTO_BANK'");
+    expect(expiry).toContain("readonly kind: 'VOID'");
+    expect(expiry).toContain("readonly reason: 'BANK_ILLEGAL_BEFORE_FIRST_RESOLUTION'");
+    // A void returns the stake; it never credits, so it carries no credit field.
+    expect(expiry.slice(expiry.indexOf("readonly kind: 'VOID'"))).not.toContain('creditMicro');
+    // The module must expose the only path that closes an abandoned round, and
+    // the surface must be pure state plus a clock — never a policy argument.
+    const surface = lifecycle.slice(lifecycle.indexOf('  expire('), lifecycle.indexOf('  expire(') + 260);
+    expect(surface).toContain('frame: StagedSurvivalFrame');
+    expect(surface).toContain('): RoundExpiryResolution;');
+    expect(engineDoc).toContain('Expiry — the one resolution the player did not choose');
+    expect(engineDoc).toContain('`expire()` may never emit a `ROUTE` or a `SHELTER`');
+  });
+
   it('never mentions a float type in a money or probability position', () => {
     const moneyLines = lifecycle
       .split('\n')

@@ -484,7 +484,29 @@ credit(side bet i)          = payableWithinCap(won ? mult_i x s_i : 0, s_i,  cap
 - Money unit: micro-credits. Bounded rounding loss of 5 uc per round on the route
   ticket and 1 uc per side bet (`MATH.md` §10).
 
-### 6.1 Speed of play
+### 6.1 Expiry — the one resolution the player did not choose
+
+A round abandoned past the operator's expiry window has to be closed, and
+`expire()` is the only path that closes one. It derives the outcome from the
+frame's own legal action set, which makes the product's action space and the
+enumerated one the same object:
+
+| Frame state | `RoundExpiryResolution` | Money |
+| --- | --- | --- |
+| `BANK` is legal — an arena has resolved | `AUTO_BANK`, carrying the same `{ type: 'BANK' }` the player could have sent | credits the claim, exactly as a player BANK would |
+| `BANK` is illegal — arena 1 has not resolved | `VOID` | refunds the route stake whole; credits nothing |
+
+`BANK` is illegal in state `(1, n)` by `MATH.md` §5.3, so the second row is not a
+policy choice — it is the absence of an action. An expiry rule that banked a
+round before arena 1 resolved would credit an action the game does not have, and
+would create a deterministic 95.5x-per-100 zero-variance line that appears in no
+volatility profile. `DESIGN.md` §2.1 carries the product-side rules: a void is
+not a settlement, contributes no turnover and no bonus progress, and is counted
+in the published void rate.
+
+`expire()` may never emit a `ROUTE` or a `SHELTER`. Expiry is never a forced run.
+
+### 6.2 Speed of play
 
 `advance()` takes a server clock and rejects any money command arriving before
 `frame.earliestNextActionAtMs` with `TOO_SOON`. The floor is
@@ -538,6 +560,11 @@ Mechanical, adapter-agnostic, and evidence — not certification.
     `speed.maxDecisionCountdownMs == 0`.
 14. `openRound()` rejects a `preCommitment` its server seed does not open, and
     the returned published record has no `hazard` field.
+14a. `expire()` returns `AUTO_BANK` exactly when `BANK` is in the frame's legal
+    action set and `VOID` otherwise, over every reachable state; it never emits a
+    `ROUTE` or a `SHELTER`; and the `AUTO_BANK` credit equals the credit the same
+    `BANK` would have produced through `advance()`. Expiry may not invent an
+    action the model does not have (§6.1).
 15. `verify()` returns `LEDGER_MISMATCH` when any credited figure in a supplied
     settlement differs from the re-derivation.
 16. Every declarative field is frozen; the fingerprint is stable across
@@ -651,6 +678,14 @@ opaque idempotency key, and the observed frame revision.
 cycle check, authorization, debit (route stake or side-bet stakes), state
 transition, credit, receipt append, snapshot persist.
 
+**Close every round exactly once, and record how.** A round that reaches the
+operator's expiry window is closed through `expire()` and nothing else (§6.1).
+The resolution kind — `AUTO_BANK` or `VOID` — is persisted with the round, a
+`VOID` is booked as a wager reversal rather than a settlement, and the void rate
+is published (§10.1). An operator that closes rounds by any other path has left
+the state machine, and the round it produced is not the round the transcript
+describes.
+
 **Persist for the life of the liability:** engine API version, lifecycle id,
 package release identity, adapter id/version/fingerprint, hazard `modelVersion`,
 the pre-commitment and its publication timestamp, the seed-chain terminal and
@@ -741,9 +776,14 @@ stops working.
 3. **Selective non-reveal.** Nothing in commit-reveal forces an operator to
    settle. An operator that voids or abandons rounds it dislikes biases realised
    return without ever publishing a false round. Mitigations are operational, not
-   cryptographic: round expiry that auto-banks in the player's favour
-   (`DESIGN.md` §2.1), a published void rate, and a chain whose consumed indices
-   are visible so gaps are countable.
+   cryptographic: a round expiry that resolves in the player's favour and can
+   never resolve as a run — `AUTO_BANK` wherever BANK is legal, and a full-stake
+   `VOID` before arena 1 resolves, where BANK does not exist (§6.1,
+   `DESIGN.md` §2.1) — a published void rate, and a chain whose consumed indices
+   are visible so gaps are countable. Note what the second half of that costs the
+   attacker nothing to exploit and everything to hide: a voided round returns
+   more than a banked one would have, so a rising void rate is the visible
+   signature of the attack rather than a cheap way to run it.
 4. **Chain stalling and link reuse** are mitigated by binding the index (§5.1),
    not eliminated: an operator can still stop publishing. The index makes it
    visible; it does not make it impossible.

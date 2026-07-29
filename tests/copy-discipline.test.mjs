@@ -588,8 +588,40 @@ describe('model constraints are surfaced where the screen is specified', () => {
   it('says a bought run cannot avoid arena 1, in the loop and at the buy screen', () => {
     expect(designDoc).toContain('**Buying a run commits you to arena 1.**');
     expect(designDoc).toMatch(flowed('none of them is an exit'));
-    expect(designDoc).toContain('There is no way back out of the first branch. Banking starts after it.');
+    expect(IN_CLIENT_COPY).toContain(
+      'Every route on the next screen sends at least one Kindling across. Banking starts after the first branch.',
+    );
     expect(mathDoc).toContain('There is no `SHELTER(n)`, and BANK is unavailable before arena 1 resolves');
+  });
+
+  /**
+   * The v2 draft asserted "none of them is an exit" and then, eight lines later,
+   * granted exactly one: a 24 h expiry that "auto-resolves as BANK". That made
+   * the S1 string false, put a BANK in a state the model has no BANK in, and
+   * created a deterministic zero-variance line in a game whose lowest published
+   * standard deviation is 0.30.
+   */
+  it('closes an abandoned round without inventing an action the model lacks', () => {
+    const section = designDoc.slice(
+      designDoc.indexOf('### 2.1 Round persistence'),
+      designDoc.indexOf('## 3. Player decisions'),
+    );
+    expect(section).toMatch(flowed('expiry may never invent an action the model does not have'));
+    expect(section).toMatch(/\*\*auto-BANK\*\*.*the BANK the player could have taken/);
+    expect(section).toMatch(/\*\*VOID\*\*: the wager is cancelled and the stake refunded in full/);
+    expect(section).toMatch(flowed('Never a forced run, in either row'));
+    // A void is a wager that did not happen, not a 1.00x round.
+    expect(section).toMatch(flowed('contributes **no turnover**'));
+    expect(section).toMatch(flowed('the void rate is published'));
+    // And the old rule may not survive as a live statement anywhere.
+    expect(designDoc).not.toMatch(flowed('it auto-resolves as **BANK**'));
+  });
+
+  it('lets the retracted buy-screen string survive only as a record of the change', () => {
+    for (const match of designDoc.matchAll(/There is no way back out of the first branch/g)) {
+      const before = designDoc.slice(Math.max(0, match.index - 200), match.index).replace(/\s+/g, ' ');
+      expect(before, 'the retracted S1 string is presented as live copy').toMatch(/It used to read/);
+    }
   });
 
   it('requires the shelter picker to reject an all-squad selection at input time', () => {
