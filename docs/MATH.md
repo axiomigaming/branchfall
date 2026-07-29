@@ -161,7 +161,11 @@ were. WIDE keeps more runners alive
 <!-- fig:splitExpectedSurvivors5 -->3.75<!-- /fig -->) and clears the whole
 squad far more often (<!-- fig:wideAllClear5 -->49.24%<!-- /fig --> against
 <!-- fig:splitAllClear5 -->32.55%<!-- /fig -->). SPLIT trades a better *worst*
-case for a worse *typical* case. Neither dominates.
+case for a worse *typical* case, and neither dominates the other — not loosely,
+but in the exact sense §3.3 defines and proves: their integrated CDFs cross at
+every squad size, so no risk-averse reading prefers one card. That is the one
+comparison in this game that passes that test, and §3.3 is where the ones that
+fail it are named.
 
 ### 3.2 The lane balance is a second, independent shape lever
 
@@ -180,7 +184,7 @@ and the interface must not imply one. At `n = 4` and `n = 5` there are two:
 | 4 | 2+2 | <!-- fig:splitWipe4 -->1.56%<!-- /fig --> | <!-- fig:balancedSole4 -->6.25%<!-- /fig --> | <!-- fig:balancedKeep3Plus4 -->70.31%<!-- /fig --> | <!-- fig:splitAllClear4 -->39.06%<!-- /fig --> | <!-- fig:splitExpectedSurvivors4 -->3.00<!-- /fig --> |
 | 4 | 3+1 | <!-- fig:scoutWipe4 -->2.60%<!-- /fig --> | <!-- fig:scoutSole4 -->9.38%<!-- /fig --> | <!-- fig:scoutKeep3Plus4 -->75.52%<!-- /fig --> | <!-- fig:splitAllClear4 -->39.06%<!-- /fig --> | <!-- fig:splitExpectedSurvivors4 -->3.00<!-- /fig --> |
 
-Three things are true at once, and all three are proved in CI:
+Four things are true at once, and all four are proved in CI:
 
 1. **The mean is untouched.** `E[survivors] = n p` for every balance, so
    `E[claim after] = claim before` exactly. The balance cannot move RTP.
@@ -195,9 +199,114 @@ Three things are true at once, and all three are proved in CI:
    (<!-- fig:balancedKeep4Plus5 -->65.10%<!-- /fig --> →
    <!-- fig:scoutKeep4Plus5 -->69.44%<!-- /fig -->), because four runners riding
    one lane that usually holds is a more concentrated bet than three-and-two.
+4. **And that makes it a dial, not a trade.** Mass leaving the middle for *both*
+   tails at an unchanged mean is the definition of a mean-preserving spread, so
+   `4+1` is exactly a mean-preserving spread of `3+2` and every risk-averse
+   reading prefers `3+2`. §3.3 computes it, publishes the whole lattice, and
+   binds it.
 
-Neither balance dominates the other on any reading. That is the test a decision
-has to pass to be worth putting in front of a player.
+**What the v2 draft claimed here, and why it was wrong.** This section used to
+end "Neither balance dominates the other on any reading", and `DESIGN.md` §3.3
+sold the fork as "a genuine, non-dominated trade". Both were false. Point 3 above
+— everything between the tails moving in opposite directions — is what a
+mean-preserving spread looks like from the middle, and it is an argument *for*
+domination rather than against it. It was also the only claim in this section
+that was prose instead of an invariant, which is exactly how it survived three
+rounds of review. It is now an invariant, and the invariant says the other
+thing.
+
+### 3.3 Which choices are trades, and which are volatility dials
+
+Every choice in this game holds the mean fixed at `1` (§4). That is the whole
+design, and it is also what makes "is this choice real?" a precise question with
+a standard answer rather than a matter of taste.
+
+**The test.** For two lotteries with the *same* mean, `A` is preferred to `B` by
+every risk-averse reading — every concave utility, without naming one — exactly
+when the integrated CDF of `A` is nowhere above that of `B`:
+
+```
+I_X(t) = ∫_0^t P(X <= x) dx = sum_i p_i max(0, t - x_i)
+
+A second-order stochastically dominates B   iff   I_A(t) <= I_B(t) for all t
+```
+
+With equal means, that relation is exactly "`B` is a mean-preserving spread of
+`A`" (Rothschild–Stiglitz). So there are only two possible verdicts for any pair
+of cards on this game's table:
+
+* **the integrated CDFs cross** — neither is preferred by every risk-averse
+  reading, and the choice is a genuine trade;
+* **one dominates** — the other is a mean-preserving spread of it, and the
+  choice is a pure volatility dial.
+
+**What is compared.** The exact claim-factor distribution of a single arena: the
+atoms are `(m/n) * mu` with probability `P(m)` from the geometry's own survivor
+distribution, and the enumerator asserts every one of them has mean exactly
+`1/1` before comparing anything. Pairs are formed *within* a squad size, because
+that is the set of cards a player is actually offered at that moment.
+
+**Why the check is a proof and not a sample.** `I_A - I_B` is piecewise linear in
+`t` with breakpoints exactly at the atoms of the two distributions, is zero below
+the smallest atom, and is constant at `mean(B) - mean(A) = 0` from the largest
+atom onward. A piecewise-linear function attains its extrema at its breakpoints,
+so evaluating every atom decides every real `t`. All of it in exact rationals.
+
+Of the <!-- fig:dominancePairs -->19<!-- /fig --> pairs a player can be offered
+at one squad size, <!-- fig:dominanceTrades -->6<!-- /fig --> cross and
+<!-- fig:dominanceDials -->13<!-- /fig --> are nested:
+
+<!-- table:dominance -->
+| Runners `n` | A | B | Second-order relation | What that makes the choice |
+| --- | --- | --- | --- | --- |
+| 1 | WIDE | NARROW | **WIDE** dominates | a volatility dial: the other side is a mean-preserving spread |
+| 2 | WIDE | SPLIT 1+1 | **neither** — integrated CDFs cross | a genuine trade: no risk-averse reading prefers one |
+| 2 | WIDE | NARROW | **WIDE** dominates | a volatility dial: the other side is a mean-preserving spread |
+| 2 | SPLIT 1+1 | NARROW | **SPLIT 1+1** dominates | a volatility dial: the other side is a mean-preserving spread |
+| 3 | WIDE | SPLIT 2+1 | **neither** — integrated CDFs cross | a genuine trade: no risk-averse reading prefers one |
+| 3 | WIDE | NARROW | **WIDE** dominates | a volatility dial: the other side is a mean-preserving spread |
+| 3 | SPLIT 2+1 | NARROW | **SPLIT 2+1** dominates | a volatility dial: the other side is a mean-preserving spread |
+| 4 | WIDE | SPLIT 2+2 | **neither** — integrated CDFs cross | a genuine trade: no risk-averse reading prefers one |
+| 4 | WIDE | SPLIT 3+1 | **neither** — integrated CDFs cross | a genuine trade: no risk-averse reading prefers one |
+| 4 | WIDE | NARROW | **WIDE** dominates | a volatility dial: the other side is a mean-preserving spread |
+| 4 | SPLIT 2+2 | SPLIT 3+1 | **SPLIT 2+2** dominates | a volatility dial: the other side is a mean-preserving spread |
+| 4 | SPLIT 2+2 | NARROW | **SPLIT 2+2** dominates | a volatility dial: the other side is a mean-preserving spread |
+| 4 | SPLIT 3+1 | NARROW | **SPLIT 3+1** dominates | a volatility dial: the other side is a mean-preserving spread |
+| 5 | WIDE | SPLIT 3+2 | **neither** — integrated CDFs cross | a genuine trade: no risk-averse reading prefers one |
+| 5 | WIDE | SPLIT 4+1 | **neither** — integrated CDFs cross | a genuine trade: no risk-averse reading prefers one |
+| 5 | WIDE | NARROW | **WIDE** dominates | a volatility dial: the other side is a mean-preserving spread |
+| 5 | SPLIT 3+2 | SPLIT 4+1 | **SPLIT 3+2** dominates | a volatility dial: the other side is a mean-preserving spread |
+| 5 | SPLIT 3+2 | NARROW | **SPLIT 3+2** dominates | a volatility dial: the other side is a mean-preserving spread |
+| 5 | SPLIT 4+1 | NARROW | **SPLIT 4+1** dominates | a volatility dial: the other side is a mean-preserving spread |
+
+Three readings, and the third is the uncomfortable one:
+
+1. **WIDE against SPLIT is a genuine trade at every squad size, on both
+   balances.** The integrated CDFs cross every time. This is the comparison the
+   product is built on, and it is the thing a difficulty selector cannot
+   produce: a selector moves one dial, and one dial is always nested.
+2. **The fork balance is not.** `3+2` dominates `4+1` at five runners and `2+2`
+   dominates `3+1` at four. And it is not rescued by taking the lopsided fork on
+   the last arena only: over a whole five-arena run the balanced policy
+   second-order dominates the lopsided one as well, which the enumerator checks
+   directly on the two policies' full return distributions.
+3. **NARROW is dominated by everything at every squad size.** It has the same
+   RTP as every other card, and it is a mean-preserving spread of both of them.
+
+**And here is exactly what that does and does not mean**, because a dominance
+result is easy to over-read in both directions.
+
+* It is **not** a statement about return. Every row in the table has RTP
+  `191/200`; §8 proves no arrangement of these cards moves it.
+* It is **not** a claim that a player taking NARROW or `4+1` has made a mistake.
+  Second-order dominance ranks equal-mean lotteries *by risk aversion alone*. A
+  player who wants the tail is buying the tail, and the tail is a real product
+  with a real price of zero. `DESIGN.md` §10.3 forbids the game from telling
+  anyone their card is the wrong one, and this section does not license it.
+* What it **does** forbid is selling a dial as a trade. A volatility dial is an
+  honest control and this game has several. Describing one as a balanced,
+  non-dominated choice is a different act, and it is the act this repository
+  committed for three rounds.
 
 ---
 
@@ -728,7 +837,7 @@ of playing has the same edge. They emphatically do not have the same experience.
 ### 8.4 Exhaustive verification, not just a proof
 
 `tools/enumerate.mjs` verifies the theorems mechanically rather than trusting
-them, checking <!-- fig:invariantCount -->1603<!-- /fig --> exact invariants:
+them, checking <!-- fig:invariantCount -->1658<!-- /fig --> exact invariants:
 
 1. **Per-action check.** For every state `(a, n)` and every legal action —
    including every lane balance — it computes
@@ -756,15 +865,23 @@ them, checking <!-- fig:invariantCount -->1603<!-- /fig --> exact invariants:
    <!-- fig:sideBetPlanCount -->5<!-- /fig --> named side-bet plans —
    <!-- fig:portfolioCount -->45<!-- /fig --> portfolios — has its
    `E[credited] / E[staked]` asserted equal to `191/200`.
+5. **The dominance lattice.** Every one of the
+   <!-- fig:dominancePairs -->19<!-- /fig --> pairs of geometries a player can be
+   offered at a single squad size has its exact second-order relation computed
+   from integrated CDFs and asserted against the relation §3.3 publishes, in both
+   directions; and the composed statement — balanced fork policy dominates
+   lopsided fork policy over a whole run — is asserted on the two policies' full
+   return distributions. This is the check that did not exist when §3.2 claimed
+   the fork was non-dominated.
 
-Run `npm run enumerate` and read sections 5 and 7 of the output.
+Run `npm run enumerate` and read sections 2.1, 5 and 7 of the output.
 
 ### 8.5 What a player *can* control
 
 | Lever | Effect on RTP | Effect on the distribution |
 | --- | --- | --- |
-| Contract choice | none | large — variance, skew, wipe probability |
-| SPLIT lane balance | none | real — wipe probability and the middle of the distribution move in opposite directions (§3.2); P(all clear) and E[survivors] do not move at all |
+| Contract choice | none | large — variance, skew, wipe probability. WIDE against SPLIT is the game's one genuinely non-dominated pair; NARROW is a mean-preserving spread of both (§3.3) |
+| SPLIT lane balance | none | real, and **nested**: the lopsided fork is a mean-preserving spread of the balanced one, per arena and over a whole run (§3.3). Wipe probability and the middle of the distribution move in opposite directions; P(all clear) and E[survivors] do not move at all |
 | Shelter size `j` | none | large — bounds the downside, caps the upside |
 | Bank timing | none | large — truncates the tail |
 | Side-bet event and stake | none | adds an independently-shaped ticket at the same margin |

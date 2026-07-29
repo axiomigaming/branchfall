@@ -112,7 +112,7 @@ The RTP column is proved exactly in `MATH.md` §8 and asserted in CI.
 | --- | --- | --- | --- | --- |
 | 1 | **Stake** | Before buy | Scales everything linearly | none |
 | 2 | **Route contract** (Wide / Split / Narrow / Shelter) | Before each arena, no timer | The entire survivor distribution: wipe probability, expected survivors, multiplier, skew | **none** |
-| 3 | **Fork balance** (Split only, at 4 or 5 runners) | With a Split contract | Wipe probability and the middle of the distribution, in opposite directions. **Not** the multiplier, **not** P(all clear), **not** expected survivors (§3.3) | **none** |
+| 3 | **Fork balance** (Split only, at 4 or 5 runners) | With a Split contract | Wipe probability and the middle of the distribution, in opposite directions. **Not** the multiplier, **not** P(all clear), **not** expected survivors (§3.3). A volatility **dial**, not a trade: `4+1` is an exact mean-preserving spread of `3+2` (`MATH.md` §3.3) | **none** |
 | 4 | **Shelter size `k`** | With a Shelter contract | Banks `k/n` of the claim irreversibly; truncates both tails | **none** |
 | 5 | **Bank or continue** | After each resolved arena, no timer | Truncates the distribution at the current claim | **none** |
 | 6 | **Side bet: event and stake** | With each route commitment | Adds a separate ticket with its own shape, at the identical margin | **none** |
@@ -148,6 +148,14 @@ clears the whole squad far more often. Split buys a better worst case with a
 worse typical case. Neither card is the right answer and the copy is forbidden
 from implying one is: see §10.3.
 
+**And that is not a figure of speech.** Wide against Split is the one pair in
+this game whose integrated CDFs actually cross — at every squad size, on both
+fork balances — so no risk-averse reading prefers one card over the other.
+`MATH.md` §3.3 computes the full lattice and CI asserts it, precisely because
+this document previously made the same claim about a control where it was false
+(§3.3). Where a comparison in this document says *neither dominates*, there is a
+generated table row behind it.
+
 ### 3.2 The route card (the most important UI object in the game)
 
 Each card carries, for the current squad size, computed from the same tables the
@@ -182,7 +190,7 @@ Filled in for NARROW at five runners, from the generated tables:
 §5.2, as fractions, in the game. A player who wants the paytable gets the
 paytable.
 
-### 3.3 The fork balance (the game's best small decision)
+### 3.3 The fork balance (a volatility dial with a name on it)
 
 When Split is selected with four or five runners, the card grows a second
 control: a divider the player drags across a row of Kindling silhouettes.
@@ -201,7 +209,10 @@ control: a divider the player drags across a row of Kindling silhouettes.
 │  four or five     [ % ]     [ % ]    │
 │  one alone comes  [ % ]     [ % ]    │
 │                                      │
-│ Same 95.5% either way.               │
+│  ▁▂▅█▅▂  │  ▂▂▃█▃▃    ← shared axis  │
+│                                      │
+│ Same 95.5% either way. 4 + 1 is the  │
+│ wider spread: more of both endings.  │
 └──────────────────────────────────────┘
 ```
 
@@ -215,8 +226,7 @@ Filled in at five runners, from the generated tables. Multiplier
 | Four or five make it | <!-- fig:balancedKeep4Plus5 -->65.10%<!-- /fig --> | <!-- fig:scoutKeep4Plus5 -->69.44%<!-- /fig --> |
 | One alone comes home | <!-- fig:balancedSole5 -->3.39%<!-- /fig --> | <!-- fig:scoutSole5 -->7.90%<!-- /fig --> |
 
-Both columns are shown at once, always, with no default highlighted. What the
-player is reading is a genuine, non-dominated trade:
+Both columns are shown at once, always, with no default highlighted:
 
 * **3 + 2** is half the chance of losing everyone.
 * **4 + 1** is a better chance of coming out with four or five — because four
@@ -225,11 +235,36 @@ player is reading is a genuine, non-dominated trade:
 * **Both are identical** on the multiplier, on the chance of a clean sweep, and
   on expected survivors. The card says so on its face.
 
-Then the second half of the control, which is the reason it is in the game:
-**the player drags specific Kindlings across the divider.** That choice is
+**What this control is, stated correctly.** It is a *volatility dial*: `4 + 1`
+is an exact mean-preserving spread of `3 + 2`, so it takes probability out of the
+middle and puts it into both ends at an unchanged mean, and every risk-averse
+reading prefers `3 + 2`. `MATH.md` §3.3 proves that, publishes the whole lattice,
+and binds it in CI. Two build consequences follow, and they are requirements:
+
+1. **The copy may not call this a balanced or non-dominated choice.** Earlier
+   drafts of this document called it "a genuine, non-dominated trade". It is not
+   one, the claim was false, and nothing on the card, in a tooltip, in a store
+   listing or in marketing may restate it. The honest sentence is on the card
+   already — *"Same 95.5% either way."* — plus the shape line below.
+2. **It still may not be labelled as the wrong choice either.** A dial is an
+   honest control. A player who wants a real chance of one lantern walking out
+   alone is buying exactly that, at the same price as everything else. No
+   warning, no colour hierarchy, no "recommended" mark, no default (§10.3).
+
+So the card carries one added line under the two columns, in the same weight as
+the rest: *"4 + 1 is the wider spread. More of both endings, same average, same
+95.5%."* The distribution bars make it visible without the sentence: rendered on
+a shared axis, `4 + 1` is visibly taller at both ends and shorter in the middle.
+That is the whole content of the choice, and the player should be able to see it
+before they read anything.
+
+Then the second half of the control, which is the reason it is in the game at
+all: **the player drags specific Kindlings across the divider.** That choice is
 narratively enormous — *who do you send alone?* — and mathematically inert, and
 the card states both facts in one line: *"Who goes where changes who comes home,
-not the odds."*
+not the odds."* The dial is the excuse; the name on the thin limb is the point.
+`WIDE` against `SPLIT` (§3.1) is where this game's genuinely non-dominated
+decision lives, and the product should never be caught claiming there are two.
 
 At two and three runners there is only one legal balance, and the control does
 not appear. We do not render a disabled slider to imply a choice that is not

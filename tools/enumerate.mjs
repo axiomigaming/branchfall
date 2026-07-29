@@ -42,8 +42,11 @@ import {
   actionsFor,
   branches,
   capAnalysis,
+  claimFactorDistribution,
   committedConfiguration,
   configKey,
+  distributionMean,
+  dominanceRows,
   enumeratePolicy,
   laneSizes,
   laneSplitsFor,
@@ -55,6 +58,7 @@ import {
   reachableRoundMaxima,
   routeConfigurations,
   routeMultiplier,
+  secondOrderCompare,
   sideBetOffersFor,
   sideBetTable,
   stateValueDP,
@@ -516,6 +520,61 @@ export function runInvariants() {
     'minimum game cycle also satisfies the slots floor (UKGC RTS 14D) if the game were ever classified as one',
   );
 
+  // 17. DOMINANCE — which choices are trades and which are volatility dials.
+  //     The v2 draft asserted in prose that neither SPLIT balance dominates the
+  //     other. That was false: the lopsided fork is an exact mean-preserving
+  //     spread of the balanced one, so the balanced fork is preferred by every
+  //     risk-averse reading. The claim is now computed, published as a table,
+  //     and bound here — including the part that survived, which is that WIDE
+  //     and SPLIT genuinely cross at every squad size.
+  //
+  //     Equal means make second-order dominance the standard reading; the
+  //     comparison is over the exact claim-factor distribution of one arena.
+  for (const config of configs) {
+    checkEqual(
+      distributionMean(claimFactorDistribution(config.contract, config.runners, config.laneSplit)),
+      Frac.ONE,
+      `${config.key}: the claim-factor distribution has mean exactly 1`,
+    );
+  }
+
+  /**
+   * The published lattice, as a rule rather than as a list: a SPLIT's balanced
+   * geometry dominates its lopsided one, WIDE and SPLIT cross, and NARROW is
+   * dominated by everything. `routeConfigurations()` orders WIDE, SPLIT (lead
+   * lane ascending, so balanced first), NARROW.
+   */
+  const expectedRelation = (a, b) => {
+    if (a.contract === b.contract) return a.laneSplit < b.laneSplit ? 'A' : 'B';
+    if (a.contract === 'NARROW') return 'B';
+    if (b.contract === 'NARROW') return 'A';
+    return 'CROSSES';
+  };
+  const mirror = { A: 'B', B: 'A', CROSSES: 'CROSSES', IDENTICAL: 'IDENTICAL' };
+  for (const row of dominanceRows()) {
+    check(
+      row.relation === expectedRelation(row.aConfig, row.bConfig),
+      `${row.a} vs ${row.b}: second-order relation is ${expectedRelation(row.aConfig, row.bConfig)} (got ${row.relation})`,
+    );
+    const a = claimFactorDistribution(row.aConfig.contract, row.aConfig.runners, row.aConfig.laneSplit);
+    const b = claimFactorDistribution(row.bConfig.contract, row.bConfig.runners, row.bConfig.laneSplit);
+    check(
+      secondOrderCompare(b, a) === mirror[row.relation],
+      `${row.a} vs ${row.b}: the comparison is antisymmetric`,
+    );
+  }
+
+  //     And the composed statement, because "take the lopsided fork only on the
+  //     last arena" would otherwise be an untested escape hatch: over a whole
+  //     five-arena run, the balanced policy dominates the lopsided one too.
+  check(
+    secondOrderCompare(
+      enumeratePolicy(POLICIES.ALL_SPLIT.fn).distribution,
+      enumeratePolicy(POLICIES.SCOUT_SPLIT.fn).distribution,
+    ) === 'A',
+    'over a whole run, the balanced fork policy second-order dominates the lopsided one',
+  );
+
   return { checks: [...checks], failures: [...failures] };
 }
 
@@ -562,6 +621,26 @@ export function buildTables() {
         splits.length > 1 ? toFixedExact(lopsided, 6) : '—',
         toFixedExact(survivorDistribution('NARROW', n)[0], 6),
         balanced.lt(wide) ? 'SPLIT' : 'WIDE',
+      ];
+    }),
+  );
+
+  // Which of the choices offered at one squad size is a genuine trade and which
+  // is a pure volatility dial. Generated, because the v2 draft asserted it in
+  // prose and the assertion was false for the fork balance.
+  const dominance = table(
+    ['Runners `n`', 'A', 'B', 'Second-order relation', 'What that makes the choice'],
+    dominanceRows().map((r) => {
+      const label = (c) => (c.laneSplit === null ? c.contract : `${c.contract} ${geometryLabel(c.laneSplit, c.runners)}`);
+      const preferred = r.preferred === null ? null : r.preferred === r.a ? label(r.aConfig) : label(r.bConfig);
+      return [
+        String(r.runners),
+        label(r.aConfig),
+        label(r.bConfig),
+        preferred === null ? '**neither** — integrated CDFs cross' : `**${preferred}** dominates`,
+        preferred === null
+          ? 'a genuine trade: no risk-averse reading prefers one'
+          : 'a volatility dial: the other side is a mean-preserving spread',
       ];
     }),
   );
@@ -672,7 +751,17 @@ export function buildTables() {
     ],
   );
 
-  return Object.freeze({ contracts, wipes, geometries, outcomes, sidebets, policies, portfolios, invariants });
+  return Object.freeze({
+    contracts,
+    wipes,
+    dominance,
+    geometries,
+    outcomes,
+    sidebets,
+    policies,
+    portfolios,
+    invariants,
+  });
 }
 
 /* ------------------------------------------------------------------ *
@@ -767,6 +856,12 @@ export function buildFigures() {
     lastLightMin: mult(lo(byBet('LAST_LIGHT')), 2),
     lastLightMax: mult(hi(byBet('LAST_LIGHT')), 2),
     sideBetRows: String(sideBetTable().length),
+
+    /* dominance */
+    dominancePairs: String(dominanceRows().length),
+    dominanceTrades: String(dominanceRows().filter((r) => r.relation === 'CROSSES').length),
+    dominanceDials: String(dominanceRows().filter((r) => r.relation !== 'CROSSES').length),
+
     policyCount: String(Object.keys(POLICIES).length),
     sideBetPlanCount: String(Object.keys(SIDE_BET_PLANS).length),
     portfolioCount: String(Object.keys(POLICIES).length * Object.keys(SIDE_BET_PLANS).length),
@@ -852,6 +947,17 @@ function humanReport() {
         `wipe=${toFixedExact(r.wipe, 8)}  allClear=${toFixedExact(r.cleanSweep, 8)}  ` +
         `E[surv]=${toFixedExact(r.expectedSurvivors, 6)}  stageRTP=${r.fairness}`,
     );
+  }
+  push('');
+
+  push('2.1 DOMINANCE — which choices are trades, and which are volatility dials');
+  push('----------------------------------------------------------------------');
+  push('   second-order stochastic dominance over the exact claim-factor distribution');
+  push('   (all means are exactly 1, so this is the standard reading for the comparison)');
+  for (const r of dominanceRows()) {
+    const verdict =
+      r.preferred === null ? 'CROSSES  — genuine trade' : `${r.preferred} dominates  — volatility dial`;
+    push(`  n=${r.runners}  ${r.a.padEnd(14)} vs ${r.b.padEnd(14)} ${verdict}`);
   }
   push('');
 

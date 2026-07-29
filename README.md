@@ -81,6 +81,14 @@ a clean sweep, same <!-- fig:rtpPct -->95.5%<!-- /fig -->. Then you choose *whic
 Kindling goes alone — which changes who comes home, and changes no odds at all.
 The game says both halves of that out loud.
 
+**And it says the third half too.** 4 + 1 is a *wider* version of 3 + 2, not a
+different bet: it moves probability out of the middle into both ends and leaves
+the average exactly where it was. Every cautious reading prefers 3 + 2, and the
+game is not allowed to pretend otherwise — earlier drafts of the specification
+called this a balanced trade, which was simply untrue. Wide against Split is the
+comparison that really is a trade in both directions, and `docs/MATH.md` §3.3
+publishes the exact table saying which is which, checked on every CI run.
+
 ---
 
 ## Fairness model
@@ -131,7 +139,7 @@ and fail-closed handling of hostile input.
 ### The paytable is proved, not asserted
 
 `tools/enumerate.mjs` enumerates the entire outcome space in exact fractions and
-checks **<!-- fig:invariantCount -->1603<!-- /fig --> invariants** on every CI
+checks **<!-- fig:invariantCount -->1658<!-- /fig --> invariants** on every CI
 run — including the one that matters:
 
 > **No decision policy beats the target RTP.** The house margin is charged once

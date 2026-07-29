@@ -328,6 +328,147 @@ export function routeMultiplier(id) {
 }
 
 /* ------------------------------------------------------------------ *
+ * dominance — which choices are trades, and which are volatility dials
+ * ------------------------------------------------------------------ */
+
+/**
+ * The claim-factor distribution of a geometry: the exact distribution of the
+ * number the carried claim is multiplied by, `(m/n) * mu`.
+ *
+ * This is the object a player's risk preference actually acts on for one arena,
+ * and it is the object the v2 draft compared informally and got wrong. Every
+ * geometry has mean exactly `1` (§4), so the comparisons below are between
+ * equal-mean lotteries and second-order dominance is the standard reading.
+ *
+ * @param {ContractId} id
+ * @param {number} runners
+ * @param {number|null} [laneSplit]
+ * @returns {{value: Frac, prob: Frac}[]} sorted by value, zero-probability atoms dropped
+ */
+export function claimFactorDistribution(id, runners, laneSplit = null) {
+  const dist = survivorDistribution(id, runners, laneSplit);
+  const mu = routeMultiplier(id);
+  const n = F(BigInt(runners));
+  const out = [];
+  for (let m = 0; m <= runners; m += 1) {
+    if (dist[m].isZero()) continue;
+    out.push(Object.freeze({ value: F(BigInt(m)).div(n).mul(mu), prob: dist[m] }));
+  }
+  return Object.freeze(out);
+}
+
+/** Exact mean of a `{value, prob}` distribution. @param {{value:Frac,prob:Frac}[]} dist @returns {Frac} */
+export function distributionMean(dist) {
+  return dist.reduce((s, a) => s.add(a.prob.mul(a.value)), Frac.ZERO);
+}
+
+/**
+ * The integrated CDF, `∫_0^t F(x) dx`, of a discrete distribution — exactly,
+ * as `sum_i p_i * max(0, t - x_i)`.
+ *
+ * This is the function second-order dominance is defined on: `A` is preferred
+ * to `B` by *every* risk-averse reading exactly when this is no larger for `A`
+ * at every `t`.
+ *
+ * @param {{value:Frac,prob:Frac}[]} dist
+ * @param {Frac} t
+ * @returns {Frac}
+ */
+export function integratedCdfAt(dist, t) {
+  return dist.reduce((s, a) => (a.value.lt(t) ? s.add(a.prob.mul(t.sub(a.value))) : s), Frac.ZERO);
+}
+
+/**
+ * Second-order stochastic dominance between two equal-mean distributions.
+ *
+ * Returns `'A'` when A dominates (its integrated CDF is never above B's and is
+ * strictly below somewhere), `'B'` for the mirror, `'CROSSES'` when the
+ * integrated CDFs cross — the only case in which neither is preferred by every
+ * risk-averse reading, i.e. the only case in which the choice is a genuine
+ * trade — and `'IDENTICAL'` when they coincide everywhere.
+ *
+ * **Why checking the atoms is a proof and not a sample.** The difference of the
+ * two integrated CDFs is piecewise linear in `t` with breakpoints exactly at the
+ * atoms of the two distributions; it is `0` below the smallest atom and constant
+ * at `mean(B) - mean(A)` from the largest atom onward. A piecewise-linear
+ * function attains its extrema at its breakpoints, so evaluating every atom of
+ * both distributions decides the comparison for every real `t`.
+ *
+ * Equal means are a precondition, not an assumption: with different means the
+ * ordering conflates return with risk, and this repository never compares two
+ * things whose means differ. A mismatch fails loudly.
+ *
+ * @param {{value:Frac,prob:Frac}[]} a
+ * @param {{value:Frac,prob:Frac}[]} b
+ * @returns {'A'|'B'|'CROSSES'|'IDENTICAL'}
+ */
+export function secondOrderCompare(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length === 0 || b.length === 0) {
+    fail('INVALID_ARGUMENT', 'secondOrderCompare() requires two non-empty distributions');
+  }
+  const meanA = distributionMean(a);
+  const meanB = distributionMean(b);
+  if (!meanA.eq(meanB)) {
+    fail(
+      'UNEQUAL_MEANS',
+      `second-order dominance is only read here between equal-mean lotteries (${meanA} vs ${meanB})`,
+    );
+  }
+  let aLower = false;
+  let bLower = false;
+  for (const t of [...a.map((x) => x.value), ...b.map((x) => x.value)]) {
+    const ia = integratedCdfAt(a, t);
+    const ib = integratedCdfAt(b, t);
+    if (ia.lt(ib)) aLower = true;
+    if (ib.lt(ia)) bLower = true;
+  }
+  if (aLower && bLower) return 'CROSSES';
+  if (aLower) return 'A';
+  if (bLower) return 'B';
+  return 'IDENTICAL';
+}
+
+/**
+ * Every pair of geometries a player may choose between at the same squad size,
+ * with the exact second-order relation between them.
+ *
+ * Pairs are formed *within* a running-group size because that is the choice the
+ * player is actually offered: at `n` runners the cards on the table are exactly
+ * the geometries legal at `n`.
+ *
+ * @returns {{runners:number, a:string, b:string, relation:'A'|'B'|'CROSSES'|'IDENTICAL',
+ *            preferred: string|null}[]}
+ */
+export function dominanceRows() {
+  const rows = [];
+  for (let n = 1; n <= CONFIG.squadSize; n += 1) {
+    const configs = routeConfigurations().filter((c) => c.runners === n);
+    for (let i = 0; i < configs.length; i += 1) {
+      for (let j = i + 1; j < configs.length; j += 1) {
+        const a = configs[i];
+        const b = configs[j];
+        const relation = secondOrderCompare(
+          claimFactorDistribution(a.contract, a.runners, a.laneSplit),
+          claimFactorDistribution(b.contract, b.runners, b.laneSplit),
+        );
+        rows.push(
+          Object.freeze({
+            runners: n,
+            a: a.key,
+            b: b.key,
+            aConfig: a,
+            bConfig: b,
+            relation,
+            preferred: relation === 'A' ? a.key : relation === 'B' ? b.key : null,
+          }),
+        );
+      }
+    }
+  }
+  return Object.freeze(rows);
+}
+
+/* ------------------------------------------------------------------ *
  * actions
  * ------------------------------------------------------------------ */
 
