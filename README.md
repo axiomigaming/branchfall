@@ -235,12 +235,18 @@ motion language and type direction are what the client draws, and it draws them
 in the browser — the Understory, the five arenas, the Kindlings and their
 lanterns, the Lamp House and its door, §9's descent and the whole sound layer are
 generated at runtime on a canvas and in WebAudio, with no downloaded asset of any
-kind. What §6 still describes and this build does not have is what a font file and a
-renderer buy: §6.5's condensed humanist grotesque is asked for by name and
-resolves to whatever narrow grotesque the platform ships, so the display face
-belongs to the device rather than to us; and §6.8's quality ladder is
-honoured only in the part a canvas can deliver — render resolution, composited
-fog planes and particles — rather than through an asset set and a boot probe. §6.5 writes its sizes
+kind. The display face is drawn here too: `tools/make-display-font.mjs` constructs
+§6.5's condensed grotesque — one stem width, squared terminals, a high x-height —
+as TrueType outlines and emits `client/public/display.css` with two cuts inlined
+as data URIs, so the face is the same on every platform and nothing is fetched.
+It replaces the round-2 arrangement, which asked for whatever narrow grotesque
+each platform happened to ship and got a different one on each. `npm run
+font:check` fails if the checked-in stylesheet is not what the generator
+produces. What §6 still describes and this build does not have is what a renderer
+and an asset set buy: §6.8's quality ladder is honoured in the part a canvas can
+deliver — render resolution, composited fog planes and particles — with a boot
+probe that measures the frame it is actually drawing and steps the tier down when
+it does not fit, rather than an asset set and a device database. §6.5 writes its sizes
 as limits — 15 px body, 13 px secondary, 28 px for the claim, no numeral under
 15 px — so they are CSS tokens and `tests/type-floor.test.mjs` fails if a rule
 reaches for a size instead of a floor. The one size below the secondary floor is

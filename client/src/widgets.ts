@@ -49,9 +49,20 @@ export function heroFigure(options: {
    * §10.2 forbids dressing a loss as an event.
    */
   readonly tone?: 'brass' | 'cold';
+  /**
+   * How big the return was (`payoff.ts`), which is how big the figure is set.
+   *
+   * The round-2 build drew one figure at one size for every bank in the game, so
+   * a 0.81x recovery and a 3.06x looked identical down to the pixel. §6.5 writes
+   * 28 pt as a floor and §6.4 permits size, colour and light — so the tier moves
+   * the size and the glow and nothing else. There is no tier on the cold ending:
+   * a loss has one volume on purpose (§10.2).
+   */
+  readonly tier?: 'quiet' | 'big' | 'huge';
 }): HTMLElement {
+  const tier = options.tone === 'cold' ? 'quiet' : (options.tier ?? 'quiet');
   const figure = el('div', {
-    class: `hero-figure${options.tone === 'cold' ? ' cold' : ' money'}`,
+    class: `hero-figure${options.tone === 'cold' ? ' cold' : ' money'}${tier === 'quiet' ? '' : ` ${tier}`}`,
     text: options.from ?? options.value,
   });
   if (options.from !== undefined && options.from !== null && options.from !== options.value)
@@ -272,6 +283,8 @@ export interface ForkView {
   readonly running: number;
   readonly figuresOf: (balance: number) => Figures;
   readonly selected: number | null;
+  /** Picking a balance, from the column that carries its numbers (§3.3). */
+  readonly onBalance: (balance: number) => void;
 }
 
 /**
@@ -285,9 +298,18 @@ export interface ForkView {
  */
 function forkBody(fork: ForkView): HTMLElement {
   const first = fork.figuresOf(fork.balances[0] as number);
+  /*
+   * §3.3's four rows, and no fifth.
+   *
+   * The specification draws this table: *nobody makes it*, *all five make it*,
+   * *four or five make it* (which is the break-even row, `Chance of that`), and
+   * *one alone comes home*. The round-2 build added `Claim falls, run goes on` to
+   * it — a field §3.2 puts on a route card face, which this card also carries in
+   * the row above — and the extra row is what pushed the comparison off the card
+   * on a 390 x 844 screen. Four rows is the comparison the document asks for.
+   */
   const rows: [string, (figures: Figures) => string][] = [
     ['Chance of that', (figures) => figures.display.growsPct],
-    ['Claim falls, run goes on', (figures) => figures.display.fallsNonZeroPct],
     ['Nobody makes it', (figures) => figures.display.wipePct],
     [`All ${fork.running} make it`, (figures) => figures.display.allClearPct],
     ['One alone comes home', (figures) => figures.display.solePct],
@@ -301,21 +323,16 @@ function forkBody(fork: ForkView): HTMLElement {
     { class: 'card-body' },
     /*
      * One chart, two distributions, one axis. The filled bars are the balance the
-     * player has selected and the hairline is the other — both always drawn, with
-     * the legend naming each by its own numbers, because §3.3 forbids a
-     * recommendation and requires both to be visible at once.
+     * player has selected and the hairline is the other — both always drawn,
+     * because §3.3 forbids a recommendation and requires both to be visible at
+     * once. What names them is the table header below, which is also the control:
+     * a separate legend row said the same two labels a second time and cost the
+     * card 22 px it did not have.
      */
     barsBlock(
       fork.figuresOf(selected),
-      `survivors, ${fork.running} running · ▲ the claim grows from here`,
+      `survivors · ▲ grows from here · ${first.display.expectedSurvivors} expected either way`,
       { figures: fork.figuresOf(other), label: label(other) },
-    ),
-    el(
-      'div',
-      { class: 'bars-legend' },
-      el('span', { class: 'key filled' }, el('i', {}), el('span', { class: 'money', text: label(selected) })),
-      el('span', { class: 'key ghost' }, el('i', {}), el('span', { class: 'money', text: label(other) })),
-      el('span', { class: 'tiny', text: `${first.display.expectedSurvivors} expected either way` }),
     ),
     field('Your claim grows if', `${first.breakEven} of ${fork.running} get back`, true),
     el(
@@ -328,11 +345,42 @@ function forkBody(fork: ForkView): HTMLElement {
           'tr',
           {},
           el('th', { text: '' }),
+          /*
+           * The columns are the control (`DESIGN.md` §3.3).
+           *
+           * §3.3's own wireframe puts `3 + 2` and `4 + 1` at the head of the
+           * comparison on the card face, and §S2 says the Split card *carries*
+           * the fork-balance control. The round-2 build drew the numbers here and
+           * put the control in a separate strip below the card, which cost the
+           * card 70 px — enough that the comparison table and the chart could not
+           * both fit, so the card scrolled and the default state showed the top
+           * halves of two percentages. Tapping the column that holds a balance's
+           * numbers is the same gesture as tapping a tab for it, in the place the
+           * specification drew it, and it gives the chart its height back.
+           *
+           * Neither column is highlighted until the player picks one, there is no
+           * default and no recommendation, and the swatch says which one the
+           * filled bars belong to — a shape difference, not a colour one (§10.8).
+           */
           ...balances.map((balance) =>
-            el('th', {
-              class: fork.selected === balance ? 'on' : '',
-              text: label(balance),
-            }),
+            el(
+              'th',
+              { class: fork.selected === balance ? 'on' : '' },
+              el(
+                'button',
+                {
+                  class: `balance-head${balance === selected ? ' fill' : ' ghost'}`,
+                  'aria-pressed': String(fork.selected === balance),
+                  'aria-label': `Fork balance ${label(balance)} — tap to choose it`,
+                  onClick: (event: MouseEvent) => {
+                    event.stopPropagation();
+                    fork.onBalance(balance);
+                  },
+                },
+                el('i', {}),
+                el('span', { class: 'money', text: label(balance) }),
+              ),
+            ),
           ),
         ),
       ),

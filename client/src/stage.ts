@@ -298,6 +298,16 @@ export interface StageScene {
   /** §9's beat: one runner left, and the frame knows it. */
   readonly lastLamp: boolean;
   /**
+   * How big the return was, 0 to 1 (`payoff.ts`).
+   *
+   * §6.4's *"the reward for a big bank is that the tree is briefly warm"* is a
+   * quantity, and this is the frame's copy of it: it widens the wash off the
+   * door, holds it longer, and grows the constellation. It is presentation and
+   * nothing else — no figure, no probability and no credit is computed from it,
+   * here or anywhere the stage can reach.
+   */
+  readonly heat?: number;
+  /**
    * Whether the figures carry their names.
    *
    * §10.1: *"Individuals are named at the moment of loss."* On a full-bleed stage
@@ -374,22 +384,51 @@ const BUDGETS: Readonly<Record<Exclude<Quality, 'auto'>, Budget>> = {
 let qualityTier: Quality = 'auto';
 
 /**
- * What `auto` resolves to, from the one probe a browser will answer honestly.
+ * What `auto` currently resolves to.
  *
- * Core count is a coarse signal and it is the one §6.8 would use at boot on a
- * device it cannot otherwise measure. It is read once per call rather than
- * cached, so a tier change takes effect on the next frame.
+ * §6.8 asks for a *boot probe*, and the round-2 build read
+ * `navigator.hardwareConcurrency` instead — which is how `auto` picked the tier
+ * that could not hold the frame budget on the one screen that matters: the run
+ * measured a 50 ms median at `high` on a page whose decision screen held 16.7 ms
+ * in the same browser. Core count is a proxy for a machine; it is not a
+ * measurement of this frame on this device at this resolution, and those are two
+ * different questions.
+ *
+ * So core count is the *seed* — the answer before there is any evidence — and
+ * `Stage.probe()` below is the probe: it times the draw itself and steps the
+ * ladder down when the picture does not fit in the budget. It never steps back
+ * up, because a tier that oscillates is worse than either tier.
  */
-function budget(): Budget {
-  if (qualityTier !== 'auto') return BUDGETS[qualityTier];
+let autoTier: Exclude<Quality, 'auto'> = (() => {
   const cores = typeof navigator === 'undefined' ? 8 : (navigator.hardwareConcurrency ?? 8);
-  return cores <= 4 ? BUDGETS.medium : BUDGETS.high;
+  return cores <= 4 ? 'medium' : 'high';
+})();
+
+function budget(): Budget {
+  return BUDGETS[qualityTier === 'auto' ? autoTier : qualityTier];
 }
+
+/**
+ * The frame a tier has to hold, in milliseconds.
+ *
+ * 60 fps is 16.7 ms; 22 ms is one dropped frame in three and the point at which
+ * the eye reads a pan as stepping rather than moving. A median above it means the
+ * tier below is the honest picture on this device.
+ */
+const FRAME_BUDGET_MS = 22;
+
+/** CSS pixels per pixel of the emissive buffer (see `Stage.lightCanvas`). */
+const LIGHT_SCALE = 3;
 
 /** S9's override (§6.8). Applies from the next frame; changes nothing but cost. */
 export function setQuality(tier: Quality): void {
   qualityTier = tier;
   stage.requality();
+}
+
+/** What `auto` has settled on, for the settings screen to say out loud. */
+export function autoQuality(): Exclude<Quality, 'auto'> {
+  return autoTier;
 }
 
 class Stage {
@@ -444,6 +483,8 @@ class Stage {
   private heroSlot: number | null = null;
   private shudder = 0;
   private bloom = 0;
+  /** How fast the warmth fades, in units per second (`payoff.bloom`). */
+  private bloomDecay = 0.7;
   /**
    * When §S5's door beat started, on the stage's own clock, or -1 for "not on".
    *
@@ -459,7 +500,222 @@ class Stage {
   /** §10.7's watermark lines, or null when nothing is being recorded. */
   private watermark: readonly string[] | null = null;
 
+  /**
+   * What the camera can see, in the coordinates the painters draw in.
+   *
+   * Every fog plane in this stage is a 256 px tile stretched across two to five
+   * screen widths and drawn twice, which is how a soft volume with internal
+   * parallax is made out of one texture — and it is also how the round-2 build
+   * came to ask the rasteriser for **21.9 screen-areas of `drawImage` per frame**
+   * (measured, by instrumenting the 2D context) for a frame that is one screen
+   * big. Removing `drawImage` alone took the run from 66.6 ms to 16.7 ms, so the
+   * whole frame budget was in blits, and ~15 of those 21.9 areas were outside the
+   * frame entirely.
+   *
+   * The fix is not to draw less fog, it is to stop paying for the fog nobody can
+   * see: every plane is blitted through `blit()`, which intersects the
+   * destination with this rectangle and takes the matching sub-rectangle of the
+   * source. The picture is identical; the fill is what changes.
+   *
+   * It is a *field* rather than a computed call because the camera is applied
+   * once per frame in `draw()` and read by four painters underneath it.
+   */
+  private view = { x0: 0, y0: 0, x1: 0, y1: 0 };
+
+  /** Frame intervals in ms, for the `auto` probe, and how many windows missed. */
+  private cost: number[] = [];
+  private overBudget = 0;
+
+  /**
+   * The emissive pass, at a third of the frame's resolution.
+   *
+   * Every warm thing in this world is drawn the same way: a soft radial sprite
+   * blitted additively at two to three figure-heights across. Measured, that was
+   * **3.1 screen-areas of additive blit per frame** for five lanterns on the run
+   * and another 1.9 for the Lamp House's wash — more fill than the entire rest of
+   * the frame, and the reason the run ran at 20 fps while the same page held
+   * 16.7 ms on every screen with a small canvas on it.
+   *
+   * A glow is the lowest-frequency thing on screen: it has no edge and no detail,
+   * so a third of the resolution is indistinguishable from full and costs a ninth
+   * of the fill. Everything emissive accumulates into this buffer at that scale
+   * and is composited once, over its own bounding box, with the same `lighter`
+   * operator each call used individually — so the picture is the same picture and
+   * the light still adds where two lanterns overlap.
+   */
+  private lightCanvas: HTMLCanvasElement | null = null;
+  private lightCtx: CanvasRenderingContext2D | null = null;
+  private lightBox: { x0: number; y0: number; x1: number; y1: number } | null = null;
+
   private dust: { x: number; y: number; vx: number; vy: number; life: number }[] = [];
+
+  /**
+   * One plane of a stretched texture, clipped to what the camera can see.
+   *
+   * `drawImage` charges for the destination rectangle it is *given*, not for the
+   * part of it that lands on the frame, so a 256 px tile stretched over five
+   * screen widths costs five screens even when four of them are off-camera. This
+   * intersects the destination with `view` and takes the matching sub-rectangle
+   * of the source, which is the same picture at a fraction of the fill — and
+   * `drawImage`'s source rectangle is in *source* pixels, so the mapping is the
+   * one place this could go wrong and it is written out rather than inlined.
+   */
+  private blit(
+    ctx: CanvasRenderingContext2D,
+    image: HTMLCanvasElement,
+    dx: number,
+    dy: number,
+    dw: number,
+    dh: number,
+  ): void {
+    if (dw <= 0 || dh <= 0) return;
+    const view = this.view;
+    const x0 = Math.max(dx, view.x0);
+    const x1 = Math.min(dx + dw, view.x1);
+    const y0 = Math.max(dy, view.y0);
+    const y1 = Math.min(dy + dh, view.y1);
+    if (x1 <= x0 || y1 <= y0) return;
+    const sx = ((x0 - dx) / dw) * image.width;
+    const sy = ((y0 - dy) / dh) * image.height;
+    const sw = ((x1 - x0) / dw) * image.width;
+    const sh = ((y1 - y0) / dh) * image.height;
+    ctx.drawImage(image, sx, sy, sw, sh, x0, y0, x1 - x0, y1 - y0);
+  }
+
+  /** The same clip, for a gradient fill. Same reason, same rectangle. */
+  private fill(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
+    const view = this.view;
+    const x0 = Math.max(x, view.x0);
+    const x1 = Math.min(x + w, view.x1);
+    const y0 = Math.max(y, view.y0);
+    const y1 = Math.min(y + h, view.y1);
+    if (x1 <= x0 || y1 <= y0) return;
+    ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+  }
+
+  /**
+   * The emissive buffer, cleared and aligned to the camera on first use.
+   *
+   * It is in *screen* space with the camera folded in, so a glow can be written
+   * in the same world coordinates the painter is already using and the composite
+   * at the end needs no transform at all.
+   */
+  private lightLayer(): CanvasRenderingContext2D | null {
+    const main = this.ctx;
+    if (!main) return null;
+    const wide = Math.max(1, Math.ceil(this.width / LIGHT_SCALE));
+    const tall = Math.max(1, Math.ceil(this.height / LIGHT_SCALE));
+    let canvas = this.lightCanvas;
+    if (!canvas || canvas.width !== wide || canvas.height !== tall) {
+      canvas = document.createElement('canvas');
+      canvas.width = wide;
+      canvas.height = tall;
+      this.lightCanvas = canvas;
+      this.lightCtx = canvas.getContext('2d');
+    }
+    const ctx = this.lightCtx;
+    if (!ctx) return null;
+    if (!this.lightBox) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // The camera, at a third of the scale: `getTransform` is world -> device
+      // pixels, and a buffer pixel is `LIGHT_SCALE` CSS pixels.
+      const m = main.getTransform();
+      const k = this.dpr * LIGHT_SCALE;
+      ctx.setTransform(m.a / k, m.b / k, m.c / k, m.d / k, m.e / k, m.f / k);
+      this.lightBox = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+    }
+    return ctx;
+  }
+
+  /** One emissive sprite, into the buffer, in the painter's own coordinates. */
+  private light(kind: 'warm' | 'brass', x: number, y: number, radius: number, alpha: number): void {
+    if (alpha <= 0.002 || radius <= 0) return;
+    const ctx = this.lightLayer();
+    const box = this.lightBox;
+    if (!ctx || !box) return;
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(glowSprite(kind), x - radius, y - radius, radius * 2, radius * 2);
+    // The camera has no rotation, so two corners are the whole bounding box.
+    const m = ctx.getTransform();
+    const px = (wx: number, wy: number) => [m.a * wx + m.c * wy + m.e, m.b * wx + m.d * wy + m.f];
+    const [ax, ay] = px(x - radius, y - radius) as [number, number];
+    const [bx, by] = px(x + radius, y + radius) as [number, number];
+    box.x0 = Math.min(box.x0, ax, bx);
+    box.y0 = Math.min(box.y0, ay, by);
+    box.x1 = Math.max(box.x1, ax, bx);
+    box.y1 = Math.max(box.y1, ay, by);
+  }
+
+  /** Everything emissive so far, composited once over its own bounding box. */
+  private flushLight(ctx: CanvasRenderingContext2D): void {
+    const box = this.lightBox;
+    const canvas = this.lightCanvas;
+    this.lightBox = null;
+    if (!box || !canvas || box.x1 <= box.x0) return;
+    const x0 = Math.max(0, Math.floor(box.x0));
+    const y0 = Math.max(0, Math.floor(box.y0));
+    const x1 = Math.min(canvas.width, Math.ceil(box.x1));
+    const y1 = Math.min(canvas.height, Math.ceil(box.y1));
+    if (x1 <= x0 || y1 <= y0) return;
+    ctx.save();
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 1;
+    ctx.drawImage(
+      canvas,
+      x0,
+      y0,
+      x1 - x0,
+      y1 - y0,
+      x0 * LIGHT_SCALE,
+      y0 * LIGHT_SCALE,
+      (x1 - x0) * LIGHT_SCALE,
+      (y1 - y0) * LIGHT_SCALE,
+    );
+    ctx.restore();
+  }
+
+  /**
+   * §6.8's boot probe, run continuously instead of once.
+   *
+   * A tier is a claim about what this device can draw in a frame, and the only
+   * honest way to make that claim is to draw frames and time them — *frames*, and
+   * not the draw call, because a canvas records its work on the main thread and
+   * pays for it on the raster thread, so the number that tells you whether the
+   * picture fits is the interval between frames and nothing else.
+   *
+   * Twenty-four samples is about four tenths of a second: long enough that one
+   * long frame (a garbage collection, a screen transition) cannot move the
+   * median, short enough that a player never spends a whole beat on a tier that
+   * does not fit. It only ever steps *down*, and only while the player has left
+   * the setting on `auto`, because a tier that oscillates is worse than either.
+   */
+  private probe(ms: number): void {
+    if (qualityTier !== 'auto' || autoTier === 'low') return;
+    // A frame that arrives after a pause is not evidence about the frame budget.
+    if (ms > 200) {
+      this.cost = [];
+      return;
+    }
+    this.cost.push(ms);
+    if (this.cost.length < 24) return;
+    const sorted = [...this.cost].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)] as number;
+    this.cost = [];
+    if (median <= FRAME_BUDGET_MS) {
+      this.overBudget = 0;
+      return;
+    }
+    // Two windows, not one: a screen transition can spend half a second laying
+    // out a document, and stepping a player's picture down for that is a worse
+    // fault than the half second was.
+    this.overBudget += 1;
+    if (this.overBudget < 2) return;
+    this.overBudget = 0;
+    autoTier = autoTier === 'high' ? 'medium' : 'low';
+    this.requality();
+  }
 
   /* ------------------------------------------------------------------ mount */
 
@@ -544,9 +800,12 @@ class Stage {
     if (this.stopFrame) return;
     this.lastNow = 0;
     this.stopFrame = onFrame((now) => {
-      const delta = this.lastNow === 0 ? 16 : Math.min(64, now - this.lastNow);
+      const interval = this.lastNow === 0 ? 16 : now - this.lastNow;
+      const delta = Math.min(64, interval);
       this.lastNow = now;
       this.draw(delta / 1000);
+      // §6.8's probe measures the frame, not the call (see `probe`).
+      if (this.lastNow !== 0) this.probe(interval);
     });
   }
 
@@ -699,9 +958,12 @@ class Stage {
     }
   }
 
-  effect(kind: StageEffect): void {
+  effect(kind: StageEffect, amount = 1, decay = 0.7): void {
     if (kind === 'shudder') this.shudder = 1;
-    if (kind === 'bloom') this.bloom = 1;
+    if (kind === 'bloom') {
+      this.bloom = amount;
+      this.bloomDecay = decay;
+    }
     // The descent's camera is driven by the falling body, so the effect only has
     // to say which body: `set()` has already marked the hero.
     if (kind === 'descent' && this.heroSlot === null)
@@ -864,7 +1126,7 @@ class Stage {
    * decision band, where they are establishing shot rather than subject.
    */
   private figureHeight(): number {
-    return Math.max(20, Math.min(76, this.height * 0.13));
+    return Math.max(20, Math.min(98, this.height * 0.13));
   }
 
   /**
@@ -903,7 +1165,7 @@ class Stage {
     this.spot = settle(this.spot, this.spotTarget, 2.4);
     this.push = settle(this.push, this.pushTarget, 2.2);
     this.shudder = Math.max(0, this.shudder - delta * 2.6);
-    this.bloom = Math.max(0, this.bloom - delta * 0.7);
+    this.bloom = Math.max(0, this.bloom - delta * this.bloomDecay);
     this.trackDescent(delta);
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -914,12 +1176,22 @@ class Stage {
     // hero descent, and a shudder that belongs to the branch rather than the
     // frame — §6.4 forbids screen shake on a win and this is neither.
     const shake = this.shudder * this.shudder * 3.2;
+    const shakeX = calm() ? 0 : Math.sin(this.time * 47) * shake;
+    const shakeY = calm() ? 0 : Math.cos(this.time * 41) * shake * 0.6;
     ctx.translate(this.width / 2, this.height / 2);
     ctx.scale(this.push, this.push);
-    ctx.translate(
-      -this.width / 2 + (calm() ? 0 : Math.sin(this.time * 47) * shake),
-      -this.height / 2 - this.followPx + (calm() ? 0 : Math.cos(this.time * 41) * shake * 0.6),
-    );
+    ctx.translate(-this.width / 2 + shakeX, -this.height / 2 - this.followPx + shakeY);
+
+    // The same transform, inverted, so a painter can ask what is on screen. A
+    // margin of two pixels keeps a bilinear edge off the frame border.
+    const halfW = this.width / (2 * this.push) + 2;
+    const halfH = this.height / (2 * this.push) + 2;
+    this.view = {
+      x0: this.width / 2 - halfW - shakeX,
+      x1: this.width / 2 + halfW - shakeX,
+      y0: this.height / 2 - halfH + this.followPx - shakeY,
+      y1: this.height / 2 + halfH + this.followPx - shakeY,
+    };
 
     this.paintBackdrop(ctx);
     this.paintUnderside(ctx);
@@ -927,6 +1199,7 @@ class Stage {
     // The house stands on the branch, so it is drawn with the branch: behind the
     // figures walking toward it, in front of the fog they came out of.
     this.paintLampHouse(ctx);
+    this.flushLight(ctx);
     this.paintFigures(ctx, delta);
     this.paintFog(ctx, 1);
     this.paintDust(ctx, delta);
@@ -946,7 +1219,7 @@ class Stage {
       this.backdrop = this.buildBackdrop();
       this.backdropKey = key;
     }
-    ctx.drawImage(this.backdrop, 0, 0, this.width, this.height);
+    this.blit(ctx, this.backdrop, 0, 0, this.width, this.height);
   }
 
   private buildBackdrop(): HTMLCanvasElement {
@@ -996,7 +1269,65 @@ class Stage {
     below.addColorStop(1, theme.embers ? 'rgba(14,17,20,0.95)' : 'rgba(14,17,20,0.55)');
     ctx.fillStyle = below;
     ctx.fillRect(0, h * theme.fogTop, w, h * (1 - theme.fogTop));
+
+    if (h >= 200) this.paintNearLimb(ctx, w, h);
     return canvas;
+  }
+
+  /**
+   * The near limb: the thing the shot is composed *through*.
+   *
+   * Two rounds of review measured the same fault — *"the action occupies a
+   * ~150 px band in a ~700 px scene: the top ~40% is a flat gradient and the
+   * bottom ~25% is featureless ground"* — and it is a composition fault rather
+   * than a material one. Everything in the frame was at exactly one depth, so
+   * however well the branch was dressed, it read as a well-drawn strip floating
+   * in fog.
+   *
+   * What a camera in a forest actually sees is a nearer branch it is looking
+   * past: out of focus, far darker than everything behind it, cropped by the
+   * frame, and carrying a few dead strands into the picture. It costs nothing —
+   * it is painted once into the cached backdrop — and it is the reason the frame
+   * has a foreground, a subject and a distance rather than only a subject.
+   *
+   * It sits below `fogTop`, so §9's descent covers it with the underside volume
+   * the moment the camera leaves level: a foreground element that followed a
+   * falling lantern down would be a bar drawn across the fall.
+   */
+  private paintNearLimb(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    ctx.save();
+    // Out of focus, and dark: the near mass is the deepest value in the frame.
+    const top = h * 0.87;
+    const mass = new Path2D();
+    mass.moveTo(-w * 0.05, h + 2);
+    mass.lineTo(-w * 0.05, top + h * 0.03);
+    mass.bezierCurveTo(w * 0.28, top - h * 0.028, w * 0.62, top + h * 0.02, w * 1.05, top - h * 0.012);
+    mass.lineTo(w * 1.05, h + 2);
+    mass.closePath();
+    // A soft top edge, because a near object at this distance has no hard one.
+    const body = ctx.createLinearGradient(0, top - h * 0.06, 0, h);
+    body.addColorStop(0, 'rgba(10,13,16,0)');
+    body.addColorStop(0.3, 'rgba(10,13,16,0.86)');
+    body.addColorStop(1, 'rgba(6,8,10,0.99)');
+    ctx.fillStyle = body;
+    ctx.fill(mass);
+
+    // Dead strands hanging off it, and two stubs rising from it. They break the
+    // silhouette's line, which is what stops a foreground reading as a bar.
+    ctx.strokeStyle = 'rgba(8,10,13,0.8)';
+    ctx.lineCap = 'round';
+    for (let index = 0; index < 5; index += 1) {
+      const seed = index * 6.1 + 2;
+      const x = w * (0.06 + hash01(seed) * 0.9);
+      const rise = h * (0.02 + hash01(seed + 1) * 0.05);
+      const lean = (hash01(seed + 2) - 0.5) * w * 0.06;
+      ctx.lineWidth = Math.max(1.5, h * (0.004 + hash01(seed + 3) * 0.005));
+      ctx.beginPath();
+      ctx.moveTo(x, top + h * 0.012);
+      ctx.quadraticCurveTo(x + lean * 0.4, top - rise * 0.6, x + lean, top - rise);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   /**
@@ -1031,7 +1362,7 @@ class Stage {
     gradient.addColorStop(0.42, 'rgba(30,37,44,0.92)');
     gradient.addColorStop(1, '#111820');
     ctx.fillStyle = gradient;
-    ctx.fillRect(0, top, this.width, depth);
+    this.fill(ctx, 0, top, this.width, depth);
 
     if (calm()) return;
 
@@ -1052,7 +1383,7 @@ class Stage {
       trunk.addColorStop(0.7, `rgba(12,16,20,${alpha.toFixed(3)})`);
       trunk.addColorStop(1, 'rgba(12,16,20,0)');
       ctx.fillStyle = trunk;
-      ctx.fillRect(x, y0, width, span);
+      this.fill(ctx, x, y0, width, span);
     }
     ctx.restore();
 
@@ -1063,7 +1394,7 @@ class Stage {
     const band = h * 0.7;
     for (let index = 0; index < budget().planes; index += 1) {
       const y = top + ((this.followPx * (0.5 + index * 0.35) + index * band) % (depth + band));
-      ctx.drawImage(tile, -this.width * 0.2, y, this.width * 1.4, band);
+      this.blit(ctx, tile, -this.width * 0.2, y, this.width * 1.4, band);
     }
     ctx.restore();
   }
@@ -1115,8 +1446,9 @@ class Stage {
   private paintCanopy(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     ctx.save();
     for (const [side, seed, alpha] of [
-      [-1, 3, 0.26],
-      [1, 11, 0.17],
+      [-1, 3, 0.4],
+      [1, 11, 0.27],
+      [-1, 29, 0.16],
     ] as const) {
       /*
        * Soft, wide, and far back.
@@ -1461,13 +1793,24 @@ class Stage {
          * amber hole — the light was drawn over the object it is supposed to be
          * coming through.
          */
-        ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha = 0.2 * lit;
-        drawGlow(ctx, glowSprite('warm'), x, grilleTop + grilleH * 0.5, doorW * 1.5);
-        ctx.globalAlpha = 0.16 * lit;
-        drawGlow(ctx, glowSprite('warm'), x, ground - H * 0.2, this.width * 1.1);
-        ctx.restore();
+        const heat = Math.min(1, Math.max(0, this.scene.heat ?? 0));
+        this.light('warm', x, grilleTop + grilleH * 0.5, doorW * 1.5, 0.2 * lit);
+        /*
+         * §6.4's own reward, at the size of the thing being rewarded.
+         *
+         * The wash over the branch is the picture of *"the tree is briefly
+         * warm"*, and the round-2 build drew it at one width for every return in
+         * the game. It is the same wash — no confetti and nothing kinetic has
+         * been added to it — reaching a third further and half again as bright on
+         * a rare bank as on a recovery.
+         */
+        this.light(
+          'warm',
+          x,
+          ground - H * 0.2,
+          this.width * (1.0 + heat * 0.45 + this.bloom * 0.22),
+          (0.09 + heat * 0.15 + this.bloom * 0.09) * lit,
+        );
       }
     }
 
@@ -1535,23 +1878,29 @@ class Stage {
      * readable as a count — this is the picture of what was rescued, and §10.5's
      * rule that a sub-stake return is never dressed as a win is why it is a row of
      * small lights and not a fountain.
+     *
+     * Two things scale, and neither is the count: how far the lights carry, which
+     * is the size of the return (§6.4), and where they sit, which is the width of
+     * the frame — the round-2 build put a fifth light off the right edge of a
+     * 390 pt screen, so the row is centred and held inside its own margin.
      */
+    const heat = Math.min(1, Math.max(0, this.scene.heat ?? 0));
+    const step = Math.min(W * 0.3, (this.width * 0.82) / Math.max(1, lamps));
     for (let index = 0; index < inside; index += 1) {
       const entered = closedAt + 0.35 + index * 0.14;
       const life = Math.max(0, Math.min(1, (t - entered) / 0.45));
       if (life <= 0) continue;
-      const spread = (index - (lamps - 1) / 2) * W * 0.3;
+      const spread = (index - (lamps - 1) / 2) * step;
       const dy = top - H * (0.16 + (index % 2) * 0.1);
-      const dot = { x: x + spread, y: dy };
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = 0.5 * life;
-      drawGlow(ctx, glowSprite('brass'), dot.x, dot.y, H * 0.3);
-      ctx.restore();
+      const dot = {
+        x: Math.min(this.width * 0.94, Math.max(this.width * 0.06, x + spread)),
+        y: dy,
+      };
+      this.light('brass', dot.x, dot.y, H * (0.26 + heat * 0.26), (0.42 + heat * 0.3) * life);
       ctx.fillStyle = C.lampCore;
       ctx.globalAlpha = life;
       ctx.beginPath();
-      ctx.arc(dot.x, dot.y, Math.max(1.4, H * 0.017), 0, Math.PI * 2);
+      ctx.arc(dot.x, dot.y, Math.max(1.4, H * (0.015 + heat * 0.01)), 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha = 1;
     }
@@ -1811,7 +2160,7 @@ class Stage {
       sea.addColorStop(0.42, `rgba(126,140,149,${(0.34 * theme.fogDensity).toFixed(3)})`);
       sea.addColorStop(1, `rgba(24,29,34,${(0.72 * theme.fogDensity).toFixed(3)})`);
       ctx.fillStyle = sea;
-      ctx.fillRect(0, top - h * 0.05, w, h - top + h * 0.05);
+      this.fill(ctx, 0, top - h * 0.05, w, h - top + h * 0.05);
     }
 
     const all: readonly (readonly [number, number, number])[] =
@@ -1831,8 +2180,8 @@ class Stage {
       const width = w * 1.9 * scale;
       const offset = -((drift * speed + this.scene.progress * 140) % width);
       ctx.globalAlpha = alpha;
-      ctx.drawImage(tile, offset, y, width, bandHeight);
-      ctx.drawImage(tile, offset + width, y, width, bandHeight);
+      this.blit(ctx, tile, offset, y, width, bandHeight);
+      this.blit(ctx, tile, offset + width, y, width, bandHeight);
     }
 
     if (theme.ribbons) {
@@ -1843,8 +2192,8 @@ class Stage {
         const y = h * (0.2 + ribbon * 0.16) + Math.sin(this.time * 0.4 + ribbon) * 3;
         const width = w * 1.4;
         const offset = -(((drift * (120 + ribbon * 26)) % width) - 0);
-        ctx.drawImage(tile, offset, y, width, h * 0.1);
-        ctx.drawImage(tile, offset + width, y, width, h * 0.1);
+        this.blit(ctx, tile, offset, y, width, h * 0.1);
+        this.blit(ctx, tile, offset + width, y, width, h * 0.1);
       }
     }
 
@@ -1950,22 +2299,17 @@ class Stage {
 
     // The warm scatter, drawn *after* the near fog so a lantern lights the fog in
     // front of it rather than being covered by it (§6.2's fixed behaviour).
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
     for (const body of bodies) {
       if (body.light <= 0.02 || body.inside) continue;
       const { x, y } = this.figureAnchor(body, height);
       const lanternY = y - height * 0.56;
       const radius = height * (2.4 + this.bloom * 2.2);
-      ctx.globalAlpha = 0.22 * body.light;
-      drawGlow(ctx, glowSprite('warm'), x, lanternY, radius);
-      if (this.theme().wet) {
-        // Lanterns double in the pools (§6.7 arena 1).
-        ctx.globalAlpha = 0.1 * body.light;
-        drawGlow(ctx, glowSprite('warm'), x, y + height * 0.12, radius * 0.7);
-      }
+      this.light('warm', x, lanternY, radius, 0.22 * body.light);
+      // Lanterns double in the pools (§6.7 arena 1).
+      if (this.theme().wet)
+        this.light('warm', x, y + height * 0.12, radius * 0.7, 0.1 * body.light);
     }
-    ctx.restore();
+    this.flushLight(ctx);
   }
 
   /**
@@ -2383,12 +2727,27 @@ class Stage {
     if (body.pose === 'home') {
       // §9: the light comes through the door's grille from inside — safe, and
       // visibly still burning. Brass, not lamp: banked money is its own family.
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = 0.4;
-      drawGlow(ctx, glowSprite('brass'), cx, cy, size * 5);
-      ctx.restore();
+      this.light('brass', cx, cy, size * 5, 0.4);
     }
+  }
+
+  /**
+   * The one figure §9's beat is about, when there is one.
+   *
+   * Two shapes count as alone and the design document names both: the last runner
+   * in the round, and *"one named figure alone in frame while four others run
+   * somewhere the camera is not"* — the fork's thin limb, where the squad is five
+   * and the subject is one. The camera cannot find the second one by counting
+   * bodies, so it counts bodies *per lane*, which is what "alone on the limb"
+   * means in the only coordinates the stage has.
+   */
+  private soloBody(): Body | undefined {
+    const bodies = [...this.bodies.values()].filter((body) => body.pose !== 'gone');
+    if (bodies.length === 1) return bodies[0];
+    const counts = new Map<number, Body[]>();
+    for (const body of bodies) counts.set(body.lane, [...(counts.get(body.lane) ?? []), body]);
+    for (const [, lane] of counts) if (lane.length === 1) return lane[0];
+    return undefined;
   }
 
   /* -------------------------------------------------------------- vignette */
@@ -2427,11 +2786,50 @@ class Stage {
     }
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.globalAlpha = 1;
-    ctx.drawImage(this.vignette, 0, 0, this.width, this.height);
+    /*
+     * Only the part of it that is not transparent.
+     *
+     * The gradient's first stop sits at 42% of its radius, so every pixel inside
+     * the square inscribed in that circle is `rgba(...,0)` — and blitting a
+     * transparent pixel costs exactly what blitting an opaque one costs. The
+     * frame is drawn as the up-to-four slabs around that square instead, which is
+     * the same picture for about half the fill. On the run that is a saving of
+     * roughly a third of a screen-area per frame, every frame.
+     */
+    const inner = Math.max(this.width, this.height) * 0.9 * 0.42 * Math.SQRT1_2;
+    const cx = this.width * 0.5;
+    const cy = this.height * 0.46;
+    const slabs: [number, number, number, number][] = [];
+    const clear = {
+      x0: Math.max(0, cx - inner),
+      x1: Math.min(this.width, cx + inner),
+      y0: Math.max(0, cy - inner),
+      y1: Math.min(this.height, cy + inner),
+    };
+    if (clear.x1 <= clear.x0 || clear.y1 <= clear.y0) slabs.push([0, 0, this.width, this.height]);
+    else {
+      if (clear.y0 > 0) slabs.push([0, 0, this.width, clear.y0]);
+      if (clear.y1 < this.height) slabs.push([0, clear.y1, this.width, this.height - clear.y1]);
+      if (clear.x0 > 0) slabs.push([0, clear.y0, clear.x0, clear.y1 - clear.y0]);
+      if (clear.x1 < this.width)
+        slabs.push([clear.x1, clear.y0, this.width - clear.x1, clear.y1 - clear.y0]);
+    }
+    for (const [sx, sy, sw, sh] of slabs)
+      ctx.drawImage(
+        this.vignette,
+        sx * this.dpr,
+        sy * this.dpr,
+        sw * this.dpr,
+        sh * this.dpr,
+        sx,
+        sy,
+        sw,
+        sh,
+      );
 
     if (this.spot < 0.99) {
       const strength = 1 - this.spot;
-      const focus = this.bodies.size === 1 ? [...this.bodies.values()][0] : undefined;
+      const focus = this.soloBody();
       // On the door screen the subject is the door, whatever is still walking
       // toward it: the narrowing is what puts the frame's attention on the light.
       const x =
@@ -2519,6 +2917,25 @@ function fogTile(): HTMLCanvasElement {
     ctx.fill();
   }
   ctx.filter = 'none';
+  /*
+   * A window on the tile's own top and bottom edges.
+   *
+   * Every plane in this stage is a rectangle of this texture, and a rectangle of
+   * semi-transparent cloud has a *straight horizontal edge* where it stops — which
+   * the round-2 review read, correctly, as a seam across the upper third of the
+   * run frame. Fading the texture out over its own first and last fifth means a
+   * plane ends by thinning into what is behind it, which is what fog does. The
+   * tile still wraps horizontally, so the parallax is untouched.
+   */
+  ctx.globalCompositeOperation = 'destination-in';
+  const window = ctx.createLinearGradient(0, 0, 0, size);
+  window.addColorStop(0, 'rgba(0,0,0,0)');
+  window.addColorStop(0.22, 'rgba(0,0,0,1)');
+  window.addColorStop(0.78, 'rgba(0,0,0,1)');
+  window.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = window;
+  ctx.fillRect(0, 0, size, size);
+  ctx.globalCompositeOperation = 'source-over';
   tile = canvas;
   return canvas;
 }
@@ -2549,16 +2966,6 @@ function glowSprite(kind: 'warm' | 'brass'): HTMLCanvasElement {
   ctx.fillRect(0, 0, size, size);
   glows.set(kind, canvas);
   return canvas;
-}
-
-function drawGlow(
-  ctx: CanvasRenderingContext2D,
-  sprite: HTMLCanvasElement,
-  x: number,
-  y: number,
-  radius: number,
-): void {
-  ctx.drawImage(sprite, x - radius, y - radius, radius * 2, radius * 2);
 }
 
 function roundRect(

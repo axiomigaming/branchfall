@@ -556,11 +556,25 @@ export function lastLanternOut(): void {
  * than a preference — this sound plays over a 0.76x return as readily as over a
  * good one.
  */
-export function bank(lanterns: number): void {
+export function bank(lanterns: number, heat = 0): void {
   const g = speaking();
   if (!g) return;
   const at = g.ctx.currentTime;
   door(g, at);
+
+  /*
+   * How big the bank was, in the one dimension a bell has and a chime does not.
+   *
+   * The round-2 build passed the survivor count and nothing else, so a 0.81x and
+   * a 3.06x rang the identical bell. §7 fixes the decay at 0.9 s and §10.5 fixes
+   * the *level* — this sound plays over a 0.76x recovery and may never sound like
+   * a jackpot — so what scales with the size of the return is how long the bell
+   * rings and how much of the instrument is ringing: the decay stretches by up to
+   * three quarters and the strike adds an octave below the fundamental, which is
+   * a bigger bell rather than a louder one. The peak level does not move at all.
+   */
+  const warm = Math.min(1, Math.max(0, heat));
+  const stretch = 1 + warm * 0.75;
 
   // A minor-pentatonic stack on A2: adding a lantern adds a tone above, never a
   // transposition of the whole chord upward (§7: never modulates upward).
@@ -579,12 +593,27 @@ export function bank(lanterns: number): void {
       const osc = g.ctx.createOscillator();
       osc.type = 'sine';
       osc.frequency.value = base * ratio;
-      const gain = envelope(g, level * share, at + 0.06 + index * 0.045, 0.004, decay);
+      const long = decay * stretch;
+      const gain = envelope(g, level * share, at + 0.06 + index * 0.045, 0.004, long);
       osc.connect(gain);
       gain.connect(g.world);
       osc.start(at + 0.06 + index * 0.045);
-      osc.stop(at + 0.06 + index * 0.045 + decay + 0.1);
+      osc.stop(at + 0.06 + index * 0.045 + long + 0.1);
     }
+  }
+
+  // The octave under the bell, on a big return only: a hum the room picks up,
+  // at a level no louder than the tone above it and a decay twice as long.
+  if (warm > 0.5) {
+    const osc = g.ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = 55;
+    const decay = 1.4 + warm * 1.6;
+    const gain = envelope(g, 0.07 * warm, at + 0.06, 0.02, decay);
+    osc.connect(gain);
+    gain.connect(g.world);
+    osc.start(at + 0.06);
+    osc.stop(at + 0.06 + decay + 0.2);
   }
 }
 
@@ -667,24 +696,37 @@ export function duckForLastLamp(on: boolean): void {
   g.world.gain.setTargetAtTime(on ? BUS_LEVEL.world * 1.15 : BUS_LEVEL.world, at, 0.45);
 }
 
-/** The frame going warm again — a Lamp House door or the Crown Lamp, resolving. */
-export function warmth(): void {
+/**
+ * The frame going warm again — a Lamp House door or the Crown Lamp, resolving.
+ *
+ * §6.4: *"the reward for a big bank is that the tree is briefly warm"*. The pad
+ * under the picture is the audible half of that, so *briefly* is the parameter:
+ * the same three tones, held between one and three seconds by the size of the
+ * return, and a fifth added over the top of them on the biggest ones. Nothing
+ * about the attack or the level changes, so a small bank still sounds like a
+ * small bank instead of a short big one.
+ */
+export function warmth(heat = 0): void {
   const g = speaking();
   if (!g) return;
   const at = g.ctx.currentTime;
-  for (const [freq, level, decay] of [
+  const warm = Math.min(1, Math.max(0, heat));
+  const hold = 1 + warm * 1.1;
+  const tones: [number, number, number][] = [
     [220, 0.1, 1.5],
     [329.63, 0.06, 1.2],
     [440, 0.04, 1.0],
-  ] as const) {
+  ];
+  if (warm > 0.5) tones.push([659.25, 0.022 * warm, 1.6]);
+  for (const [freq, level, decay] of tones) {
     const osc = g.ctx.createOscillator();
     osc.type = 'sine';
     osc.frequency.value = freq;
-    const gain = envelope(g, level, at, 0.25, decay);
+    const gain = envelope(g, level, at, 0.25, decay * hold);
     osc.connect(gain);
     gain.connect(g.world);
     osc.start(at);
-    osc.stop(at + decay + 0.4);
+    osc.stop(at + decay * hold + 0.4);
   }
 }
 

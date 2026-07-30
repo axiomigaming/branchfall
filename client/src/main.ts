@@ -34,7 +34,8 @@ import * as clip from './clip.js';
 import { COPY } from './copy.js';
 import { rederive, type Rederivation } from './derive.js';
 import { el, frag, type Child } from './dom.js';
-import { CAUSE_HOLD, countUp, sequence, setCalmPreference } from './motion.js';
+import { CAUSE_HOLD, CLAIM_ROLL, countUp, sequence, setCalmPreference } from './motion.js';
+import { bloom, countMs, payoff, type Payoff } from './payoff.js';
 import {
   DOOR_BEAT,
   doorClosedMs,
@@ -129,7 +130,7 @@ interface State {
   rederived: Rederivation | null;
   rederiving: boolean;
   /**
-   * Which beat of the staged resolve the screen is currently showing (0-2).
+   * Which beat of the staged resolve the screen is currently showing (0-3).
    *
    * §5.2.2 asks for cause before effect — the fallen pips go dark first, held for
    * 350 ms with the claim figure unchanged, and only then does the claim roll. The
@@ -137,6 +138,13 @@ interface State {
    * out of a starting state the frame no longer describes, and this is that state.
    * `resolveScreen` is a pure function of it, which is what makes it safe for the
    * session poll or a toast to re-render in the middle of a beat.
+   *
+   * | step | the frame the player is looking at |
+   * | --- | --- |
+   * | 0 | the arena as it was: everyone still out, the claim it went in with |
+   * | 1 | the lane has given way and the lanterns are out; the claim has not moved |
+   * | 2 | the claim rolls, and the arithmetic that produced it arrives behind it |
+   * | 3 | the claim has landed, and the two actions arrive under it |
    */
   beatStep: number;
   /**
@@ -170,6 +178,8 @@ interface State {
    * hidden"* is the specific thing it forbids.
    */
   lastLampRound: boolean;
+  /** Which of the two settled screens this round ended on (§9's clip replays it). */
+  settledWiped: boolean;
 }
 
 const state: State = {
@@ -199,9 +209,10 @@ const state: State = {
   verify: null,
   rederived: null,
   rederiving: false,
-  beatStep: 2,
+  beatStep: 3,
   settleStep: 3,
   lastLampRound: false,
+  settledWiped: false,
 };
 
 /**
@@ -224,6 +235,30 @@ let cancelBeat: (() => void) | null = null;
  * fired is state, and every later render prints the landed figure.
  */
 let heroRolled = false;
+
+/**
+ * The wallet as it stood *before* the settle, while the beat still owns the figure.
+ *
+ * The round-2 build credited the balance 175 ms after the Bank tap and did not
+ * start the hero count-up until 2221 ms, so for 2.7 seconds the answer to the one
+ * question the screen exists to answer was already on screen in 15 px status-bar
+ * type while the 46 px figure under the door was still blank. The strip is not
+ * dismissible (§10.2) and it stays exactly where it is; what it does not do is
+ * announce the result before the game does. It holds the pre-settle figures until
+ * the hero has counted, then catches up in the same beat as the copy.
+ *
+ * It is deliberately *not* set inside `adopt`: a session poll landing mid-beat
+ * would overwrite it with the post-settle wallet and the hold would evaporate. The
+ * two commands that settle a round set it, and nothing else does.
+ */
+let walletBeforeSettle: WalletView | null = null;
+
+/** Whether a settled screen's beat is still holding the money figures back. */
+function settleHoldsWallet(): boolean {
+  if (state.view === 'banked') return state.settleStep < 2;
+  if (state.view === 'wipe') return Date.now() - state.wipeAtMs < 2000;
+  return false;
+}
 
 function stopBeat(): void {
   cancelBeat?.();
@@ -266,8 +301,35 @@ function render(): void {
   // it. This is the line whose absence made the card on screen and the card being
   // committed two different things.
   syncPager();
+  markScrollable();
   applyScene();
   tuneSoundToScreen();
+}
+
+/**
+ * Whether a pane has more of itself below the fold, said out loud.
+ *
+ * The full-screen panes (§S7, §S8, §S9) are long, and a pane that is cut off with
+ * no affordance reads as a rendering fault rather than as a page — which is
+ * exactly what two reviews found on the verification screen: the last control
+ * showing a 12 px sliver above the footer, with a fade over it and nothing else
+ * to say that scrolling is what this is. The fade is a cue only if you already
+ * know there is something under it.
+ *
+ * So the screen carries the fact as a class while it is true, and the stylesheet
+ * draws one small mark for it above the footer. It is set on render and on every
+ * scroll, and removed the moment the pane is at its end.
+ */
+function markScrollable(): void {
+  const pane = root.querySelector('.surface') as HTMLElement | null;
+  const screen = root.querySelector('.screen') as HTMLElement | null;
+  if (!pane || !screen) return;
+  const update = () => {
+    const more = pane.scrollHeight - pane.scrollTop - pane.clientHeight > 6;
+    screen.classList.toggle('has-more', more);
+  };
+  pane.addEventListener('scroll', update, { passive: true });
+  update();
 }
 
 function applyScene(): void {
@@ -343,7 +405,11 @@ function realityCheck(): HTMLElement {
         field('Time played', `${minutes} min`),
         field('Staked', credits(wallet.stakedMicro, 2)),
         field('Returned', credits(wallet.creditedMicro, 2)),
-        field('Net', `${wallet.netSign}${wallet.netDisplay}`),
+        // The same signed figure the strip carries: a loss floored *away* from
+        // zero. `netDisplay` is a magnitude truncated toward zero, which is the
+        // player-safe rounding on a credit and understates a debit — the strip
+        // stopped using it in round 2 and this was the last screen that had not.
+        field('Net', netFigure(wallet)),
       ),
       el('p', {
         class: 'note',
@@ -369,6 +435,19 @@ function realityCheck(): HTMLElement {
       }),
     ),
   );
+}
+
+/**
+ * A standard and its edition, joined without saying the acronym twice.
+ *
+ * `UKGC RTS` + `RTS 2021-10-31` is one citation written as two fields, and the
+ * naive join reads as a stutter on a regulatory line. If the edition already
+ * starts with the standard's last word, that word is dropped from the edition.
+ */
+function citation(standard: string, edition: string): string {
+  const tail = standard.split(' ').pop() ?? '';
+  const trimmed = tail && edition.startsWith(`${tail} `) ? edition.slice(tail.length + 1) : edition;
+  return `${standard} ${trimmed}`;
 }
 
 function toast(message: string, bad = false): void {
@@ -410,7 +489,7 @@ async function guard(work: () => Promise<void>): Promise<void> {
 /** Always visible, never dismissible (`DESIGN.md` §10.2). */
 function sessionStrip(): HTMLElement {
   const session = state.session;
-  const wallet = state.wallet;
+  const wallet = settleHoldsWallet() ? (walletBeforeSettle ?? state.wallet) : state.wallet;
   const minutes = session ? Math.floor(session.elapsedMs / 60000) : 0;
   return el(
     'div',
@@ -437,24 +516,7 @@ function sessionStrip(): HTMLElement {
       'span',
       {},
       'net ',
-      el('span', {
-        class: 'money',
-        /*
-         * A loss, floored *away* from zero (`creditsSigned`).
-         *
-         * The server publishes `netSign` and a truncated magnitude, which is the
-         * player-safe rounding on a credit and the wrong one on a debit: a true
-         * net of -10.045 printed as -10.04 understates the loss, and the one
-         * figure in this build that §10 asks to be conservative is this one. The
-         * micro-credit total is on the same payload, so the strip renders the
-         * sign from the amount rather than re-signing a rounded magnitude.
-         */
-        text: wallet
-          ? micro(wallet.netMicro) < 0n
-            ? creditsSigned(wallet.netMicro)
-            : `+${credits(wallet.netMicro, 2)}`
-          : '—',
-      }),
+      el('span', { class: 'money', text: wallet ? netFigure(wallet) : '—' }),
     ),
     el('button', {
       // §10.8's 44 pt floor, out of the touch area rather than the ink: the
@@ -468,6 +530,23 @@ function sessionStrip(): HTMLElement {
       },
     }),
   );
+}
+
+/**
+ * The session net, signed, and floored *away* from zero when it is a loss.
+ *
+ * The server publishes `netSign` and a magnitude truncated toward zero, which is
+ * the player-safe rounding on a credit and the wrong one on a debit: a true net
+ * of -79.257237 printed as -79.25 understates the loss by a fraction of a credit
+ * every time. The micro-credit total is on the same payload, so every screen that
+ * shows the net renders it from the amount rather than re-signing a rounded
+ * magnitude — and there is one function for it so a screen cannot be missed,
+ * which is how the reality check kept the old rendering through round 2.
+ */
+function netFigure(wallet: WalletView): string {
+  return micro(wallet.netMicro) < 0n
+    ? creditsSigned(wallet.netMicro)
+    : `+${credits(wallet.netMicro, 2)}`;
 }
 
 function sheetLayer(sheet: Sheet): HTMLElement {
@@ -546,6 +625,8 @@ function viewport(options: {
   readonly arena?: number;
   readonly lastLamp?: boolean;
   readonly names?: boolean;
+  /** How big the return was, for the frame to go warm by (`payoff.ts`, §6.4). */
+  readonly heat?: number;
   /**
    * Whether the stage carries its controls.
    *
@@ -572,6 +653,7 @@ function viewport(options: {
     progress: options.progress ?? 0.08,
     mode: options.mode ?? 'brief',
     lastLamp: options.lastLamp ?? false,
+    heat: options.heat ?? 0,
     names: options.names ?? options.compact !== true,
   };
 
@@ -906,7 +988,9 @@ async function buyRun(): Promise<void> {
     state.precommit = precommit;
     // The commitment is shown before the seed is sent: the client answers exactly
     // one commitment and refuses any other (`ENGINE.md` §5).
-    toast(`${COPY.sealed} ${precommit.seedCommitment.slice(0, 16)}…`);
+    // One line: the notice is docked under the strip and a two-line notice covers
+    // the world band the screen behind it is opening on.
+    toast(`${COPY.sealed} ${precommit.seedCommitment.slice(0, 8)}…`);
     const payload = await api<{ frame: Frame; session: Session; wallet: WalletView }>(
       'POST',
       `/api/rounds/${precommit.roundId}/open`,
@@ -1021,12 +1105,11 @@ function tuneSoundToScreen(): void {
   }
   sound.stopMusic();
   if (state.view === 'run' && frame) {
-    const lastLamp = frame.live.length === 1;
-    sound.duckForLastLamp(lastLamp);
     const laneSizes =
       state.route === 'SPLIT' && state.laneSplit !== null
         ? [state.laneSplit, frame.live.length - state.laneSplit]
         : null;
+    sound.duckForLastLamp(lastLampOf(frame, laneSizes));
     sound.startSquadRhythm(
       orderedRunners(frame).map((runner, index) => ({
         slot: runner.slot,
@@ -1037,6 +1120,26 @@ function tuneSoundToScreen(): void {
     return;
   }
   sound.stopSquadRhythm();
+}
+
+/**
+ * Whether §9's Last Lamp beat is running, in both of the forms §9 describes.
+ *
+ * The obvious one is four gone and one left. The other is *"the variant that only
+ * exists because of the fork"*: send four down the broad limb and one down the
+ * thin one and *"the thin limb is a Last Lamp beat that can happen at any squad
+ * size — one named figure alone in frame while four others run somewhere the
+ * camera is not"*, at 7.90% on a full squad at 4+1 against 3.39% at 3+2.
+ *
+ * The round-2 build tested `frame.live.length === 1`, which is false on every
+ * 4+1 — `live.length` is five — so the beat the design document says is the
+ * reason the fork exists never fired, the camera never moved, and the round never
+ * offered the clip. A lane with exactly one runner in it is the same beat, and
+ * this is the one place either form is decided.
+ */
+function lastLampOf(frame: Frame, laneSizes: number[] | null): boolean {
+  if (frame.live.length === 1) return true;
+  return laneSizes !== null && laneSizes.some((size) => size === 1);
 }
 
 function resetChoice(): void {
@@ -1236,26 +1339,6 @@ function routeScreen(): HTMLElement {
       bankedNote: bankedNote(frame),
     }),
     routeTabs(tabs, state.route, pick),
-    // The product's thesis, permanently on the route screen (§3). Not a
-    // disclaimer in a legal sheet: the sentence the whole game is an argument for.
-    el(
-      'p',
-      { class: 'thesis' },
-      `Every route returns ${config.money.rtpPct}. ${COPY.everyRoute}`,
-      // §5.2.5 rule 2: one tap out of every gated screen, remembered, never
-      // re-asked. It is a link and not a button in the thumb zone because it is
-      // not a money control.
-      !session.showEverything
-        ? el('button', {
-            class: 'link tap',
-            text: COPY.showEverything,
-            onClick: () =>
-              void guard(async () => {
-                adopt(await api('POST', '/api/session', { showEverything: true }));
-              }),
-          })
-        : null,
-    ),
     el(
       'div',
       { class: 'card-pager', onScroll: onPagerScroll },
@@ -1273,7 +1356,35 @@ function routeScreen(): HTMLElement {
         onClick: () => commitRoute(),
       }),
       cycleBar(frame),
-      session.roundsSeen < 3 ? el('p', { class: 'tiny', text: COPY.noClock }) : null,
+      /*
+       * One transient line under the action, never two.
+       *
+       * Both of these end: *"there is no clock on this"* stops after three
+       * rounds, and §5.2.5 rule 2's *"one tap out"* of the gated surface
+       * disappears for good on the tap and is never re-asked. It is a link rather
+       * than a button because it is not a money control, and it is here rather
+       * than in a paragraph above the rail because a permanent paragraph there
+       * cost the busiest card the 38 px its comparison needed. Stacking the two
+       * cost another 26 on exactly the rounds where the card is tightest, so the
+       * disclosure takes the line while it is outstanding and the reassurance
+       * takes it afterwards.
+       */
+      !session.showEverything
+        ? el(
+            'p',
+            { class: 'tiny' },
+            el('button', {
+              class: 'link tap',
+              text: COPY.showEverything,
+              onClick: () =>
+                void guard(async () => {
+                  adopt(await api('POST', '/api/session', { showEverything: true }));
+                }),
+            }),
+          )
+        : session.roundsSeen < 3
+          ? el('p', { class: 'tiny', text: COPY.noClock })
+          : null,
     ),
   );
 }
@@ -1329,6 +1440,7 @@ function renderCard(entry: MenuEntry, frame: Frame, config: Config): HTMLElement
             figuresOf: (balance: number) =>
               entry.figures.find((candidate) => candidate.laneSplit === balance)
                 ?.figures as Figures,
+            onBalance: (balance: number) => chooseBalance(balance),
           }
         : null,
     /*
@@ -1344,7 +1456,7 @@ function renderCard(entry: MenuEntry, frame: Frame, config: Config): HTMLElement
       entry.route === 'SHELTER'
         ? state.shelter.length > 0
           ? 'The rest cross on the Broad Bough.'
-          : `Bring one home and ${shelterCreditLabel(entry)} stops running. The rest cross on the Broad Bough.`
+          : `${shelterCreditLabel(entry)} stops running per runner brought home.`
         : null,
     onSelect: () => {
       selectRoute(entry.route, frame);
@@ -1394,11 +1506,27 @@ function controlStrip(frame: Frame, entry: MenuEntry | null): Child {
   if (!entry) return null;
   if (entry.route === 'SPLIT') {
     const balances = entry.laneSplits.filter((value): value is number => value !== null);
+    /*
+     * The balance is on the card, where §3.3 draws it; the *names* are here.
+     *
+     * These are two different decisions and they were sharing a strip. The
+     * balance is a number and belongs with the numbers it changes — the
+     * comparison table's own columns, which is where §3.3's wireframe puts it.
+     * Who takes the thin limb names a Kindling, changes no distribution at all
+     * (`MATH.md` §5.4), and belongs in the thumb zone next to the button that
+     * commits it. Splitting them gave the card back the 70 px that let its chart
+     * and its comparison both fit on the face.
+     */
     return el(
       'div',
       { class: 'control-strip' },
-      balances.length > 1 ? forkDial(balances, frame) : null,
       limbPicker(frame),
+      balances.length > 1
+        ? el('p', {
+            class: 'tiny',
+            text: `Tap a column on the card: ${balances[balances.length - 1]} + ${frame.live.length - (balances[balances.length - 1] as number)} is the wider spread, same 95.5%.`,
+          })
+        : null,
     );
   }
   if (entry.route === 'SHELTER') return el('div', { class: 'control-strip' }, shelterPicker(entry, frame));
@@ -1406,41 +1534,19 @@ function controlStrip(frame: Frame, entry: MenuEntry | null): Child {
 }
 
 /**
- * The fork balance (`DESIGN.md` §3.3).
+ * Choosing a fork balance (`DESIGN.md` §3.3), from the card's own columns.
  *
  * A volatility dial: `4 + 1` is an exact mean-preserving spread of `3 + 2`, so
  * the copy may not call it a balanced trade — and may not call it the wrong
  * choice either. No default is highlighted until the player has one, no colour
- * hierarchy, no recommendation. The card above carries both columns of numbers
- * at once; this is the control that picks between them.
+ * hierarchy, no recommendation. Picking one clears the limb assignment, because
+ * an order built for three on the broad limb is not an order for four.
  */
-function forkDial(balances: readonly number[], frame: Frame): HTMLElement {
-  const running = frame.live.length;
-  return el(
-    'div',
-    {},
-    el(
-      'div',
-      { class: 'balance-tabs' },
-      ...balances.map((balance) =>
-        el('button', {
-          class: 'balance-tab',
-          'aria-pressed': String(state.laneSplit === balance),
-          text: `${balance} + ${running - balance}`,
-          onClick: () => {
-            state.route = 'SPLIT';
-            state.laneSplit = balance;
-            state.laneOrder = null;
-            render();
-          },
-        }),
-      ),
-    ),
-    el('p', {
-      class: 'tiny',
-      text: `Same 95.5% either way. ${balances[balances.length - 1]} + ${running - (balances[balances.length - 1] as number)} is the wider spread.`,
-    }),
-  );
+function chooseBalance(balance: number): void {
+  state.route = 'SPLIT';
+  state.laneSplit = balance;
+  state.laneOrder = null;
+  render();
 }
 
 /**
@@ -1493,7 +1599,6 @@ function limbPicker(frame: Frame): HTMLElement {
       el('div', { class: 'limb-divider' }),
       ...order.slice(split).map((name) => chip(name, 'thin')),
     ),
-    el('p', { class: 'tiny', text: COPY.whoGoesWhere }),
   );
 }
 
@@ -1549,14 +1654,21 @@ function shelterPicker(entry: MenuEntry, frame: Frame): HTMLElement {
         );
       }),
     ),
+    /*
+     * One line under the picker, not two.
+     *
+     * §S2 asks for a live readout that changes as you tap, and the floor rule —
+     * *"one has to run"* — is stated by the inert chip's own label, by the message
+     * the refusal shows on tap, and by this line while there is nothing picked
+     * yet. A second permanent paragraph saying it again cost the card a row.
+     */
     el('p', {
       class: 'readout money',
       text:
         chosen.length === 0
-          ? 'Tap the ones to bring home.'
+          ? 'Tap the ones to bring home. One has to run.'
           : `Banks ${shelterCreditLabel(entry)} now. ${running.length - chosen.length} keep running.`,
     }),
-    el('p', { class: 'tiny', text: COPY.shelterFloor }),
   );
 }
 
@@ -1879,6 +1991,23 @@ function playResolveBeat(arena: ArenaRecord): void {
         if (arena.shelter.length > 0) sound.bank(arena.shelter.length);
       },
     },
+    {
+      /*
+       * The controls, after the claim has finished counting.
+       *
+       * §S4 puts `Bank 3.82` and `Run The Char ▸` side by side with equal weight
+       * and no timer, and the round-2 review measured the one thing that ordering
+       * still got wrong: the button carrying the post-resolve figure mounted
+       * 480 ms before the claim strip finished rolling to it, so the screen held
+       * two different money figures at once and the newer one was on the button.
+       * The roll is the statement; the controls follow it.
+       */
+      at: 280 + CAUSE_HOLD + CLAIM_ROLL + 120,
+      run: () => {
+        state.beatStep = 3;
+        render();
+      },
+    },
   ]);
 }
 
@@ -1960,8 +2089,6 @@ async function resolveArena(): Promise<void> {
   });
 }
 
-/** §S3: the `skip` affordance appears after 1.5 s, and at 1.5 s. */
-const SKIP_AT = 1500;
 
 /* ------------------------------------------------------------------- S3 */
 
@@ -1991,13 +2118,19 @@ function runScreen(): HTMLElement {
     state.route === 'SPLIT' && state.laneSplit !== null
       ? [state.laneSplit, frame.live.length - state.laneSplit]
       : null;
-  // §9's beat, and the condition for it is a fact about the frame: one runner is
-  // carrying the whole claim across.
-  const lastLamp = frame.live.length === 1;
+  // §9's beat, and the condition for it is a fact about the frame (`lastLampOf`).
+  const lastLamp = lastLampOf(frame, laneSizes);
   // It is also a fact about the *round* from that moment on, whichever way the
   // round ends: §10.7 requires both endings to export, so S7 reads this and not
   // the settlement.
   if (lastLamp) state.lastLampRound = true;
+  // The figure the beat is about, named: on a fork it is whoever is alone on the
+  // thin limb, which is the whole point of §9's variant.
+  const alone = !lastLamp
+    ? null
+    : laneSizes
+      ? (orderedRunners(frame)[laneSizes[0] as number]?.name ?? null)
+      : (orderedRunners(frame)[0]?.name ?? null);
   /*
    * The travel tick stops the moment a command is in flight.
    *
@@ -2009,28 +2142,20 @@ function runScreen(): HTMLElement {
    * then had nothing left to drop, which is why the wipe opened on empty fog. A
    * screen does not re-read the world while it is being taken away from it.
    */
-  /*
-   * …and the next tick lands on the `skip` affordance's own deadline.
-   *
-   * §S3 puts it at 1.5 s. On a 260 ms travel tick it actually appeared at 1624 ms
-   * — measured — because the deadline fell between two ticks, so the first 1.6 s
-   * of every 9-14 s replay offered no visible way out. The tick that would step
-   * over the deadline is moved onto it instead.
-   */
-  const toSkip = SKIP_AT - elapsed;
-  window.setTimeout(
-    () => {
-      if (state.view === 'run' && !state.busy) render();
-    },
-    toSkip > 0 && toSkip < 260 ? toSkip : 260,
-  );
+  window.setTimeout(() => {
+    if (state.view === 'run' && !state.busy) render();
+  }, 260);
 
   return el(
     'div',
     { class: 'screen' },
     viewport({
       title: frame.arena.name,
-      subtitle: lastLamp ? 'One light, and the branch narrows into fog.' : '',
+      subtitle: lastLamp
+        ? laneSizes
+          ? `${alone ?? 'One light'} is alone on the thin limb.`
+          : 'One light, and the branch narrows into fog.'
+        : '',
       counter: `${frame.arena.index} / ${frame.arena.of}`,
       lanes: laneSizes ? 2 : 1,
       arena: frame.arena.index,
@@ -2055,17 +2180,25 @@ function runScreen(): HTMLElement {
             text: `${frame.live.length} ${frame.live.length === 1 ? 'still out' : 'running'}`,
           }),
         ),
-        // §S3: a `skip` affordance after 1.5 s, low contrast, bottom-right. It
-        // skips the view and not the result, and it does not shorten the cycle.
-        elapsed >= SKIP_AT
-          ? el('button', {
-              class: 'btn quiet stage-skip',
-              text: 'skip ▸',
-              'aria-label': COPY.skipNote,
-              title: COPY.skipNote,
-              onClick: () => void resolveArena(),
-            })
-          : null,
+        /*
+         * §S3's `skip`: low contrast, bottom-right, and *there*.
+         *
+         * The specification says it appears after 1.5 s and two reviews in a row
+         * measured the consequence of implementing that as a mount: for the first
+         * 1.6 s of a 9-14 s replay the screen offered no visible way out, which is
+         * the thing a player looks for first when a replay starts. It arrives over
+         * that same 1.5 s instead of at the end of it — mounted and tappable from
+         * the first frame, fading up from nothing to its resting contrast — so the
+         * control is available immediately and still is not competing with the
+         * opening of the shot. Under the calm variant it is simply there (§10.8).
+         */
+        el('button', {
+          class: 'btn quiet stage-skip arriving',
+          text: 'skip ▸',
+          'aria-label': COPY.skipNote,
+          title: COPY.skipNote,
+          onClick: () => void resolveArena(),
+        }),
       ),
     }),
   );
@@ -2170,7 +2303,7 @@ function resolveScreen(): HTMLElement {
       progress: step === 0 ? 0.62 : 0.94,
     }),
     claimMeter({
-      claim: step === 2 ? frame.claim.display : beforeDisplay,
+      claim: step >= 2 ? frame.claim.display : beforeDisplay,
       caption: 'claim',
       squad: pipSquad,
       bankedNote: step === 0 ? null : bankedNote(frame),
@@ -2184,7 +2317,7 @@ function resolveScreen(): HTMLElement {
       // §S4: the arithmetic in full for one beat — never a mystery multiplier. It
       // arrives *after* the claim has started moving, so it reads as the
       // explanation of something the player has already seen happen.
-      step === 2 ? el('p', { class: 'arithmetic money settle-in late', text: arena.arithmetic }) : null,
+      step >= 2 ? el('p', { class: 'arithmetic money settle-in late', text: arena.arithmetic }) : null,
       step === 0
         ? null
         : arena.fallen.length > 0
@@ -2200,7 +2333,7 @@ function resolveScreen(): HTMLElement {
               }),
             )
           : el('p', { class: 'note settle-in', text: 'Everyone is across.' }),
-      step === 2 && micro(arena.shelterCreditedMicro) > 0n
+      step >= 2 && micro(arena.shelterCreditedMicro) > 0n
         ? el('p', {
             class: 'note banked-figure settle-in late',
             text: `${arena.shelter.map((runner) => runner.name).join(', ')} came home — ${credits(arena.shelterCreditedMicro, 3)} banked.`,
@@ -2208,7 +2341,7 @@ function resolveScreen(): HTMLElement {
         : null,
       // §S4: side-bet money is never blended into the claim figure — its own line,
       // its own stake, its own result, stated separately from the run.
-      ...(step === 2
+      ...(step >= 2
         ? arena.sideBets.map((ticket) =>
             el('p', {
               class: 'note settle-in late',
@@ -2216,7 +2349,7 @@ function resolveScreen(): HTMLElement {
             }),
           )
         : []),
-      step === 2 && state.session && state.session.roundsSeen === 0 && arena.index === 1
+      step >= 2 && state.session && state.session.roundsSeen === 0 && arena.index === 1
         ? el('p', { class: 'note settle-in late', text: COPY.firstResolve })
         : null,
     ),
@@ -2233,7 +2366,7 @@ function resolveScreen(): HTMLElement {
      * states the resolve, which is step 2 (§5.2.2's cause before effect, applied
      * to the controls as well as to the figures).
      */
-    step < 2
+    step < 3
       ? null
       : el(
           'div',
@@ -2311,6 +2444,9 @@ async function bankRound(): Promise<void> {
       `/api/rounds/${frame.roundId}/bank`,
       { idempotencyKey: idempotencyKey('bank'), expectedFrameRevision: frame.frameRevision },
     );
+    // Before the credit lands in state: the strip holds this until the hero on
+    // the settled screen has counted the figure out loud (`walletBeforeSettle`).
+    walletBeforeSettle = state.wallet;
     adopt(payload);
     // A bank is only legal while someone is still out (`server/rounds.ts`), so it
     // is never the round where nobody came home.
@@ -2337,6 +2473,7 @@ async function settleRound(): Promise<void> {
     `/api/rounds/${frame.roundId}/finish`,
     { idempotencyKey: idempotencyKey('finish') },
   );
+  walletBeforeSettle = state.wallet;
   adopt(payload);
 }
 
@@ -2363,14 +2500,18 @@ function enterSettled(wiped: boolean): void {
   // Both endings open on the world and nothing else, and step up from there.
   state.settleStep = 0;
   heroRolled = false;
+  // Which ending this round reached, so §9's clip can play the same one again.
+  state.settledWiped = wiped;
   startClip();
   if (!wiped) {
     state.view = 'banked';
     // §S5 / §9: a door, a bell and a frame that goes briefly warm. The bell's
     // chord thickens with the number of lanterns inside, and it does not get
-    // louder — §10.5 means this sound plays over a 0.76x recovery too.
+    // louder — §10.5 means this sound plays over a 0.76x recovery too. How *long*
+    // it rings, how wide the frame goes warm and how long the figure counts are
+    // the size of the return, which is `payoff.ts` and is read here once.
     const home = (state.frame as Frame).squad.filter((member) => member.status === 'home').length;
-    playSettledBeat(Math.max(1, home));
+    playSettledBeat(Math.max(1, home), settledPayoff());
     return;
   }
   state.view = 'wipe';
@@ -2391,7 +2532,7 @@ function enterSettled(wiped: boolean): void {
  * So the whole celebration is `bloom` — the lantern glows widen and fade back —
  * plus a door, a bell, and the claim counting up. Nothing moves across the frame.
  */
-function playSettledBeat(lanterns: number): void {
+function playSettledBeat(lanterns: number, scale: Payoff): void {
   stopBeat();
   /*
    * The door beat, staged against the drawing that plays it.
@@ -2406,6 +2547,7 @@ function playSettledBeat(lanterns: number): void {
    */
   const finished = state.frame?.settlement?.kind === 'FINISH';
   const closedAt = finished ? 900 : doorClosedMs(lanterns);
+  const warm = bloom(scale.heat);
   const steps: { at: number; run: () => void }[] = [
     {
       at: 0,
@@ -2413,7 +2555,7 @@ function playSettledBeat(lanterns: number): void {
         sound.stopSquadRhythm();
         sound.duckForLastLamp(false);
         if (!finished) sound.doorSwing();
-        stage.effect('bloom');
+        stage.effect('bloom', warm.amount, warm.decay);
       },
     },
   ];
@@ -2432,18 +2574,42 @@ function playSettledBeat(lanterns: number): void {
     state.settleStep = value;
     render();
   };
+  /*
+   * The tail of the beat is the size of the return, and only the tail.
+   *
+   * Everything before the bell is the door, which takes the time it takes — the
+   * leaf, the file of lanterns, the leaf again. What a big bank buys is what
+   * happens *after* the strike: the figure counts for longer, the copy waits for
+   * it, and the way out waits for the copy. A 0.81x recovery reads its figure and
+   * is offered the exit 1.7 s later; a 6x holds the warm frame for three.
+   */
+  const count = countMs(scale.heat);
+  const settle = count + 300;
   steps.push(
     // The door shuts and the bell is struck once — the chord thickens with the
-    // number of lanterns inside and never gets louder (§7, §10.5).
-    { at: closedAt, run: () => sound.bank(lanterns) },
+    // number of lanterns inside and never gets louder (§7, §10.5). How long it
+    // rings is the size of the return (`audio.bank`).
+    { at: closedAt, run: () => sound.bank(lanterns, scale.heat) },
     { at: closedAt + 120, run: step(1) },
     // The frame going warm, a beat behind the door — §6.3's hand-placed bounce
     // light off the brass, which is the only "win" presentation in the game.
-    { at: closedAt + 420, run: () => sound.warmth() },
-    { at: closedAt + 1000, run: step(2) },
-    { at: closedAt + 1700, run: step(3) },
+    { at: closedAt + 420, run: () => sound.warmth(scale.heat) },
+    { at: closedAt + 120 + settle, run: step(2) },
+    { at: closedAt + 820 + settle, run: step(3) },
   );
   cancelBeat = sequence(steps);
+}
+
+/**
+ * The size of the return that has just been settled, as a scale to draw on.
+ *
+ * The multiple is the server's own `returnMultiple` — total credited over total
+ * staked, the side bet included — read as a magnitude and never as money. A round
+ * with no settlement on it yet is a cold frame, which is the honest default for a
+ * screen that does not know what it paid.
+ */
+function settledPayoff(): Payoff {
+  return payoff(state.frame?.settlement?.returnMultiple ?? '0');
 }
 
 /* ------------------------------------------------------------- S5 and S6 */
@@ -2473,6 +2639,8 @@ function bankedScreen(): HTMLElement {
   const lastLampRescue = home.length === 1 && frame.squad.some((member) => member.status === 'lost');
   const step = state.settleStep;
   const lost = frame.squad.filter((member) => member.status === 'lost');
+  // How big it was, once, for the type, the light and the count to share.
+  const scale = settledPayoff();
   return el(
     'div',
     { class: `screen fade-in settled${step === 0 ? ' held' : ''}` },
@@ -2504,6 +2672,7 @@ function bankedScreen(): HTMLElement {
         lane: 0,
       })),
       progress: 0.62,
+      heat: scale.heat,
       /*
        * The words sit *over* the world, not in a panel under it.
        *
@@ -2533,6 +2702,12 @@ function bankedScreen(): HTMLElement {
                 label: finished ? 'brought home' : 'banked',
                 value: credits(total, 2),
                 from: rollOnce(),
+                // The size of the return, in the two dimensions §6.4 allows a
+                // figure: how big it is set and how long it counts. A 0.81x and a
+                // 3.06x were the same 46 px figure counting for the same 1.2 s in
+                // the round-2 build, which is the finding this closes.
+                tier: scale.tier,
+                ms: countMs(scale.heat),
                 // Always stated against the stake, and never presented as a win
                 // when it is not one: a 0.76x recovery says 0.76x (§10.5). There
                 // is no banner over this figure and nothing here calls it a win.
@@ -2552,6 +2727,18 @@ function bankedScreen(): HTMLElement {
                 : null,
               step >= 2 && lost.length > 0
                 ? el('p', { class: 'note lost-name settle-in late', text: `${didNotList(lost)}.` })
+                : null,
+              /*
+               * One line, on the rare ones only (§6.4).
+               *
+               * *"The reward for a big bank is that the tree is briefly warm."*
+               * The sentence the screen is allowed to add at the top of the scale
+               * is that one, said plainly — not a banner, not the word WIN, not a
+               * multiplier repeated in a bigger face. Below 5x it is not there,
+               * because below 5x it would not be true.
+               */
+              step >= 2 && scale.tier === 'huge'
+                ? el('p', { class: 'note settle-in late warm-line', text: 'The whole tree is warm.' })
                 : null,
             ),
     }),
@@ -2598,12 +2785,37 @@ function clipBlock(): Child[] {
         text: 'Six seconds of the beat as it played, watermarked with the round id and its verification code, saved to this device. No money figure is in the file, and saving it earns nothing.',
       }),
     ];
+  /*
+   * The offer is for the round that just happened, not the next one.
+   *
+   * The beat was recorded live if clips were already on. If they were not, the
+   * six seconds are gone — and the round-2 build's answer was to offer to record
+   * *the next* Last Lamp round, which is honest and means the signature moment
+   * needs two of them before anything can be captured. The beat is a pure
+   * function of a settlement that is already final, so it can simply be played
+   * again: the same screen, the same door, the same fall, recorded this time.
+   * Nothing is re-decided, no request is made, and the watermark still carries
+   * the round id and the verification code of the round it belongs to.
+   */
+  if (clip.optedIn())
+    return [
+      el('hr', {}),
+      el('button', {
+        class: 'btn quiet',
+        text: 'Play that beat again and save it',
+        onClick: () => replayForClip(),
+      }),
+      el('p', {
+        class: 'tiny',
+        text: 'Six seconds of that round’s ending, played again and recorded as it plays — watermarked with the round id and its verification code, carrying no money figure, saved to this device. It earns you nothing.',
+      }),
+    ];
   if (clip.asked()) return [];
   return [
     el('hr', {}),
     el('p', {
       class: 'tiny',
-      text: 'That round had a Last Lamp beat in it. This build can save the next one as a six-second clip — watermarked with the round id, its verification code and an 18+ mark, carrying no money figure, kept on this device. It is off unless you turn it on, it earns you nothing, and you will not be asked again.',
+      text: 'That round had a Last Lamp beat in it. This build can save it as a six-second clip — watermarked with the round id, its verification code and an 18+ mark, carrying no money figure, kept on this device. It is off unless you turn it on, it earns you nothing, and you will not be asked again.',
     }),
     el(
       'div',
@@ -2626,6 +2838,31 @@ function clipBlock(): Child[] {
       }),
     ),
   ];
+}
+
+/**
+ * §9's beat, played again on purpose, and recorded this time.
+ *
+ * The round is settled and closed: this re-enters the terminal screen it ended
+ * on and re-runs the same beat out of the same frame, which is what makes it a
+ * replay rather than a reconstruction. It touches no money, sends no request and
+ * changes no state the round can see — and it returns to the summary on its own
+ * when the recorder has its six seconds.
+ */
+function replayForClip(): void {
+  if (!state.frame || !state.lastLampRound || !clip.optedIn()) return;
+  // Through the one function that owns the choice between the two settled
+  // screens, reading the ending this round actually reached rather than deciding
+  // it a second time (`tests/settled-screen.test.mjs` binds that).
+  enterSettled(state.settledWiped);
+  render();
+  // Back to the screen that offered it, once the file exists.
+  window.setTimeout(() => {
+    if (state.view !== 'banked' && state.view !== 'wipe') return;
+    stopBeat();
+    state.view = 'summary';
+    render();
+  }, clip.CLIP_MS + 900);
 }
 
 /**
@@ -2823,13 +3060,63 @@ function summaryScreen(): HTMLElement {
   const settlement = frame.settlement;
   const staked = micro(settlement?.routeStakeMicro ?? '0') + micro(settlement?.sideBetStakeMicro ?? '0');
   const credited = micro(settlement?.totalCreditedMicro ?? '0');
+  const home = frame.squad.filter((member) => member.status === 'home');
+  const lost = frame.squad.filter((member) => member.status === 'lost');
+  const last = state.lastArena;
   return el(
     'div',
-    { class: 'screen fade-in' },
+    { class: 'screen fade-in summary' },
+    /*
+     * The world, quietly, above the record of what happened in it.
+     *
+     * §S7 is *"the round summary, quietly"*, and the round-2 review measured what
+     * this screen actually was on a one-arena round: 368 px of empty plate between
+     * the last line of copy and the footer — 43.6% of the viewport, on the screen
+     * the player lands on straight after the payoff. The honest thing to put in
+     * that space is not more type. It is the tree the round happened in, held
+     * still: the same stage, in its quiet mode, with the squad standing as the
+     * round left them. It costs one scene and no new object.
+     */
+    viewport({
+      title: '',
+      subtitle: '',
+      counter: '',
+      chrome: false,
+      band: true,
+      lanes: 1,
+      arena: last?.index ?? frame.arena.index,
+      mode: 'quiet',
+      names: false,
+      // The ones that came home, standing. The ones that did not are not drawn
+      // falling again on the summary screen: they fell once, on the screen that
+      // was about it (§10.2 — a loss is stated, not replayed).
+      runners: home.map((member) => ({
+        slot: member.slot,
+        name: member.name,
+        status: 'home',
+        lane: 0,
+      })),
+      progress: 0.86,
+    }),
     el(
       'div',
       { class: 'surface pad stack' },
-      el('h1', { text: 'The run' }),
+      el(
+        'div',
+        { class: 'spread' },
+        el('h1', { text: 'The run' }),
+        /*
+         * Who came back, in one line, above the arena rows that say where.
+         *
+         * §10.1 names individuals at the moment of loss, and this is the round's
+         * own roll call rather than a second announcement: the names are already
+         * on the settled screen and on the arena row they fell in.
+         */
+        el('span', {
+          class: 'tiny',
+          text: `${home.length} home · ${lost.length} lost`,
+        }),
+      ),
       ...frame.history.map((arena) =>
         el(
           'div',
@@ -2862,10 +3149,20 @@ function summaryScreen(): HTMLElement {
           ),
         ),
       ),
-      el('hr', {}),
-      field('Staked, run', credits(settlement?.routeStakeMicro ?? '0', 2)),
-      field('Staked, side bets', credits(settlement?.sideBetStakeMicro ?? '0', 2)),
-      field('Credited', credits(credited, 2)),
+      /*
+       * The money, as one object rather than four loose rows.
+       *
+       * It is the receipt for the round and it reads as one: the same cut-stone
+       * plate the arena rows above it are drawn on, so the screen is a stack of
+       * three things — what happened, what it cost, what it paid — instead of a
+       * list that trails off into empty plate.
+       */
+      el(
+        'div',
+        { class: 'card receipt' },
+        field('Staked, run', credits(settlement?.routeStakeMicro ?? '0', 2)),
+        field('Staked, side bets', credits(settlement?.sideBetStakeMicro ?? '0', 2)),
+        field('Credited', credits(credited, 2)),
       /*
        * The loss, floored away from zero, here as well as on the session strip.
        *
@@ -2874,13 +3171,18 @@ function summaryScreen(): HTMLElement {
        * than it did. The two places in the build that print a net now use the
        * same rule, which is also why they no longer disagree in the last digit.
        */
-      field(
-        'Net',
-        credited >= staked
-          ? `+${credits(credited - staked, 2)}`
-          : `−${creditsSigned(credited - staked).slice(1)}`,
+        field(
+          'Net',
+          credited >= staked
+            ? `+${credits(credited - staked, 2)}`
+            : `−${creditsSigned(credited - staked).slice(1)}`,
+          true,
+        ),
+        el('p', {
+          class: 'tiny',
+          text: `Return ${settlement?.returnMultiple ?? '—'}x on everything staked.`,
+        }),
       ),
-      el('p', { class: 'tiny', text: `Return ${settlement?.returnMultiple ?? '—'}x on everything staked.` }),
       /*
        * §9's clip, offered on the round it belongs to (§10.7's terms).
        *
@@ -3061,6 +3363,17 @@ function verifyScreen(): HTMLElement {
     el(
       'div',
       { class: 'footer' },
+      state.rederived || state.rederiving
+        ? null
+        : frag(
+            el('button', {
+              class: 'btn primary',
+              text: 'Re-derive on this device',
+              disabled: fairness.revealedServerSeed === null,
+              onClick: () => void runRederivation(),
+            }),
+            el('div', { style: 'height:8px' }),
+          ),
       el('button', {
         class: 'btn',
         text: 'Back to the squad',
@@ -3082,21 +3395,25 @@ function rederiveBlock(nameOf: (slot: number) => string): Child {
   if (state.rederiving)
     return el('p', { class: 'note', text: 'Recomputing the hazard table on this device…' });
 
+  /*
+   * The action is in the footer, not here.
+   *
+   * This screen is a long scroller and its own primary control used to sit in the
+   * middle of it — which put `Re-derive on this device` exactly on the fold: two
+   * reviews measured the same thing, a 49 px button showing 12-14 px of its top
+   * edge above the footer, reading as a rendering fault rather than as content
+   * below it. A screen's primary action does not belong at a scroll position. It
+   * is in the footer with the way out, where it cannot be clipped by anything.
+   */
   if (!result)
     return frag(
       el('p', {
         class: 'note',
         text: 'Nothing here has been checked by this device yet. Re-derive recomputes the definition fingerprint, the seed commitment and the whole hazard table from the revealed seed — a second implementation of the engine’s derivation, running in your browser, which is only useful because it can disagree.',
       }),
-      el('button', {
-        class: 'btn',
-        text: 'Re-derive on this device',
-        disabled: frame.fairness.revealedServerSeed === null,
-        onClick: () => void runRederivation(),
-      }),
       frame.fairness.revealedServerSeed === null
         ? el('p', { class: 'tiny', text: 'The server seed is revealed at settlement. Until then there is nothing to open.' })
-        : null,
+        : el('p', { class: 'tiny', text: 'The button below runs it.' }),
     );
 
   if (!result.available)
@@ -3525,7 +3842,16 @@ function settingsScreen(): HTMLElement {
       }),
       el('p', {
         class: 'tiny',
-        text: `Speed of play declared against ${String(speed.standard)} ${String(speed.standardEdition)}, ${String(speed.provision)}. Verified against a certified copy: ${speed.provisionVerifiedAgainstCertifiedCopy ? 'yes' : 'no'}.`,
+        /*
+         * The standard, named once.
+         *
+         * The server publishes the body (`UKGC RTS`) and the edition
+         * (`RTS 2021-10-31`) as separate fields, and printing them side by side
+         * produced *"UKGC RTS RTS 2021-10-31"* on a player-facing regulatory
+         * line. The strings are the server's and stay exactly as they are; the
+         * repetition is a rendering fault and it is fixed where it happened.
+         */
+        text: `Speed of play declared against ${citation(String(speed.standard), String(speed.standardEdition))}, ${String(speed.provision)}. Verified against a certified copy: ${speed.provisionVerifiedAgainstCertifiedCopy ? 'yes' : 'no'}.`,
       }),
 
       el('hr', {}),
