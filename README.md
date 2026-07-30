@@ -234,8 +234,16 @@ direction in `docs/DESIGN.md` §6 is a later wave, and the palette and type
 direction are the only parts of it this build implements. §6.5 writes its sizes
 as limits — 15 px body, 13 px secondary, 28 px for the claim, no numeral under
 15 px — so they are CSS tokens and `tests/type-floor.test.mjs` fails if a rule
-reaches for a size instead of a floor. The one size below the floor is the
-break-even tick glyph on the distribution chart, which carries no figure.
+reaches for a size instead of a floor. The one size below the secondary floor is
+the break-even tick glyph on the distribution chart, which carries no figure.
+"Numeral" is the part that needs an interpretation, because most of the secondary
+copy in this product mentions a number inside a sentence:
+`docs/ADR-001-the-numeral-floor.md` writes down the reading — a figure presented
+as a figure is at 15 px, prose that mentions one stays on the 13 px tier — lists
+every element that holds a figure without the `money` class, and is honest that
+the live DOM is measured by review rather than by a headless test this repo does
+not have. Two rounds of review found the same counter under the floor; it is at
+15 px now, with the footer's `stake 5.00` and the fork-balance headings.
 
 Three properties of the client are worth stating because they are the ones a
 graybox usually gets wrong:

@@ -125,6 +125,12 @@ h3 {
   font-size: 16px;
 }
 
+/*
+ * The two numeral conventions, and they are one declaration on purpose: mono,
+ * tabular, and the §6.5 numeral floor, carried by the class rather than decided at
+ * each call site. `.money` is a sum of credits; `.num` is any other figure the
+ * player reads as a figure — the session clock is the one in this build.
+ */
 .num,
 .money {
   font-family: var(--mono);
@@ -159,11 +165,21 @@ h3 {
 
 /* ---------------------------------------------------------------- chrome */
 
+/*
+ * Four items in 390 px, above every screen, never dismissible (§10.2) — and its
+ * height is load-bearing: S2 fits in one unscrolled viewport with the strip's
+ * height subtracted, so a strip that wrapped to two rows would take S2 with it.
+ * Hence `nowrap`, and a `gap` that is a floor rather than a spacing choice:
+ * `space-between` distributes the slack, so 4 px looks identical to 8 px while
+ * a long session (`session 120m` beside four-figure balances) keeps 12 px it
+ * would otherwise have spent on gutters it does not need.
+ */
 .session-strip {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  white-space: nowrap;
+  gap: 4px;
   padding: 4px var(--gutter);
   background: var(--void);
   border-bottom: var(--hairline);
@@ -917,6 +933,12 @@ button {
   font-size: var(--floor-secondary);
 }
 
+/* The column headings are the two fork balances — `3 + 2` and `4 + 1` — so they
+ * are figures, and they sit at the numeral floor with the cells under them. */
+.compare-table th {
+  font-size: var(--floor-numeral);
+}
+
 .compare-table th,
 .compare-table td {
   padding: 0 2px;
@@ -1162,10 +1184,16 @@ button {
   border-top: var(--hairline);
 }
 
+/*
+ * `stake 5.00 / claim opens at 4.775`, directly above `Buy the run`.
+ *
+ * The last money the player reads before the debit, so it reads at the numeral
+ * floor even though it is a footer strip (§6.5).
+ */
 .footer .status {
   display: flex;
   justify-content: space-between;
-  font-size: var(--floor-secondary);
+  font-size: var(--floor-numeral);
   color: var(--fog-far);
   margin-bottom: 8px;
 }
@@ -1313,12 +1341,22 @@ button {
 
 /* ---------------------------------------------------------------- chips */
 
+/*
+ * The badge carries the arena counter — `3 / 5` — so it carries the numeral
+ * floor, not the secondary one.
+ *
+ * It was 13 px, which is a legal size for a secondary label and an illegal size
+ * for a figure (§6.5: "Numbers never below 15 pt"). Round 2 found it as the one
+ * numeral left under the floor. A per-content variant would have been the smaller
+ * change and the worse rule: whether a badge holds a number is decided at the
+ * call site, and the floor should not be.
+ */
 .badge {
   display: inline-block;
   border: var(--hairline);
   border-radius: 999px;
   padding: 2px 9px;
-  font-size: var(--floor-secondary);
+  font-size: var(--floor-numeral);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--fog-far);

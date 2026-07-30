@@ -13,10 +13,14 @@
  * named here with its reason, and no inline style in the client sets a size
  * below the secondary floor.
  *
- * What this cannot check is a rule that uses a *legal* token for the wrong kind
- * of text — 13 px is right for secondary prose and wrong for a money figure. The
- * convention that covers that is the `money` class, which carries the numeral
- * floor with it; the DOM-level assertion lives in the client smoke check.
+ * What this cannot check in general is a rule that uses a *legal* token for the
+ * wrong kind of text — 13 px is right for secondary prose and wrong for a figure.
+ * The convention that covers money is the `money` class, which carries the
+ * numeral floor with it. Everything else is the hand-maintained list below, whose
+ * entries `docs/ADR-001-the-numeral-floor.md` justifies one by one; the arena
+ * counter in `.badge` is on it because the round-2 review found it at 13 px. There
+ * is no headless-browser check in this repo, so the live DOM is measured by
+ * review, and the ADR says so rather than implying a test that does not exist.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -98,12 +102,62 @@ describe('§6.5 type floors', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('gives every money figure the numeral floor through one class', () => {
-    // `.money` is the convention: mono, tabular, and the numeral floor. A money
-    // figure that opts out of it opts out of the floor, so the rule that defines
-    // it must carry the numeral token and nothing weaker.
-    const money = /\.money\s*\{([^}]*)\}/u.exec(css);
-    expect(money, '.money is declared').not.toBeNull();
-    expect(money[1]).toContain('font-size: var(--floor-numeral)');
+  /**
+   * Elements that carry a figure without carrying the `money` class.
+   *
+   * These are the blind spot the round-2 review found: a legal 13 px secondary
+   * token on an element whose content is a number. The stylesheet-level scan
+   * above cannot see it, because 13 px is a legal size — so each one is named
+   * here with what it holds, and `docs/ADR-001-the-numeral-floor.md` records
+   * which text is a figure and which is prose that mentions one.
+   */
+  const FIGURE_BEARING = [
+    { selector: '.badge', holds: 'the arena counter, `3 / 5`' },
+    { selector: '.footer .status', holds: '`stake 5.00` above `Buy the run`' },
+    { selector: '.compare-table th', holds: 'the fork balances, `3 + 2` and `4 + 1`' },
+    { selector: '.compare-table td', holds: 'the two balances’ figures' },
+    { selector: '.draw-row .money', holds: 'a re-derived draw against its threshold' },
+  ];
+
+  /** The size a selector ends up with: the last `font-size` any rule gives it. */
+  function sizeOf(selector) {
+    const withoutComments = css.replace(/\/\*[\s\S]*?\*\//gu, '');
+    const rule = /([^{}]*)\{([^{}]*)\}/gu;
+    let size = null;
+    let seen = false;
+    let match = rule.exec(withoutComments);
+    while (match !== null) {
+      if (match[1].split(',').some((part) => part.trim() === selector)) {
+        seen = true;
+        const declared = /font-size:\s*([^;}]+)/u.exec(match[2]);
+        if (declared !== null) size = declared[1].trim();
+      }
+      match = rule.exec(withoutComments);
+    }
+    return { seen, size };
+  }
+
+  for (const { selector, holds } of FIGURE_BEARING)
+    it(`gives ${selector} the numeral floor, because it holds ${holds}`, () => {
+      const { seen, size } = sizeOf(selector);
+      expect(seen, `${selector} is declared`).toBe(true);
+      expect(size, selector).toBe('var(--floor-numeral)');
+    });
+
+  it('gives every figure the numeral floor through the two numeral classes', () => {
+    // `.money` and `.num` are the convention: mono, tabular, and the numeral
+    // floor. A figure that opts out of them opts out of the floor, so the rule
+    // that defines them must carry the numeral token and nothing weaker. They
+    // share one declaration so the two can never drift apart.
+    const rule = /(?:^|\})[^{}]*\.money\s*\{([^}]*)\}/u.exec(css);
+    expect(rule, '.money is declared').not.toBeNull();
+    expect(rule[1]).toContain('font-size: var(--floor-numeral)');
+    expect(rule[0], '.num shares the declaration').toContain('.num');
+    // `.num` carries the session clock's figure, which is why the class exists:
+    // the strip's word stays secondary and the minutes are a figure.
+    const main = readFileSync(resolve(root, 'client/src/main.ts'), 'utf8');
+    expect(main, 'the session clock renders its minutes through .num').toMatch(
+      /class: 'num'[^\n]*\$\{minutes\}m/u,
+    );
   });
 });

@@ -271,7 +271,18 @@ function sessionStrip(): HTMLElement {
   return el(
     'div',
     { class: 'session-strip' },
-    el('span', { text: `session ${minutes}m` }),
+    /*
+     * `session 8m`, built the way `balance` and `net` beside it are built: the
+     * word on the strip's secondary size, the figure on the numeral floor.
+     *
+     * §6.5's floor is about figures, and the elapsed minutes are the figure the
+     * responsible-play limits are measured against — so they carry `.num`, which
+     * is where that floor lives (`docs/ADR-001-the-numeral-floor.md`). The word is
+     * not a figure, and raising it too would also cost the strip 6.4 px it does
+     * not have at the extreme: `session 120m` beside four-figure money leaves
+     * 2.5 px of 358 spare as built, and 3.9 px short if the word comes up with it.
+     */
+    el('span', { class: 'clock' }, 'session ', el('span', { class: 'num', text: `${minutes}m` })),
     el(
       'span',
       {},
@@ -2772,8 +2783,10 @@ function startSessionPoll(): void {
         render();
         return;
       }
-      const clock = root.querySelector('.session-strip span');
-      if (clock) clock.textContent = `session ${Math.floor(state.session.elapsedMs / 60000)}m`;
+      // The figure only: the word beside it is a sibling text node, and writing
+      // the whole string back would take the numeral floor's element with it.
+      const clock = root.querySelector('.session-strip .clock .num');
+      if (clock) clock.textContent = `${Math.floor(state.session.elapsedMs / 60000)}m`;
     })();
   }, 20_000);
 }
