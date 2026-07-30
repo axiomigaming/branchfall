@@ -344,6 +344,54 @@ interface Body {
 
 const DPR_CAP = 2;
 
+/**
+ * The quality tier (`DESIGN.md` §6.8), as this build can honestly offer it.
+ *
+ * §6.8's ladder is written for a build with a renderer, an asset set and a boot
+ * probe in it, and the round-1 client shipped the *control* for it wired to
+ * nothing — with help text that cited the section number and admitted the
+ * override did nothing. A player-facing control that does nothing is worse than
+ * no control, so this is the part of the ladder a canvas can actually deliver:
+ * the resolution it renders at, how many fog planes it composites, and whether
+ * it spawns particles. Every tier draws the same world, and none of them changes
+ * a figure, a probability or a beat.
+ */
+export type Quality = 'auto' | 'high' | 'medium' | 'low';
+
+interface Budget {
+  readonly dpr: number;
+  /** Fog planes per layer, and the underside's parallax bands. */
+  readonly planes: number;
+  readonly particles: boolean;
+}
+
+const BUDGETS: Readonly<Record<Exclude<Quality, 'auto'>, Budget>> = {
+  high: { dpr: DPR_CAP, planes: 3, particles: true },
+  medium: { dpr: 1.5, planes: 2, particles: true },
+  low: { dpr: 1, planes: 1, particles: false },
+};
+
+let qualityTier: Quality = 'auto';
+
+/**
+ * What `auto` resolves to, from the one probe a browser will answer honestly.
+ *
+ * Core count is a coarse signal and it is the one §6.8 would use at boot on a
+ * device it cannot otherwise measure. It is read once per call rather than
+ * cached, so a tier change takes effect on the next frame.
+ */
+function budget(): Budget {
+  if (qualityTier !== 'auto') return BUDGETS[qualityTier];
+  const cores = typeof navigator === 'undefined' ? 8 : (navigator.hardwareConcurrency ?? 8);
+  return cores <= 4 ? BUDGETS.medium : BUDGETS.high;
+}
+
+/** S9's override (§6.8). Applies from the next frame; changes nothing but cost. */
+export function setQuality(tier: Quality): void {
+  qualityTier = tier;
+  stage.requality();
+}
+
 class Stage {
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
@@ -450,7 +498,7 @@ class Stage {
     const rect = host.getBoundingClientRect();
     const width = Math.max(1, Math.round(rect.width));
     const height = Math.max(1, Math.round(rect.height));
-    const dpr = Math.min(DPR_CAP, window.devicePixelRatio || 1);
+    const dpr = Math.min(budget().dpr, window.devicePixelRatio || 1);
     if (width === this.width && height === this.height && dpr === this.dpr) return;
     this.width = width;
     this.height = height;
@@ -632,6 +680,14 @@ class Stage {
       this.heroSlot = [...this.bodies.values()].find((body) => body.hero)?.slot ?? null;
   }
 
+  /** Re-measures at the new tier's resolution, and rebuilds what is cached at it. */
+  requality(): void {
+    this.dpr = 0;
+    this.backdropKey = '';
+    this.vignetteKey = '';
+    this.measure();
+  }
+
   /** Drops every figure's animation state — a new round is a new squad. */
   reset(): void {
     this.bodies.clear();
@@ -648,7 +704,7 @@ class Stage {
   /* ------------------------------------------------------------- particles */
 
   private puff(body: Body): void {
-    if (calm()) return;
+    if (calm() || !budget().particles) return;
     const { x, y } = this.place(body.u, body.lane);
     for (let index = 0; index < 9; index += 1)
       this.dust.push({
@@ -661,7 +717,7 @@ class Stage {
   }
 
   private dustAlongLane(lane: number): void {
-    if (calm()) return;
+    if (calm() || !budget().particles) return;
     for (let index = 0; index < 26; index += 1) {
       const u = 0.08 + (index / 26) * 0.84;
       const { x, y } = this.place(u, lane);
@@ -976,7 +1032,7 @@ class Stage {
     ctx.save();
     ctx.globalAlpha = 0.13 * theme.fogDensity;
     const band = h * 0.7;
-    for (let index = 0; index < 3; index += 1) {
+    for (let index = 0; index < budget().planes; index += 1) {
       const y = top + ((this.followPx * (0.5 + index * 0.35) + index * band) % (depth + band));
       ctx.drawImage(tile, -this.width * 0.2, y, this.width * 1.4, band);
     }
@@ -1030,8 +1086,8 @@ class Stage {
   private paintCanopy(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     ctx.save();
     for (const [side, seed, alpha] of [
-      [-1, 3, 0.2],
-      [1, 11, 0.13],
+      [-1, 3, 0.26],
+      [1, 11, 0.17],
     ] as const) {
       /*
        * Soft, wide, and far back.
@@ -1059,6 +1115,34 @@ class Stage {
       );
       ctx.closePath();
       ctx.fill();
+
+      /*
+       * Roots hanging off the limb, so the upper frame has depth in it.
+       *
+       * The round-2 review measured the top third of the run frame as featureless
+       * gradient. This is the cheapest honest thing to put in it: a dead tree's
+       * limb has dead roots hanging from it, they are the same value as the limb,
+       * and they give the parallax something to move against without adding a
+       * single lit object to a frame whose whole rule is that ten percent of it
+       * is warm.
+       */
+      for (let strand = 0; strand < 3; strand += 1) {
+        const along = 0.25 + hash01(seed + strand * 3.1) * 0.6;
+        const sx = edge + inward * reach * along;
+        const length = h * (0.06 + hash01(seed + strand * 5.7) * 0.16);
+        const sway = (hash01(seed + strand) - 0.5) * w * 0.08;
+        ctx.strokeStyle = `rgba(18,23,28,${(alpha * 0.66).toFixed(3)})`;
+        ctx.lineWidth = Math.max(1, h * (0.004 + hash01(seed + strand * 7.3) * 0.006));
+        ctx.beginPath();
+        ctx.moveTo(sx, drop * along + thickness * 0.5);
+        ctx.quadraticCurveTo(
+          sx + sway * 0.5,
+          drop * along + thickness * 0.5 + length * 0.6,
+          sx + sway,
+          drop * along + thickness * 0.5 + length,
+        );
+        ctx.stroke();
+      }
     }
     ctx.restore();
   }
@@ -1695,13 +1779,15 @@ class Stage {
       ctx.fillRect(0, top - h * 0.05, w, h - top + h * 0.05);
     }
 
-    const bands: readonly [number, number, number][] =
+    const all: readonly (readonly [number, number, number])[] =
       layer === 0
         ? [
             [11, 0.1 * theme.fogDensity, 0.9],
             [23, 0.09 * theme.fogDensity, 1.5],
           ]
         : [[41, 0.08 * theme.fogDensity, 2.4]];
+    // §6.8's tier, in the one currency a canvas has: composited planes.
+    const bands = all.slice(0, Math.max(1, budget().planes - 1));
 
     const drift = calm() ? 0 : this.time;
     for (const [speed, alpha, scale] of bands) {

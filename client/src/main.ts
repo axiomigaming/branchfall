@@ -37,9 +37,11 @@ import { CAUSE_HOLD, countUp, sequence, setCalmPreference } from './motion.js';
 import {
   DOOR_BEAT,
   doorClosedMs,
+  setQuality,
   stage,
   type StageMode,
   type StageRunner,
+  type Quality,
   type StageScene,
 } from './stage.js';
 import type {
@@ -442,7 +444,10 @@ function sessionStrip(): HTMLElement {
       }),
     ),
     el('button', {
-      class: 'link',
+      // §10.8's 44 pt floor, out of the touch area rather than the ink: the
+      // strip's height is load-bearing (ADR-001 measures its slack in pixels),
+      // so `.tap` grows the hit box and leaves the row exactly as tall.
+      class: 'link tap',
       text: 'settings',
       onClick: () => {
         state.view = 'settings';
@@ -906,6 +911,10 @@ function adopt(payload: { frame?: Frame; session?: Session; wallet?: WalletView 
     // place that hands them to the layers that read them.
     sound.setEnabled(payload.session.audioEnabled);
     setCalmPreference(payload.session.reducedMotion);
+    // §6.8's tier is one of them: the stage renders at the resolution and the
+    // plane count the tier buys, and the setting survives a reload like the
+    // other two because the server owns it.
+    setQuality(payload.session.qualityTier as Quality);
   }
   if (payload.wallet) state.wallet = payload.wallet;
 }
@@ -1215,7 +1224,7 @@ function routeScreen(): HTMLElement {
       // not a money control.
       !session.showEverything
         ? el('button', {
-            class: 'link',
+            class: 'link tap',
             text: COPY.showEverything,
             onClick: () =>
               void guard(async () => {
@@ -1540,7 +1549,7 @@ function openCompare(entry: MenuEntry, frame: Frame, config: Config): void {
         { style: 'flex:1' },
         el('div', { class: 'route-name', text: route }),
         el('div', { class: 'multiplier money', text: figures.display.multiplier }),
-        distributionBars(figures, 46),
+        distributionBars(figures, 84),
         el('div', { class: 'bars-caption', text: `survivors, ${figures.running} running` }),
         field('nobody', figures.display.wipePct),
         field(`all ${figures.running}`, figures.display.allClearPct),
@@ -1928,6 +1937,9 @@ async function resolveArena(): Promise<void> {
   });
 }
 
+/** §S3: the `skip` affordance appears after 1.5 s, and at 1.5 s. */
+const SKIP_AT = 1500;
+
 /* ------------------------------------------------------------------- S3 */
 
 /**
@@ -1970,9 +1982,21 @@ function runScreen(): HTMLElement {
    * then had nothing left to drop, which is why the wipe opened on empty fog. A
    * screen does not re-read the world while it is being taken away from it.
    */
-  window.setTimeout(() => {
-    if (state.view === 'run' && !state.busy) render();
-  }, 260);
+  /*
+   * …and the next tick lands on the `skip` affordance's own deadline.
+   *
+   * §S3 puts it at 1.5 s. On a 260 ms travel tick it actually appeared at 1624 ms
+   * — measured — because the deadline fell between two ticks, so the first 1.6 s
+   * of every 9-14 s replay offered no visible way out. The tick that would step
+   * over the deadline is moved onto it instead.
+   */
+  const toSkip = SKIP_AT - elapsed;
+  window.setTimeout(
+    () => {
+      if (state.view === 'run' && !state.busy) render();
+    },
+    toSkip > 0 && toSkip < 260 ? toSkip : 260,
+  );
 
   return el(
     'div',
@@ -2006,7 +2030,7 @@ function runScreen(): HTMLElement {
         ),
         // §S3: a `skip` affordance after 1.5 s, low contrast, bottom-right. It
         // skips the view and not the result, and it does not shorten the cycle.
-        elapsed > 1500
+        elapsed >= SKIP_AT
           ? el('button', {
               class: 'btn quiet stage-skip',
               text: 'skip ▸',
@@ -3302,7 +3326,7 @@ function settingsScreen(): HTMLElement {
       ),
       el('p', {
         class: 'tiny',
-        text: '§6.8’s three tiers are for the build that has a renderer, an asset set and a boot probe in it. This one draws the Understory on a canvas at one quality, so the override is recorded and changes nothing you can see.',
+        text: 'Lower tiers draw the same world with less in the air: fewer fog planes, no dust, and a lower render resolution. Auto reads how many cores this device reports and picks for you. Nothing here changes a figure, a route or an outcome.',
       }),
 
       el('hr', {}),
@@ -3423,7 +3447,7 @@ function startRehearsal(): void {
             el('div', { class: 'multiplier money', text: wide.display.multiplier }),
             // An explicit height: in a sheet there is no flex column above the chart
             // to give it one, and a chart with no height is an axis with no bars.
-            distributionBars(wide, 64),
+            distributionBars(wide, 96),
             field('nobody', wide.display.wipePct),
             field('all five', wide.display.allClearPct),
           ),
@@ -3432,7 +3456,7 @@ function startRehearsal(): void {
             { style: 'flex:1' },
             el('div', { class: 'route-name', text: 'NARROW' }),
             el('div', { class: 'multiplier money', text: narrow.display.multiplier }),
-            distributionBars(narrow, 64),
+            distributionBars(narrow, 96),
             field('nobody', narrow.display.wipePct),
             field('all five', narrow.display.allClearPct),
           ),
@@ -3520,7 +3544,7 @@ function rehearsalScreen(): HTMLElement {
                 { style: 'flex:1' },
                 el('div', { class: 'route-name', text: route }),
                 el('div', { class: 'multiplier money', text: figures.display.multiplier }),
-                distributionBars(figures, 46),
+                distributionBars(figures, 84),
                 field('nobody', figures.display.wipePct),
                 field(`all ${figures.running}`, figures.display.allClearPct),
               ),
@@ -3530,7 +3554,7 @@ function rehearsalScreen(): HTMLElement {
                     { style: 'flex:1' },
                     el('div', { class: 'route-name', text: other as string }),
                     el('div', { class: 'multiplier money', text: otherFigures.display.multiplier }),
-                    distributionBars(otherFigures, 46),
+                    distributionBars(otherFigures, 84),
                     field('nobody', otherFigures.display.wipePct),
                     field(`all ${otherFigures.running}`, otherFigures.display.allClearPct),
                   )

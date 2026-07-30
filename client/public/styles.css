@@ -97,7 +97,23 @@
   /* Aged brass: a warm hairline with patina in the crevice. */
   --brasswork: 1px solid rgba(201, 162, 39, 0.55);
 
-  --display: "Helvetica Neue Condensed", "Roboto Condensed", "Arial Narrow", ui-sans-serif, system-ui, sans-serif;
+  /*
+   * The display tier, and what it honestly is in a build with no font files.
+   *
+   * §6.5 asks for a condensed humanist grotesque with squared terminals, and
+   * §11.1 budgets four cut files at <= 190 KB WOFF2 to deliver it. This build
+   * downloads nothing, so it cannot have that face: it asks for the narrowest
+   * grotesque each platform actually ships, which resolves to Helvetica Neue
+   * Condensed or Arial Narrow on Apple platforms, Roboto Condensed on Android,
+   * and a width-axis instance of the system face elsewhere — a *condensed*
+   * grotesque everywhere, and not the same one everywhere. The round-2 review is
+   * right that this is a platform-dependent fallback rather than the specified
+   * face; it is named as a known limit in README's status table with the renderer
+   * and the asset set, rather than implied by a font stack that reads as if it
+   * had shipped one. `font-stretch` below is what gets the condensed axis out of
+   * a variable system face where the platform exposes one.
+   */
+  --display: "Helvetica Neue Condensed", "Roboto Condensed", "Arial Narrow", "Liberation Sans Narrow", ui-sans-serif, system-ui, sans-serif;
   --body: ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, monospace;
 
@@ -314,7 +330,11 @@ h3 {
   gap: 4px;
   color: var(--fog-far);
   font-size: var(--floor-secondary);
-  padding: 2px 4px;
+  /* A 44 pt target (§10.8) that still occupies one line of chrome over the
+   * stage: the padding is negative-margined back out of the label row. */
+  padding: 11px 8px;
+  margin: -11px -8px;
+  min-height: 44px;
   border-radius: var(--radius);
   transition: color var(--beat) var(--curve);
 }
@@ -849,12 +869,44 @@ button {
 /* -------------------------------------------------------------- surfaces */
 
 /* The one scrolling region on a screen that has one. */
+ /*
+ * The scrolling pane, and the reason it now says so.
+ *
+ * S8's verification list and S9's settings are both longer than the screen, and
+ * the round-2 review read the result as a rendering fault rather than as content
+ * below the fold: a `Re-derive on this device` button clipped 12 px above the
+ * footer, with a native scrollbar as the only hint that anything continued. The
+ * classic two-layer scroll shadow fixes it without a line of script — the cover
+ * layers scroll with the content and hide the shadow at each end, so the shadow
+ * is visible exactly when there is more to see.
+ */
 .surface {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  background: linear-gradient(180deg, rgba(56, 67, 75, 0.1) 0%, rgba(26, 32, 38, 0) 90px);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(138, 152, 160, 0.34) transparent;
+  background:
+    linear-gradient(180deg, rgba(56, 67, 75, 0.1) 0%, rgba(26, 32, 38, 0) 90px) local,
+    linear-gradient(180deg, var(--night) 0%, rgba(26, 32, 38, 0) 100%) 0 0 / 100% 18px no-repeat local,
+    linear-gradient(0deg, var(--night) 0%, rgba(26, 32, 38, 0) 100%) 0 100% / 100% 20px no-repeat local,
+    linear-gradient(180deg, rgba(14, 17, 20, 0.5) 0%, rgba(14, 17, 20, 0) 100%) 0 0 / 100% 16px no-repeat scroll,
+    linear-gradient(0deg, rgba(14, 17, 20, 0.72) 0%, rgba(14, 17, 20, 0) 100%) 0 100% / 100% 22px no-repeat scroll;
+  /*
+   * And the content itself fades into the bottom edge.
+   *
+   * A shadow behind the text cannot dim the text, and the defect the round-2
+   * review found was a *button* sliced in half by the pane's edge and read as a
+   * rendering fault. Masked, the same overflow reads as what it is: more of the
+   * page, continuing under the footer. The padding below means that when the pane
+   * is scrolled to its end, the last line sits above the fade rather than in it.
+   */
+  mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 24px), transparent 100%);
+}
+
+.surface > .pad {
+  padding-bottom: 30px;
 }
 
 /* ------------------------------------------------------------ the S2 rail */
@@ -1375,7 +1427,9 @@ button {
   content: "▲";
   display: block;
   font-size: 8px;
-  line-height: 1;
+  /* Clear of the digit under it: at line-height 1 the glyph's box and the
+   * numeral's ascender met, and the review read them as colliding. */
+  line-height: 1.5;
   color: transparent;
 }
 
@@ -1397,7 +1451,10 @@ button {
  * claim"*, and a picture with no bars in it is a claim.
  */
 .sheet .bars {
-  min-height: 56px;
+  /* §5.2.4's Two-Card Moment is *"a picture instead of a claim"*, and the
+   * round-2 review measured the picture at ~40 px with every bar but two drawn
+   * as a stub. A sheet has the room; the chart takes it. */
+  min-height: 92px;
 }
 
 /*
@@ -1591,7 +1648,9 @@ button {
   background: var(--plate);
   box-shadow: var(--plate-edge);
   padding: 4px 2px;
-  min-height: 40px;
+  /* §10.8's floor, on the control that assigns a named runner to a limb — the
+   * strongest attachment mechanic in the game is not a 40 px target. */
+  min-height: 44px;
   font-size: var(--floor-secondary);
   color: var(--fog-far);
   overflow: hidden;
@@ -1679,7 +1738,9 @@ button {
   padding: 6px 12px;
   margin: 0 4px 4px 0;
   font-size: var(--floor-body);
-  min-height: 36px;
+  /* §10.8's floor. These are stake presets and responsible-play limits: the two
+   * kinds of control least forgivable to miss with a thumb. */
+  min-height: 44px;
   color: var(--mist);
   transition:
     border-color var(--beat) var(--curve),
@@ -1992,11 +2053,23 @@ button {
   color: var(--fog-far);
 }
 
+ /*
+ * A digest breaks anywhere; a sentence does not.
+ *
+ * `word-break: break-all` is right for 64 hex characters with no spaces in them
+ * and wrong for everything else on this screen, and the round-2 review measured
+ * what "everything else" means here: `ceiling 2500000` rendered as `25000` /
+ * `00`, and `5000000 micro-credits, inside the declare` / `d stake limits`. A
+ * money figure broken mid-number, on the screen whose whole job is proving the
+ * money. `overflow-wrap: anywhere` breaks a word only when the word cannot fit,
+ * which is the digests and nothing else.
+ */
 .hash {
   font-family: var(--mono);
   font-size: var(--floor-secondary);
   color: #86a7bd;
-  word-break: break-all;
+  word-break: normal;
+  overflow-wrap: anywhere;
 }
 
 .verify .btn {

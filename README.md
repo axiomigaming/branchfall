@@ -25,7 +25,8 @@ specification — the product design, the exact probability model, the engine
 lifecycle it consumes, a runnable enumerator that proves the paytable, and tests
 that fail if the published numbers and the mathematics ever disagree — **and a
 playable graybox of the game itself**: a server that consumes the real engine and
-a browser client that plays a whole round through it, at placeholder-art fidelity.
+a browser client that plays a whole round through it, drawing `docs/DESIGN.md`
+§6's world on a canvas with no downloaded assets in it.
 
 ```bash
 npm install && npm run dev      # http://localhost:4173
@@ -223,15 +224,23 @@ process and the session is gone. `npm run dev -- --dev-clock` additionally
 exposes `POST /api/dev/advance-clock`, which is how the tests prove the
 speed-of-play floor and the reality check fire; it is refused otherwise.
 
-**What the graybox is.** The complete product at placeholder-art fidelity. Real
+**What the graybox is.** The complete product, drawn. Real
 information architecture, real flows, real mathematics, real fairness: the four
 route cards with their exact numbers, the fork balance and the choice of who
 takes the thin limb, the shelter picker, the three side bets with their prices,
 bank-or-continue, the wipe, the round summary, the verification screen, the
 Ghost Line, and the unstaked three-branch rehearsal on the published seed pair.
-The branch is a rectangle and a Kindling is a stroke with a lantern dot — the art
-direction in `docs/DESIGN.md` §6 is a later wave, and the palette and type
-direction are the only parts of it this build implements. §6.5 writes its sizes
+The art direction is no longer a later wave: §6's palette, materials, lighting,
+motion language and type direction are what the client draws, and it draws them
+in the browser — the Understory, the five arenas, the Kindlings and their
+lanterns, the Lamp House and its door, §9's descent and the whole sound layer are
+generated at runtime on a canvas and in WebAudio, with no downloaded asset of any
+kind. What §6 still describes and this build does not have is what a font file and a
+renderer buy: §6.5's condensed humanist grotesque is asked for by name and
+resolves to whatever narrow grotesque the platform ships, so the display face
+belongs to the device rather than to us; and §6.8's quality ladder is
+honoured only in the part a canvas can deliver — render resolution, composited
+fog planes and particles — rather than through an asset set and a boot probe. §6.5 writes its sizes
 as limits — 15 px body, 13 px secondary, 28 px for the claim, no numeral under
 15 px — so they are CSS tokens and `tests/type-floor.test.mjs` fails if a rule
 reaches for a size instead of a floor. The one size below the secondary floor is
@@ -380,11 +389,11 @@ does not exist should not be implied by silence.
 
 | | |
 | --- | --- |
-| Stage | Specification closed; **playable graybox** on the shipped engine module — real flows, real mathematics, real fairness, placeholder art |
+| Stage | Specification closed; **playable build** on the shipped engine module — real flows, real mathematics, real fairness, and §6's art direction drawn at runtime with no downloaded assets |
 | Real money | **No.** Free-play prototype throughout |
 | Certification | **None claimed.** Not a fairness certificate, RNG certificate, mathematical certification, or regulatory approval |
 | Engine | `@axiom-games/reveal-engine` 0.4.0, `reveal-engine/api-v1`, `staged-survival` lifecycle module 1.0.0, consumed as a package from `vendor/` |
-| Next | Art, motion and sound against `docs/DESIGN.md` §6–§7; the determinism, performance and comprehension harnesses in §11.3; an operator integration |
+| Next | The asset-backed renderer §6.8 budgets for; the determinism, performance and comprehension harnesses in §11.3; an operator integration |
 
 Deployment would require frozen configuration, independently reviewed seed
 custody, an operator integration and wallet audit, jurisdictional analysis, a
