@@ -673,7 +673,9 @@ function squadScreen(): HTMLElement {
             maxlength: '16',
             'aria-label': `Rename runner ${index + 1}`,
             style:
-              'flex:1;background:transparent;border:0;border-bottom:1px solid rgba(138,152,160,.25);color:inherit;font-size:16px;padding:8px 0',
+              // 44 pt, like every other control (§10.8): a rename field a thumb
+              // misses is the first control a player ever touches.
+              'flex:1;background:transparent;border:0;border-bottom:1px solid rgba(138,152,160,.25);color:inherit;font-size:16px;padding:12px 0;min-height:44px',
             onChange: (event: Event) => {
               const next = [...names];
               next[index] = (event.target as HTMLInputElement).value;
@@ -822,7 +824,8 @@ function stakeScreen(): HTMLElement {
             maxlength: '64',
             'aria-label': 'Client seed',
             style:
-              'width:100%;background:var(--void);border:1px solid var(--fog-mid);color:var(--mist);font-family:var(--mono);font-size:13px;padding:10px;border-radius:3px',
+              // §10.8's floor on a field a player types their own entropy into.
+              'width:100%;background:var(--void);border:1px solid var(--fog-mid);color:var(--mist);font-family:var(--mono);font-size:13px;padding:13px 10px;border-radius:3px;min-height:44px',
             onChange: (event: Event) => {
               // Anything they like, which is what the line above promises. A seed
               // that is already 32 bytes of hex is used as it stands; anything
@@ -883,7 +886,14 @@ function stakeScreen(): HTMLElement {
 }
 
 function collapsible(label: string, body: Child): HTMLElement {
-  const details = el('details', {}, el('summary', { class: 'link', text: label }), el('div', { class: 'pad' }, body));
+  // `.tap` on the summary as well as on the links: §10.8's floor is about
+  // controls, and a disclosure that opens the seed field is one.
+  const details = el(
+    'details',
+    {},
+    el('summary', { class: 'link tap', text: label }),
+    el('div', { class: 'pad' }, body),
+  );
   return details;
 }
 

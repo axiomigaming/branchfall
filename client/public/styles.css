@@ -507,6 +507,14 @@ button {
   align-items: center;
 }
 
+/* A `<summary>` is a control with a marker; the flex box above would eat it. */
+summary.link.tap {
+  display: list-item;
+  list-style-position: inside;
+  padding: 14px 6px;
+  margin: -8px -6px;
+}
+
 .link:active {
   color: var(--mist);
 }
@@ -585,12 +593,17 @@ button {
   max-height: 120px;
 }
 
-/* S1's strip: the squad waiting, as context under the stake field. */
+/*
+ * S1's strip: the squad waiting, as context under the stake field.
+ *
+ * It grows into whatever the stake copy does not use, so the screen has the
+ * squad in it rather than ~100 px of empty plate above the buy action.
+ */
 .viewport.band {
   height: auto;
-  flex: 0 1 150px;
+  flex: 1 1 150px;
   min-height: 104px;
-  max-height: 170px;
+  max-height: 260px;
 }
 
 /*
@@ -1057,9 +1070,19 @@ button {
  * of the screen with the money under it pushed off the bottom. The rail is the only
  * place a card is asked to fill its box.
  */
+/*
+ * The card fills the rail, and the *body* is what scrolls.
+ *
+ * Scrolling the whole card meant its footer had to be sticky to stay on screen,
+ * and a sticky footer is a box that content passes under — which measures as an
+ * overlap however opaque it is. With the scroll one level in, the head and the
+ * footer are fixed furniture and the rows move between them: the honest-return
+ * line and the odds affordance are always on the card face, and nothing is ever
+ * drawn under them.
+ */
 .card-page .card {
   height: 100%;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 /* The grain, at two scales — 10 cm ripple and 2 m sweep (§6.2). */
@@ -1220,16 +1243,9 @@ button {
    * §3.2 and §10.5 both make them card-face furniture, so they are the one part
    * of a card that may not go under the fold. The body scrolls beneath it.
    */
-  position: sticky;
-  /* Flush with the card's own bottom edge, so nothing shows below it: the card's
-   * bottom padding is where the round-1 build let a clipped row peek out. */
-  bottom: -8px;
-  /* Opaque, not translucent: text read *through* a footer is the same defect as
-   * text drawn under one. The card body is hidden behind it, cleanly, and the
-   * fade above says there is more of it. */
-  background: #171d23;
   margin: 0 -12px -8px;
   padding: 5px 12px 6px;
+  background: #171d23;
   border-top: var(--hairline);
   line-height: 1.25;
   font-size: var(--floor-secondary);
@@ -1261,15 +1277,18 @@ button {
  * would — so it has to *look* scrollable: a short fade above the pinned footer,
  * drawn only where content passes under it.
  */
-.card-footer::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 100%;
-  height: 18px;
-  pointer-events: none;
-  background: linear-gradient(180deg, rgba(20, 25, 30, 0) 0%, rgba(20, 25, 30, 0.92) 100%);
+.card-body {
+  overflow-y: auto;
+  scrollbar-width: none;
+  /* The same cue the full-screen panes carry: content fades into its own edge
+   * rather than being cut off at it — and the padding under the last row means a
+   * card that fits shows its last row whole rather than half-faded. */
+  padding-bottom: 10px;
+  mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 10px), transparent 100%);
+}
+
+.card-body::-webkit-scrollbar {
+  display: none;
 }
 
 /* ------------------------------------------------------- distribution bars */
@@ -1386,7 +1405,8 @@ button {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  min-height: min-content;
+  /* It is the scroller now, so it may shrink; its children may not. */
+  min-height: 0;
 }
 
 /*
@@ -1398,11 +1418,11 @@ button {
  * before reading a digit — and the rows it is compared against get the rest.
  */
 .card-body:has(.compare-table) .bars-block {
-  min-height: 76px;
+  min-height: 100px;
 }
 
 .card-body:has(.compare-table) .bars {
-  min-height: 46px;
+  min-height: 66px;
 }
 
 .bar .axis {
