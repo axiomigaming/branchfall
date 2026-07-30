@@ -2420,34 +2420,28 @@ function playSettledBeat(lanterns: number): void {
   if (!finished)
     for (let index = 0; index < lanterns; index += 1)
       steps.push({ at: DOOR_BEAT.openMs + index * DOOR_BEAT.perLanternMs, run: () => sound.lanternHome() });
+  /*
+   * A beat step only lands while the screen it belongs to is still up.
+   *
+   * A player can tap `Round summary` between two steps, and a step that
+   * re-rendered from under them would be this client's oldest class of bug — a
+   * beat writing state onto a screen that moved on.
+   */
+  const step = (value: number) => () => {
+    if (state.view !== 'banked') return;
+    state.settleStep = value;
+    render();
+  };
   steps.push(
     // The door shuts and the bell is struck once — the chord thickens with the
     // number of lanterns inside and never gets louder (§7, §10.5).
     { at: closedAt, run: () => sound.bank(lanterns) },
-    {
-      at: closedAt + 120,
-      run: () => {
-        state.settleStep = 1;
-        render();
-      },
-    },
+    { at: closedAt + 120, run: step(1) },
     // The frame going warm, a beat behind the door — §6.3's hand-placed bounce
     // light off the brass, which is the only "win" presentation in the game.
     { at: closedAt + 420, run: () => sound.warmth() },
-    {
-      at: closedAt + 1000,
-      run: () => {
-        state.settleStep = 2;
-        render();
-      },
-    },
-    {
-      at: closedAt + 1700,
-      run: () => {
-        state.settleStep = 3;
-        render();
-      },
-    },
+    { at: closedAt + 1000, run: step(2) },
+    { at: closedAt + 1700, run: step(3) },
   );
   cancelBeat = sequence(steps);
 }
