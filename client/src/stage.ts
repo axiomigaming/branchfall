@@ -584,6 +584,8 @@ class Stage {
 
   /** The same clip, for a gradient fill. Same reason, same rectangle. */
   private fill(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
+    // A gradient is resolved in its own coordinates, so a clipped fill draws
+    // exactly the pixels the unclipped one would have.
     const view = this.view;
     const x0 = Math.max(x, view.x0);
     const x1 = Math.min(x + w, view.x1);
