@@ -17,9 +17,12 @@
  *   stake, no wallet and no ledger entry in it (`ENGINE.md` §10.2).
  */
 import { ApiError, api, credits, idempotencyKey, isSeed, micro, newClientSeed, wasWipe } from './api.js';
+import * as sound from './audio.js';
 import { COPY } from './copy.js';
 import { rederive, type Rederivation } from './derive.js';
 import { el, frag, type Child } from './dom.js';
+import { CAUSE_HOLD, countUp, sequence, setCalmPreference } from './motion.js';
+import { stage, type StageMode, type StageRunner, type StageScene } from './stage.js';
 import type {
   ArenaRecord,
   Config,
@@ -80,6 +83,17 @@ interface State {
   /** What this device recomputed for itself, and whether it is doing it now. */
   rederived: Rederivation | null;
   rederiving: boolean;
+  /**
+   * Which beat of the staged resolve the screen is currently showing (0-2).
+   *
+   * §5.2.2 asks for cause before effect — the fallen pips go dark first, held for
+   * 350 ms with the claim figure unchanged, and only then does the claim roll. The
+   * frame the server sends has all of it applied already, so the beat is *played*
+   * out of a starting state the frame no longer describes, and this is that state.
+   * `resolveScreen` is a pure function of it, which is what makes it safe for the
+   * session poll or a toast to re-render in the middle of a beat.
+   */
+  beatStep: number;
 }
 
 const state: State = {
@@ -109,11 +123,39 @@ const state: State = {
   verify: null,
   rederived: null,
   rederiving: false,
+  beatStep: 2,
 };
+
+/**
+ * The beat in flight, so leaving a screen abandons it.
+ *
+ * A staged resolve that kept running after the player tapped `Bank` would write
+ * `state.beatStep` under the next screen and re-render it out from under them.
+ * Every beat replaces the previous one, and every screen transition cancels.
+ */
+let cancelBeat: (() => void) | null = null;
+
+function stopBeat(): void {
+  cancelBeat?.();
+  cancelBeat = null;
+}
 
 const root = document.getElementById('app') as HTMLElement;
 
+/**
+ * The scene the stage should be showing, set by whichever screen built a viewport.
+ *
+ * The stage is one canvas that lives across renders (`stage.mount` re-parents it
+ * rather than rebuilding it), so the screen cannot hand it a scene while it is
+ * being constructed — the host is not in the document yet and has no size. Every
+ * `viewport()` therefore leaves its scene here and `render()` applies it once the
+ * tree is attached, which is the same shape as `syncPager()` below and for the
+ * same reason.
+ */
+let pendingScene: StageScene | null = null;
+
 function render(): void {
+  pendingScene = null;
   root.textContent = '';
   root.className = state.view === 'verify' ? 'verify' : '';
   if (!state.config) {
@@ -134,6 +176,18 @@ function render(): void {
   // it. This is the line whose absence made the card on screen and the card being
   // committed two different things.
   syncPager();
+  applyScene();
+  tuneSoundToScreen();
+}
+
+function applyScene(): void {
+  const host = root.querySelector('.stage-host') as HTMLElement | null;
+  if (!host || !pendingScene) {
+    stage.unmount();
+    return;
+  }
+  stage.mount(host);
+  stage.set(pendingScene);
 }
 
 function screen(): HTMLElement {
@@ -342,58 +396,80 @@ function sheetLayer(sheet: Sheet): HTMLElement {
   );
 }
 
-/** The world, at placeholder fidelity: a branch, fog, and the squad on it. */
+/**
+ * The world — the stage, and the text that belongs over it.
+ *
+ * Everything inside the frame is drawn by `client/src/stage.ts` onto one canvas:
+ * the sky, the fog volume, the petrified branch dressed to §6.7's motif for this
+ * arena, the Kindlings, and the light their lanterns throw. This function builds
+ * the *host* for that canvas plus the two things that are text and therefore
+ * belong in the document — the arena's name and its counter — and leaves the scene
+ * in `pendingScene` for `render()` to apply once the host has a size.
+ *
+ * `compact` is the decision-screen band. §5's 58/42 seam is the layout for the
+ * run, where the viewport expands to full bleed and the decision surface slides
+ * away; on S2 the decision *is* the screen, so the world is a band that gives way
+ * first and the card keeps its height.
+ */
 function viewport(options: {
   readonly title: string;
   readonly subtitle: string;
   readonly counter: string;
-  readonly runners: readonly { name: string; status: string; lane: number }[];
+  /**
+   * `slot` is the runner's identity and it matters: the stage keys every figure's
+   * animation state by it, so the same Kindling keeps its gait phase, its lantern
+   * swing and — the one that would be visible if this were wrong — its *fall*
+   * across the re-render that turns it from running into lost. Passing the array
+   * index here instead of the squad slot is how a fall stops playing.
+   */
+  readonly runners: readonly { slot: number; name: string; status: string; lane: number }[];
   readonly lanes: number;
   readonly progress?: number;
   readonly collapsed?: readonly boolean[];
-  /**
-   * On the decision screens the world is a band rather than the top 58% of the
-   * frame. `DESIGN.md` §5's seam is written for the run, where the viewport
-   * expands to full bleed; on S2 the decision is the screen, and a graybox
-   * rectangle is not what the player is there to read.
-   */
   readonly compact?: boolean;
+  /** A mid-height strip, for S1, where the world is context and not the subject. */
+  readonly band?: boolean;
+  /** Full bleed, for the run (§S3) and for the two settled screens. */
+  readonly full?: boolean;
+  readonly mode?: StageMode;
+  readonly arena?: number;
+  readonly lastLamp?: boolean;
+  readonly names?: boolean;
+  /**
+   * Whether the stage carries its controls.
+   *
+   * §S6 asks for *"two full seconds of fog and wind with no UI at all"*, and §10.2
+   * requires the session strip to be visible and never dismissible — so the two
+   * rules meet on this screen and the responsible-play one wins. What §S6 can still
+   * have is everything else: for those two seconds the stage carries no counter and
+   * no sound control, and the fog is the whole frame.
+   */
+  readonly chrome?: boolean;
+  readonly overlay?: Child;
 }): HTMLElement {
-  const progress = options.progress ?? 0.08;
-  const branches: Child[] = [];
-  for (let lane = 0; lane < Math.max(1, options.lanes); lane += 1)
-    branches.push(
-      el('div', {
-        class: `branch${lane > 0 ? ' thin' : ''}${options.collapsed?.[lane] ? ' collapsed' : ''}`,
-      }),
-    );
+  pendingScene = {
+    arena: options.arena ?? 0,
+    lanes: Math.max(1, options.lanes),
+    runners: options.runners.map((runner) => ({
+      slot: runner.slot,
+      name: runner.name,
+      status:
+        runner.status === 'lost' ? 'lost' : runner.status === 'home' ? 'home' : 'running',
+      lane: runner.lane,
+    })) as readonly StageRunner[],
+    collapsed: options.collapsed ?? [],
+    progress: options.progress ?? 0.08,
+    mode: options.mode ?? 'brief',
+    lastLamp: options.lastLamp ?? false,
+    names: options.names ?? options.compact !== true,
+  };
+
   return el(
     'div',
-    { class: `viewport${options.compact ? ' compact' : ''}` },
-    branches,
-    ...options.runners.map((runner, index) => {
-      const top = runner.lane > 0 ? '70%' : '52%';
-      // Spread along the branch, then travel with the replay. A real build moves
-      // a rig along a spline; this moves a rectangle along a percentage.
-      const lanePosition = options.runners.filter((_, before) => before < index && options.runners[before]?.lane === runner.lane).length;
-      const spread = 9 + lanePosition * 10;
-      const offset = Math.min(94, spread + progress * 45);
-      return el(
-        'div',
-        {
-          class: `kindling ${runner.status}`,
-          style: `left:${offset}%; top:${top}`,
-        },
-        el('span', {
-          class: 'tag runner-name',
-          text: runner.name,
-          style: index % 2 === 0 ? '' : 'top:-30px',
-        }),
-        el('span', { class: 'body' }),
-        el('span', { class: 'lantern' }),
-      );
-    }),
-    el('div', { class: 'fog' }),
+    {
+      class: `viewport${options.compact ? ' compact' : ''}${options.band ? ' band' : ''}${options.full ? ' full' : ''}`,
+    },
+    el('div', { class: 'stage-host' }),
     el(
       'div',
       { class: 'arena-label' },
@@ -403,8 +479,50 @@ function viewport(options: {
         el('h2', { text: options.title }),
         el('div', { class: 'fiction', text: options.subtitle }),
       ),
-      el('div', { class: 'badge', text: options.counter }),
+      options.chrome === false
+        ? null
+        : el(
+            'div',
+            { class: 'label-controls' },
+            soundToggle(),
+            // §S6 has no arena counter on it — the round is over. An empty badge is
+            // a stray pill, so the badge is only drawn when it holds something.
+            options.counter === '' ? null : el('div', { class: 'badge', text: options.counter }),
+          ),
     ),
+    options.overlay,
+  );
+}
+
+/**
+ * The sound control, over the world rather than in the strip.
+ *
+ * It has two homes on purpose. S9 carries the canonical toggle beside reduced
+ * motion, because that is where §S9 puts it and where a player looks for a
+ * preference; this one is the reach-for-it version, on every screen that has a
+ * stage — which is every screen that makes a sound beyond a tap. It is a glyph
+ * *and* a word, because §10.8 forbids colour as the sole carrier of a state, and
+ * it is not in the session strip because the strip's four items have 358 px to
+ * share and `docs/ADR-001-the-numeral-floor.md` measured the worst case at 2.5 px
+ * of slack.
+ */
+function soundToggle(): HTMLElement {
+  const on = state.session?.audioEnabled ?? false;
+  return el(
+    'button',
+    {
+      class: 'mute',
+      'aria-pressed': String(on),
+      'aria-label': on ? 'Sound on. Turn sound off' : 'Sound off. Turn sound on',
+      onClick: (event: MouseEvent) => {
+        event.stopPropagation();
+        void guard(async () => {
+          adopt(await api('POST', '/api/session', { audioEnabled: !on }));
+        });
+      },
+    },
+    el('span', { class: 'glyph', text: on ? '◗)' : '◗' }),
+    el('span', { text: on ? 'sound' : 'muted' }),
   );
 }
 
@@ -423,7 +541,9 @@ function squadScreen(): HTMLElement {
       subtitle: 'Five figures with lanterns for hearts.',
       counter: 'squad',
       lanes: 1,
-      runners: names.map((name) => ({ name, status: 'running', lane: 0 })),
+      arena: 0,
+      mode: 'shelf',
+      runners: names.map((name, slot) => ({ slot, name, status: 'running', lane: 0 })),
       progress: 0.1,
     }),
     el(
@@ -521,6 +641,26 @@ function stakeScreen(): HTMLElement {
   return el(
     'div',
     { class: 'screen fade-in' },
+    // The squad, waiting at the foot of the tree. §S1 does not ask for the world on
+    // this screen, but the screen that debits the stake is the last one before the
+    // branch and it should be able to see what is about to cross it.
+    viewport({
+      title: 'The Understory',
+      subtitle: 'Five lanterns at the foot of the tree.',
+      counter: 'stake',
+      lanes: 1,
+      arena: 0,
+      mode: 'shelf',
+      band: true,
+      names: false,
+      runners: (state.session?.runnerNames ?? []).map((name, slot) => ({
+        slot,
+        name,
+        status: 'running',
+        lane: 0,
+      })),
+      progress: 0.06,
+    }),
     el(
       'div',
       { class: 'surface pad stack' },
@@ -538,7 +678,10 @@ function stakeScreen(): HTMLElement {
       ),
       el(
         'div',
-        { class: 'row', style: 'flex-wrap:wrap;justify-content:center' },
+        // A grid rather than a wrapping row: five presets on one line, so the last
+        // one is not a lone chip on a second row pretending to be a different kind
+        // of control from the four above it.
+        { class: 'presets' },
         ...presets.map((preset) =>
           el('button', {
             // A stake preset is a money figure on a money control: tabular
@@ -654,17 +797,127 @@ async function buyRun(): Promise<void> {
     );
     adopt(payload);
     resetChoice();
+    // A new round is a new squad on the shelf: every figure's gait phase, fall and
+    // lantern state belongs to the round that is over.
+    stage.reset();
     state.view = 'route';
   });
 }
 
 function adopt(payload: { frame?: Frame; session?: Session; wallet?: WalletView }): void {
   if (payload.frame) state.frame = payload.frame;
-  if (payload.session) state.session = payload.session;
+  if (payload.session) {
+    state.session = payload.session;
+    // The two presentation preferences are server-owned session state, so they
+    // survive a reload — and this is the one place they arrive, so it is the one
+    // place that hands them to the layers that read them.
+    sound.setEnabled(payload.session.audioEnabled);
+    setCalmPreference(payload.session.reducedMotion);
+  }
   if (payload.wallet) state.wallet = payload.wallet;
 }
 
+/**
+ * Instant feedback on every tap, from one listener.
+ *
+ * The alternative was a `sound.tap()` call in ninety `onClick` handlers, which is
+ * ninety chances to forget one — and a control that answers a tap on some screens
+ * and not others feels broken in a way that is hard to name. So the feedback is
+ * delegated: one capture-phase `pointerdown` on the root reads what kind of
+ * control was hit and plays the matching struck-wood blip.
+ *
+ * It is `pointerdown` and not `click` on purpose. The sound has to land on the
+ * finger going down, not on it coming up, or it is not feedback — it is a report.
+ * The visual half of the same idea is `:active` in the stylesheet, which is also
+ * instant on the way down and takes §6.4's beat on the way back.
+ *
+ * The same listener is where the audio graph is unlocked: a browser will not start
+ * an `AudioContext` outside a user gesture, and this is the first gesture there is.
+ */
+function installTapFeedback(): void {
+  root.addEventListener(
+    'pointerdown',
+    (event) => {
+      sound.unlock();
+      const target = (event.target as HTMLElement | null)?.closest('button') ?? null;
+      if (!target || target.hasAttribute('disabled')) return;
+      if (target.classList.contains('btn') && target.classList.contains('primary'))
+        sound.tap('commit');
+      else if (target.classList.contains('link') || target.classList.contains('mute'))
+        sound.tap('toggle');
+      else if (target.classList.contains('limb-chip') && target.classList.contains('inert'))
+        sound.tap('refuse');
+      else sound.tap('select');
+    },
+    { capture: true },
+  );
+}
+
+/**
+ * What the sound bed should be doing on the screen that is up.
+ *
+ * §7's music is *"sparse, 68 BPM … one voice per arena survived"* and it lives on
+ * the decision screen, which is the screen with no clock on it. It stops for the
+ * run, because the run's mix is the squad's own rhythm, and it stops for §9's beat
+ * entirely — *"The music drops out entirely"* — which is the loudest thing the
+ * sound layer does short of the silence at the end of a losing round.
+ */
+let soundKey = '';
+
+function tuneSoundToScreen(): void {
+  const frame = state.frame;
+  /*
+   * Only when something the mix depends on has actually changed.
+   *
+   * `render()` runs four times a second while the run screen is advancing its
+   * progress, and re-scheduling the squad's rhythm on each of those would reset
+   * every footfall's phase — five figures would fall into unison, which is the
+   * one thing §7's *"busy, warm, slightly ragged"* rhythm must not do.
+   */
+  const key = [
+    state.view,
+    frame?.arena.index ?? 0,
+    frame?.live.length ?? 0,
+    state.route,
+    state.laneSplit ?? '',
+    sound.isEnabled(),
+  ].join('|');
+  if (key === soundKey) return;
+  soundKey = key;
+
+  const arena = frame ? frame.arena.index : 1;
+  sound.arena(arena, Math.max(0, arena - 1));
+
+  if (state.view === 'route' || state.view === 'rehearsal') {
+    sound.duckForLastLamp(false);
+    sound.startMusic();
+    sound.stopSquadRhythm();
+    return;
+  }
+  sound.stopMusic();
+  if (state.view === 'run' && frame) {
+    const lastLamp = frame.live.length === 1;
+    sound.duckForLastLamp(lastLamp);
+    const laneSizes =
+      state.route === 'SPLIT' && state.laneSplit !== null
+        ? [state.laneSplit, frame.live.length - state.laneSplit]
+        : null;
+    sound.startSquadRhythm(
+      orderedRunners(frame).map((runner, index) => ({
+        slot: runner.slot,
+        lane: laneSizes && index >= (laneSizes[0] as number) ? 1 : 0,
+      })),
+      laneSizes ? 2 : 1,
+    );
+    return;
+  }
+  sound.stopSquadRhythm();
+}
+
 function resetChoice(): void {
+  // Leaving a resolved arena abandons its beat: a staged resolve that kept running
+  // would write `beatStep` under the next decision screen.
+  stopBeat();
   state.route = 'WIDE';
   state.laneSplit = null;
   state.shelter = [];
@@ -833,8 +1086,11 @@ function routeScreen(): HTMLElement {
       subtitle: frame.arena.subtitle,
       counter: `${frame.arena.index} / ${frame.arena.of}`,
       lanes: state.route === 'SPLIT' ? 2 : 1,
+      arena: frame.arena.index,
+      mode: 'brief',
       compact: true,
       runners: orderedRunners(frame).map((runner, index) => ({
+        slot: runner.slot,
         name: runner.name,
         status: runner.status,
         lane: laneSizes && index >= (laneSizes[0] as number) ? 1 : 0,
@@ -897,7 +1153,7 @@ function commitLabel(): string {
   return 'Commit route';
 }
 
-function orderedRunners(frame: Frame): { name: string; status: string }[] {
+function orderedRunners(frame: Frame): { slot: number; name: string; status: string }[] {
   const running = frame.squad.filter((member) => member.status === 'running');
   if (state.laneOrder) {
     const byName = new Map(running.map((member) => [member.name, member]));
@@ -1355,7 +1611,31 @@ function openSideBetSheet(frame: Frame, figures: Figures): void {
 
 /* ------------------------------------------------------------- commitment */
 
+/**
+ * The commit, stamped.
+ *
+ * §6.4's terms are the ones that decide what this is allowed to be: the plate
+ * drops into its shadow and comes back to rest, and it never rises past where it
+ * started. A card that sprang up on commit would read as a reward for choosing,
+ * and §10.3 forbids that on four options with identical return. The sound is a
+ * low struck-wood thump, which is the same idea in the other medium.
+ *
+ * It runs before the request rather than after it: the tap is answered on the
+ * frame the finger goes down, and the network is not in that loop.
+ */
+function stampSelectedCard(): void {
+  const card = root.querySelector(`.card-page[data-route="${state.route}"] .card`);
+  if (!(card instanceof HTMLElement)) return;
+  sound.tap('stamp');
+  card.classList.remove('stamped');
+  // One reflow read, deliberately, so the class re-applies and the animation
+  // restarts on a second commit of the same card.
+  void card.offsetWidth;
+  card.classList.add('stamped');
+}
+
 async function commitRoute(): Promise<void> {
+  stampSelectedCard();
   const frame = state.frame as Frame;
   const tickets = Object.entries(state.sideBets)
     .filter(([, value]) => value > 0n)
@@ -1395,6 +1675,107 @@ async function commitRoute(): Promise<void> {
   });
 }
 
+/**
+ * The staged resolve (§5.2.2's order, played in §7's mix).
+ *
+ * Four beats, and the gap between the second and the third is the one the
+ * specification puts a number on: *"the pips of fallen runners go dark **first**,
+ * held for 350 ms with the claim figure unchanged, and only then does the claim
+ * roll."*
+ *
+ * | at | what happens | why there |
+ * | --- | --- | --- |
+ * | 0 ms | the squad's rhythm stops; a collapsing lane cracks and shudders | the cause |
+ * | 280 ms | the lanterns go out, one at a time, each taking its 120 ms band out of the mix | the effect on the squad |
+ * | 630 ms | the claim rolls, and the arithmetic arrives behind it | the effect on the money, held 350 ms after the cause |
+ *
+ * Everything it can do to the *sound* is drawn from §7's list and nothing else:
+ * a splintering crack with no explosion in it, a glass pop per lantern, and a
+ * struck bell if a shelter door closed. There is no sting on a good arena and no
+ * fanfare on any of them.
+ */
+function playResolveBeat(arena: ArenaRecord): void {
+  stopBeat();
+  state.beatStep = 0;
+  const collapsed = arena.lanes.some((lane) => lane.collapsed);
+
+  cancelBeat = sequence([
+    {
+      at: 0,
+      run: () => {
+        sound.stopSquadRhythm();
+        if (collapsed) {
+          // §7: not an explosion — a long, dry, splintering crack, then a hole.
+          sound.laneCollapse();
+          stage.effect('shudder');
+        }
+      },
+    },
+    {
+      at: 280,
+      run: () => {
+        state.beatStep = 1;
+        render();
+        // One light at a time. §7's high-shelf cut is a per-lantern event, so five
+        // falling runners take five bites out of the mix rather than one big one.
+        arena.fallen.forEach((_, index) => window.setTimeout(() => sound.lanternOut(), index * 90));
+      },
+    },
+    {
+      at: 280 + CAUSE_HOLD,
+      run: () => {
+        state.beatStep = 2;
+        render();
+        // A shelter door closed in this arena: brass, and one struck bell.
+        if (arena.shelter.length > 0) sound.bank(arena.shelter.length);
+      },
+    },
+  ]);
+}
+
+/**
+ * The wipe, which never reaches S4 — and §9's hero descent, which is why.
+ *
+ * A wipe leaves the model with no action in it, so `resolveArena` settles and goes
+ * straight to S6. That is also where §9's signature shot belongs: *"The lantern
+ * tumbles. We stay with it, not with the branch, all the way down until the glass
+ * gives out and the light goes. Two seconds of empty fog."* The stage plays the
+ * descent because the wipe screen hands it the same runners it was drawing a
+ * moment ago, now fallen — so it animates a transition rather than drawing an
+ * ending, and the camera follows the last light down.
+ */
+function playWipeBeat(arena: ArenaRecord | null): void {
+  stopBeat();
+  cancelBeat = sequence([
+    {
+      at: 0,
+      run: () => {
+        sound.stopSquadRhythm();
+        if (arena?.lanes.some((lane) => lane.collapsed)) {
+          sound.laneCollapse();
+          stage.effect('shudder');
+        }
+      },
+    },
+    { at: 60, run: () => stage.effect('descent') },
+    {
+      at: 1400,
+      run: () => {
+        /*
+         * §7: every warm layer removed at once, wind alone at -18 dB for 1.8 s. The
+         * only silence in the game, spent exactly once per losing round.
+         *
+         * It lands at 1.4 s because that is when the glass gives out on screen —
+         * the stage holds the hero's light for the length of the descent (§9) and
+         * this is the frame it dies on. Sound and picture lose the light together,
+         * and §S6's words then arrive *inside* the silence rather than after it.
+         */
+        sound.lastLanternOut();
+      },
+    },
+  ]);
+}
+
 async function resolveArena(): Promise<void> {
   if (state.view !== 'run') return;
   await guard(async () => {
@@ -1423,12 +1804,33 @@ async function resolveArena(): Promise<void> {
       // that §S6's two seconds of fog are measured from the moment the screen is
       // drawn rather than from the moment the settle was sent.
       enterSettled(wasWipe((state.frame as Frame).settlement, next.live.length));
-    } else state.view = 'resolve';
+    } else {
+      state.view = 'resolve';
+      playResolveBeat(payload.resolution);
+    }
   });
 }
 
 /* ------------------------------------------------------------------- S3 */
 
+/**
+ * S3 — the run.
+ *
+ * §S3: *"Viewport expands to full bleed. Decision surface slides away; only the
+ * claim and squad count remain, docked bottom-left."* That is this screen exactly:
+ * the stage takes the whole frame and the HUD is two lines in the corner.
+ *
+ * The travel is animated by the stage on its own clock; this function only
+ * advances the *progress* the stage travels along, which is why it re-renders on a
+ * slow 260 ms tick rather than per frame. Everything that has to be smooth — the
+ * fog, the gait, the lantern swing, the camera — is inside the canvas.
+ *
+ * **The client does not know the outcome while this screen is up, and that is
+ * structural.** The transcript is not revealed until `/resolve`, so nothing here
+ * can foreshadow who falls. §6.9 rule 4 — *"we never author a near-miss that is
+ * not in the data"* — is satisfied here by there being no data yet to author
+ * against.
+ */
 function runScreen(): HTMLElement {
   const frame = state.frame as Frame;
   const elapsed = Date.now() - state.runStartedAt;
@@ -1437,103 +1839,193 @@ function runScreen(): HTMLElement {
     state.route === 'SPLIT' && state.laneSplit !== null
       ? [state.laneSplit, frame.live.length - state.laneSplit]
       : null;
+  // §9's beat, and the condition for it is a fact about the frame: one runner is
+  // carrying the whole claim across.
+  const lastLamp = frame.live.length === 1;
   window.setTimeout(() => {
     if (state.view === 'run') render();
-  }, 220);
+  }, 260);
 
   return el(
     'div',
     { class: 'screen' },
     viewport({
       title: frame.arena.name,
-      subtitle: '',
+      subtitle: lastLamp ? 'One light, and the branch narrows into fog.' : '',
       counter: `${frame.arena.index} / ${frame.arena.of}`,
       lanes: laneSizes ? 2 : 1,
+      arena: frame.arena.index,
+      mode: 'run',
+      full: true,
+      lastLamp,
       runners: orderedRunners(frame).map((runner, index) => ({
+        slot: runner.slot,
         name: runner.name,
         status: runner.status,
         lane: laneSizes && index >= (laneSizes[0] as number) ? 1 : 0,
       })),
       progress,
-    }),
-    el(
-      'div',
-      { class: 'surface pad stack' },
-      el('div', { class: 'claim-figure money', text: frame.claim.display }),
-      el('p', { class: 'tiny', text: `${frame.live.length} running` }),
-      elapsed > 1500
-        ? el(
-            'div',
-            {},
-            el('button', {
-              class: 'btn quiet',
+      overlay: frag(
+        // §9: *"There is no HUD except the claim, dimmed to 40%."*
+        el(
+          'div',
+          { class: `hud-dock${lastLamp ? ' dimmed' : ''}` },
+          el('div', { class: 'claim-figure money', text: frame.claim.display }),
+          el('div', {
+            class: 'tiny',
+            text: `${frame.live.length} ${frame.live.length === 1 ? 'still out' : 'running'}`,
+          }),
+        ),
+        // §S3: a `skip` affordance after 1.5 s, low contrast, bottom-right. It
+        // skips the view and not the result, and it does not shorten the cycle.
+        elapsed > 1500
+          ? el('button', {
+              class: 'btn quiet stage-skip',
               text: 'skip ▸',
+              'aria-label': COPY.skipNote,
+              title: COPY.skipNote,
               onClick: () => void resolveArena(),
-            }),
-            el('p', { class: 'tiny', text: COPY.skipNote }),
-          )
-        : null,
-    ),
+            })
+          : null,
+      ),
+    }),
   );
 }
 
 /* ------------------------------------------------------------------- S4 */
 
+/**
+ * S4 — resolve, staged in beats, and the order is the teaching.
+ *
+ * §5.2.2 is unambiguous about it: *"On a resolve, the pips of fallen runners go
+ * dark **first**, held for 350 ms with the claim figure unchanged, and only then
+ * does the claim roll to its new value. Cause before effect, always in that
+ * order. A player watching this three times has the money rule whether or not
+ * they read anything."*
+ *
+ * The frame the server sends already has all of it applied — the new claim, the
+ * new squad statuses, the arithmetic — so the beat is played out of a state the
+ * frame no longer describes. `state.beatStep` is that state, and this function is
+ * a pure function of it:
+ *
+ * | step | the frame the player is looking at |
+ * | --- | --- |
+ * | 0 | the arena as it was: everyone still out, the claim it went in with |
+ * | 1 | the lane has given way and the lanterns are out; the claim has not moved |
+ * | 2 | the claim rolls, and the arithmetic that produced it arrives behind it |
+ *
+ * Being a pure function of the step is what makes it safe for the session poll or
+ * a toast to re-render mid-beat, which the first build of this screen was not.
+ */
 function resolveScreen(): HTMLElement {
   const frame = state.frame as Frame;
   const arena = state.lastArena as ArenaRecord;
   const config = state.config as Config;
   const nextName = config.game.arenaNames[frame.arena.index - 1] ?? '';
   const finished = frame.phase === 'FINISHED';
+  const step = state.beatStep;
+
+  const fallenSlots = new Set(arena.fallen.map((runner) => runner.slot));
+  const shelteredSlots = new Set(arena.shelter.map((runner) => runner.slot));
+  const inArena = new Set(arena.lanes.flatMap((lane) => lane.entities.map((entity) => entity.slot)));
+  // The share each runner was carrying *into* this arena, which is the figure the
+  // pips have to be showing while the claim is still held at its old value.
+  const shareBefore = String(micro(arena.claimBeforeMicro) / BigInt(Math.max(1, arena.running)));
+
+  // Step 0 shows the arena as it was: the resolution has landed on the server and
+  // the screen has not caught up yet, which is the whole point of a staged beat.
+  const sceneRunners = arena.lanes.flatMap((lane, laneIndex) =>
+    lane.entities.map((entity) => ({
+      slot: entity.slot,
+      name: entity.name,
+      status:
+        step === 0
+          ? 'running'
+          : shelteredSlots.has(entity.slot)
+            ? 'home'
+            : fallenSlots.has(entity.slot)
+              ? 'lost'
+              : 'running',
+      lane: laneIndex,
+    })),
+  );
+
+  // The pips are the money object, so they follow the same clock as the claim: lit
+  // and carrying their old share at step 0, dark at step 1, and the figure above
+  // them does not move until step 2. Runners lost or banked in an *earlier* arena
+  // are not part of this beat and are left exactly as the frame has them.
+  const pipSquad = frame.squad.map((member) =>
+    step === 0 && inArena.has(member.slot)
+      ? { ...member, status: 'running' as const, valueMicro: shareBefore }
+      : member,
+  );
+  const beforeDisplay = credits(arena.claimBeforeMicro, 3).slice(0, 5);
 
   return el(
     'div',
     { class: 'screen fade-in' },
     viewport({
       title: arena.name,
-      subtitle: arena.fallen.length > 0 ? 'The branch took some of them.' : 'They are across.',
+      subtitle:
+        step === 0
+          ? 'They commit.'
+          : arena.fallen.length > 0
+            ? 'The branch took some of them.'
+            : 'They are across.',
       counter: `${arena.index} / ${frame.arena.of}`,
       lanes: arena.lanes.length,
-      collapsed: arena.lanes.map((lane) => lane.collapsed),
-      runners: [
-        ...arena.survivors.map((runner) => ({ name: runner.name, status: 'running', lane: 0 })),
-        ...arena.fallen.map((runner) => ({ name: runner.name, status: 'lost', lane: 1 })),
-      ],
-      progress: 0.9,
+      arena: arena.index,
+      mode: 'resolve',
+      collapsed: step === 0 ? [] : arena.lanes.map((lane) => lane.collapsed),
+      runners: sceneRunners,
+      progress: step === 0 ? 0.62 : 0.94,
     }),
     claimMeter({
-      claim: frame.claim.display,
+      claim: step === 2 ? frame.claim.display : beforeDisplay,
       caption: 'claim',
-      squad: frame.squad,
-      bankedNote: bankedNote(frame),
+      squad: pipSquad,
+      bankedNote: step === 0 ? null : bankedNote(frame),
+      // §S4: the claim *rolls* — tabular, ~600 ms, no spinning. The meter starts the
+      // figure at the value the arena went in with and counts to the value above.
+      rollFrom: step === 2 ? beforeDisplay : null,
     }),
     el(
       'div',
       { class: 'surface pad stack' },
-      el('p', { class: 'money', text: arena.arithmetic }),
-      arena.fallen.length > 0
-        ? el(
-            'p',
-            { class: 'note' },
-            ...arena.fallen.map((runner) =>
-              el('span', { class: 'lost-name', text: `${runner.name} did not make it. ` }),
-            ),
-          )
-        : el('p', { class: 'note', text: 'Everyone is across.' }),
-      micro(arena.shelterCreditedMicro) > 0n
+      // §S4: the arithmetic in full for one beat — never a mystery multiplier. It
+      // arrives *after* the claim has started moving, so it reads as the
+      // explanation of something the player has already seen happen.
+      step === 2 ? el('p', { class: 'arithmetic money settle-in late', text: arena.arithmetic }) : null,
+      step === 0
+        ? null
+        : arena.fallen.length > 0
+          ? el(
+              'p',
+              { class: 'note settle-in' },
+              // §10.1: individuals are named at the moment of loss.
+              ...arena.fallen.map((runner) =>
+                el('span', { class: 'lost-name', text: `${runner.name} did not make it. ` }),
+              ),
+            )
+          : el('p', { class: 'note settle-in', text: 'Everyone is across.' }),
+      step === 2 && micro(arena.shelterCreditedMicro) > 0n
         ? el('p', {
-            class: 'note banked-figure',
+            class: 'note banked-figure settle-in late',
             text: `${arena.shelter.map((runner) => runner.name).join(', ')} came home — ${credits(arena.shelterCreditedMicro, 3)} banked.`,
           })
         : null,
-      ...arena.sideBets.map((ticket) =>
-        el('p', {
-          class: 'note',
-          text: `${ticket.bet.replace('_', ' ')} ${credits(ticket.stakeMicro, 2)} — ${ticket.won ? `paid ${credits(ticket.creditedMicro, 2)}` : 'lost'}.`,
-        }),
-      ),
-      state.session && state.session.roundsSeen === 0 && arena.index === 1
-        ? el('p', { class: 'note', text: COPY.firstResolve })
+      // §S4: side-bet money is never blended into the claim figure — its own line,
+      // its own stake, its own result, stated separately from the run.
+      ...(step === 2
+        ? arena.sideBets.map((ticket) =>
+            el('p', {
+              class: 'note settle-in late',
+              text: `${ticket.bet.replace('_', ' ')} ${credits(ticket.stakeMicro, 2)} — ${ticket.won ? `paid ${credits(ticket.creditedMicro, 2)}` : 'lost'}.`,
+            }),
+          )
+        : []),
+      step === 2 && state.session && state.session.roundsSeen === 0 && arena.index === 1
+        ? el('p', { class: 'note settle-in late', text: COPY.firstResolve })
         : null,
     ),
     el(
@@ -1663,6 +2155,11 @@ async function finishRound(): Promise<void> {
 function enterSettled(wiped: boolean): void {
   if (!wiped) {
     state.view = 'banked';
+    // §S5 / §9: a door, a bell and a frame that goes briefly warm. The bell's
+    // chord thickens with the number of lanterns inside, and it does not get
+    // louder — §10.5 means this sound plays over a 0.76x recovery too.
+    const home = (state.frame as Frame).squad.filter((member) => member.status === 'home').length;
+    playSettledBeat(Math.max(1, home));
     return;
   }
   state.view = 'wipe';
@@ -1670,6 +2167,35 @@ function enterSettled(wiped: boolean): void {
   // screen is entered, so every path into it starts that clock. It also gates the
   // `Run again` affordance, which must never appear on a round that was not lost.
   state.wipeAtMs = Date.now();
+  playWipeBeat(state.lastArena);
+}
+
+/**
+ * The bank (§S5, and §9 when it is the last one).
+ *
+ * *"The Lamp House door opens, the chosen lanterns go inside, the brass bell
+ * strikes once, and the saved lights stack into a small constellation above the
+ * door."* §6.4 decides what this may not be: no confetti, no coin fountain, no
+ * screen shake. *"The reward for a big bank is that the tree is briefly warm."*
+ * So the whole celebration is `bloom` — the lantern glows widen and fade back —
+ * plus a door, a bell, and the claim counting up. Nothing moves across the frame.
+ */
+function playSettledBeat(lanterns: number): void {
+  stopBeat();
+  cancelBeat = sequence([
+    {
+      at: 0,
+      run: () => {
+        sound.stopSquadRhythm();
+        sound.duckForLastLamp(false);
+        sound.bank(lanterns);
+        stage.effect('bloom');
+      },
+    },
+    // The frame going warm, a beat behind the door — §6.3's hand-placed bounce
+    // light off the brass, which is the only "win" presentation in the game.
+    { at: 420, run: () => sound.warmth() },
+  ]);
 }
 
 /* ------------------------------------------------------------- S5 and S6 */
@@ -1689,6 +2215,14 @@ function bankedScreen(): HTMLElement {
    * squad are the same statements on both.
    */
   const finished = settlement?.kind === 'FINISH';
+  const home = frame.squad.filter((member) => member.status === 'home');
+  /*
+   * §9's rescue, and the reason it gets the same production value as the biggest
+   * win: *"If they bank the last one … the single lantern goes in, the door
+   * closes, and the light comes through the door's grille from inside — safe, and
+   * visibly still burning. Copy: 'Wren came home.'"*
+   */
+  const lastLampRescue = home.length === 1 && frame.squad.some((member) => member.status === 'lost');
   return el(
     'div',
     { class: 'screen fade-in' },
@@ -1696,30 +2230,39 @@ function bankedScreen(): HTMLElement {
       title: finished ? 'The Crown Lamp' : 'The Lamp House',
       subtitle: finished
         ? 'The Crown Lamp resolves out of the fog.'
-        : 'The door closes on a light that is still burning.',
+        : lastLampRescue
+          ? 'The door closes. The light is still burning inside it.'
+          : 'The door closes on a light that is still burning.',
       counter: finished ? 'home' : 'banked',
       lanes: 1,
-      runners: frame.squad
-        .filter((member) => member.status === 'home')
-        .map((member) => ({ name: member.name, status: 'home', lane: 0 })),
-      progress: 0.5,
+      arena: finished ? (state.config as Config).game.arenas : Math.max(1, frame.arena.index - 1),
+      mode: finished ? 'crown' : 'door',
+      full: true,
+      runners: home.map((member) => ({
+        slot: member.slot,
+        name: member.name,
+        status: 'home',
+        lane: 0,
+      })),
+      progress: 0.62,
     }),
     el(
       'div',
       { class: 'surface pad stack' },
-      el('h1', { class: 'money banked-figure', text: credits(total, 2) }),
+      el('h1', { class: 'money banked-figure settle-in', text: credits(total, 2) }),
       // Always stated against the stake, and never presented as a win when it is
-      // not one: a 0.76x recovery says 0.76x (§10.5).
+      // not one: a 0.76x recovery says 0.76x (§10.5). There is no banner over this
+      // figure and nothing on the screen calls it a win.
       el('p', {
-        class: 'note',
+        class: 'note settle-in',
         text: `Home with ${credits(total, 2)} in total — that's ${settlement?.returnMultiple ?? '0'}x the ${credits(staked, 2)} you staked.`,
       }),
-      ...frame.squad
-        .filter((member) => member.status === 'home')
-        .map((member) => el('p', { class: 'note', text: `${member.name} came home.` })),
+      ...home.map((member) =>
+        el('p', { class: 'note settle-in late banked-figure', text: `${member.name} came home.` }),
+      ),
       ...frame.squad
         .filter((member) => member.status === 'lost')
-        .map((member) => el('p', { class: 'note lost-name', text: `${member.name} did not.` })),
+        .map((member) => el('p', { class: 'note lost-name settle-in late', text: `${member.name} did not.` })),
     ),
     el(
       'div',
@@ -1751,15 +2294,47 @@ async function leaveWipe(view: View, before?: () => void): Promise<void> {
   render();
 }
 
+/**
+ * S6 — the wipe, and §9's other ending.
+ *
+ * §S6: *"The last lantern falls, tumbles, and goes out. Two full seconds of fog
+ * and wind with no UI at all. Then, quietly: 'No one made it back.'"*
+ *
+ * The stage is handed the arena's own runners, now fallen, so it plays the descent
+ * as a transition out of the frame it was already drawing — §9's shot stays with
+ * the lantern, not with the branch, all the way down. The screen carries no offer,
+ * no bonus, no pre-filled stake and no one-tap replay (§10.2), and its primary
+ * action leads *away* from the stake field.
+ */
 function wipeScreen(): HTMLElement {
   const frame = state.frame as Frame;
+  const arena = state.lastArena;
   const sinceLoss = Date.now() - state.wipeAtMs;
   // Two seconds of fog and wind with no UI at all, then the rest fades in.
   if (sinceLoss < 2200) window.setTimeout(() => state.view === 'wipe' && render(), 2300 - sinceLoss);
   return el(
     'div',
     { class: 'screen fade-in' },
-    el('div', { class: 'viewport' }, el('div', { class: 'fog' })),
+    viewport({
+      title: sinceLoss < 2000 ? '' : 'The Understory',
+      subtitle: '',
+      counter: '',
+      chrome: sinceLoss >= 2000,
+      lanes: arena?.lanes.length ?? 1,
+      arena: arena?.index ?? frame.arena.index,
+      mode: 'quiet',
+      full: true,
+      collapsed: arena?.lanes.map((lane) => lane.collapsed) ?? [],
+      runners: (arena?.lanes ?? []).flatMap((lane, laneIndex) =>
+        lane.entities.map((entity) => ({
+          slot: entity.slot,
+          name: entity.name,
+          status: 'lost',
+          lane: laneIndex,
+        })),
+      ),
+      progress: 0.9,
+    }),
     el(
       'div',
       { class: 'surface pad stack' },
@@ -1767,14 +2342,14 @@ function wipeScreen(): HTMLElement {
       sinceLoss < 2000
         ? el('div', { class: 'quiet-hold', text: '' })
         : frag(
-            el('h1', { text: 'No one made it back.' }),
+            el('h1', { class: 'settle-in', text: 'No one made it back.' }),
             el('p', {
-              class: 'note',
+              class: 'note settle-in',
               text: `You staked ${credits(frame.stakeMicro, 2)}.`,
             }),
             micro(frame.settlement?.totalCreditedMicro ?? '0') > 0n
               ? el('p', {
-                  class: 'note banked-figure',
+                  class: 'note banked-figure settle-in late',
                   text: `Sheltered and side bets, stated separately: ${credits(frame.settlement?.totalCreditedMicro ?? '0', 2)}.`,
                 })
               : null,
@@ -1833,7 +2408,7 @@ function summaryScreen(): HTMLElement {
       ...frame.history.map((arena) =>
         el(
           'div',
-          { class: 'card' },
+          { class: 'card arena-row' },
           el(
             'div',
             { class: 'spread' },
@@ -2394,8 +2969,15 @@ function settingsScreen(): HTMLElement {
       el('hr', {}),
       el('h2', { text: 'The game' }),
       toggle('Reduced motion', session.reducedMotion, (value) => ({ reducedMotion: value })),
+      el('p', {
+        class: 'tiny',
+        text: 'Every beat still happens and every figure still says the same thing; the traversal between two states becomes the second state. Your system setting turns this on by itself.',
+      }),
       toggle('Sound', session.audioEnabled, (value) => ({ audioEnabled: value })),
-      el('p', { class: 'tiny', text: 'The graybox has no audio in it yet, so the switch is a preference the sound wave will read, not a mute.' }),
+      el('p', {
+        class: 'tiny',
+        text: 'The mix is synthesised in the browser — wind, the squad’s footfalls, a bell. It carries state and never information: every figure, route and outcome is readable with it off. A browser will not start audio without a tap, so the first tap anywhere is what opens it.',
+      }),
       toggle('Ghost Line', session.ghostLineEnabled, (value) => ({ ghostLineEnabled: value })),
       toggle('Side bets', session.sideBetsOptedIn, (value) => ({ sideBetsOptedIn: value })),
       toggle('Show every control', session.showEverything, (value) => ({ showEverything: value })),
@@ -2418,7 +3000,7 @@ function settingsScreen(): HTMLElement {
       ),
       el('p', {
         class: 'tiny',
-        text: '§6.8’s quality ladder is for the build that has a renderer in it. Here every shape is a placeholder, so the override is recorded and changes nothing you can see.',
+        text: '§6.8’s three tiers are for the build that has a renderer, an asset set and a boot probe in it. This one draws the Understory on a canvas at one quality, so the override is recorded and changes nothing you can see.',
       }),
 
       el('hr', {}),
@@ -2506,6 +3088,8 @@ function toggle(label: string, value: boolean, patch: (next: boolean) => object)
 /* ------------------------------------------------------------- rehearsal */
 
 function startRehearsal(): void {
+  stopBeat();
+  stage.reset();
   state.rehearsalChoices = [];
   state.rehearsalStage = 0;
   state.route = 'WIDE';
@@ -2534,8 +3118,10 @@ function startRehearsal(): void {
             'div',
             { style: 'flex:1' },
             el('div', { class: 'route-name', text: 'WIDE' }),
-            el('div', { class: 'multiplier', text: wide.display.multiplier }),
-            distributionBars(wide),
+            el('div', { class: 'multiplier money', text: wide.display.multiplier }),
+            // An explicit height: in a sheet there is no flex column above the chart
+            // to give it one, and a chart with no height is an axis with no bars.
+            distributionBars(wide, 64),
             field('nobody', wide.display.wipePct),
             field('all five', wide.display.allClearPct),
           ),
@@ -2543,8 +3129,8 @@ function startRehearsal(): void {
             'div',
             { style: 'flex:1' },
             el('div', { class: 'route-name', text: 'NARROW' }),
-            el('div', { class: 'multiplier', text: narrow.display.multiplier }),
-            distributionBars(narrow),
+            el('div', { class: 'multiplier money', text: narrow.display.multiplier }),
+            distributionBars(narrow, 64),
             field('nobody', narrow.display.wipePct),
             field('all five', narrow.display.allClearPct),
           ),
@@ -2562,11 +3148,12 @@ function startRehearsal(): void {
 function rehearsalScreen(): HTMLElement {
   const config = state.config as Config;
   const result = state.rehearsal as RehearsalResult;
-  const stage = state.rehearsalStage;
+  // Not `stage`: that name belongs to the imported canvas director in this module.
+  const stageIndex = state.rehearsalStage;
   const played = result.arenas.length;
   const running =
     played === 0 ? config.game.squadSize : (result.arenas[played - 1]?.survivors.length ?? 0);
-  const offered = (config.rehearsal.disclosure[stage] ?? []) as readonly string[];
+  const offered = (config.rehearsal.disclosure[stageIndex] ?? []) as readonly string[];
   const last = result.arenas[played - 1];
   const over = result.over;
 
@@ -2663,14 +3250,16 @@ function rehearsalScreen(): HTMLElement {
     'div',
     { class: 'screen route-screen fade-in' },
     viewport({
-      title: over ? 'Rehearsal' : (config.game.arenaNames[stage] ?? ''),
-      subtitle: over ? 'Three branches, no stake.' : (config.game.arenaSubtitles[stage] ?? ''),
-      counter: `${Math.min(stage + 1, config.rehearsal.arenas)} / ${config.rehearsal.arenas}`,
+      title: over ? 'Rehearsal' : (config.game.arenaNames[stageIndex] ?? ''),
+      subtitle: over ? 'Three branches, no stake.' : (config.game.arenaSubtitles[stageIndex] ?? ''),
+      counter: `${Math.min(stageIndex + 1, config.rehearsal.arenas)} / ${config.rehearsal.arenas}`,
       lanes: 1,
+      arena: Math.min(config.rehearsal.arenas, stageIndex + 1),
+      mode: over ? 'quiet' : 'brief',
       compact: true,
       runners: squad
         .filter((member) => member.status !== 'lost')
-        .map((member) => ({ name: member.name, status: member.status, lane: 0 })),
+        .map((member) => ({ slot: member.slot, name: member.name, status: member.status, lane: 0 })),
       progress: over ? 0.9 : 0.05,
     }),
     el(
@@ -2835,6 +3424,7 @@ function startSessionPoll(): void {
 }
 
 async function boot(): Promise<void> {
+  installTapFeedback();
   state.config = await api<Config>('GET', '/api/config');
   const session = await api<{ session: Session; wallet: WalletView; openRoundId: string | null }>(
     'GET',
@@ -2842,6 +3432,8 @@ async function boot(): Promise<void> {
   );
   state.session = session.session;
   state.wallet = session.wallet;
+  sound.setEnabled(session.session.audioEnabled);
+  setCalmPreference(session.session.reducedMotion);
   if (session.openRoundId) {
     /*
      * A round is server-side state; closing the app mid-round is safe and

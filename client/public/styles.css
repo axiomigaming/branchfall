@@ -1,24 +1,41 @@
 /*
- * BRANCHFALL — graybox styling.
+ * BRANCHFALL — the presentation layer.
  *
  * The palette is `docs/DESIGN.md` §6.1 verbatim, including the two hard rules:
  * risk is never coloured as danger (NARROW is not red, `--alert` is destructive
  * confirmations only) and `--verify` never appears in the game world.
  *
- * The type direction is §6.5 at placeholder fidelity: a condensed grotesque for
- * display, a neutral grotesque for body, tabular-lining numerals for every money
- * figure and every multiplier, sentence case everywhere except route names, which
- * are the only element allowed to shout and all shout equally. The real build
- * ships two families in four cuts under 190 KB; this one uses the system stack,
- * because a graybox that spends its font budget on a graybox is spending it
- * twice.
+ * §6.1's ratio is the art direction and it is enforced structurally here rather
+ * than by taste: **ten percent of the frame is warm, ninety percent is not.** The
+ * warm tokens — `--lamp`, `--lamp-core`, `--ember`, `--brass` — appear on exactly
+ * four kinds of thing in this file: a lantern, a money figure, the rim of the
+ * primary action, and the Lamp House. Every other surface, border, label and
+ * state is drawn from the cool half of the palette. A rule that reaches for
+ * `--lamp` to make something feel important is the defect this comment exists to
+ * name.
  *
- * Two size rules are treated as hard limits rather than intentions, because §6.5
- * writes them as limits: **15 px body, 13 px secondary, 28 px for the claim
- * figure, and no numeral anywhere below 15 px** (one CSS pixel is one point on
- * the 390 x 844 baseline). The `--floor-*` tokens below are those numbers, and
- * every rule in this file that sets a size uses one of them. A money numeral at
- * 10 px was the defect that made them tokens.
+ * §6.2 gives three material families and this file has three surface recipes for
+ * them: `--plate` is petrified stone (a cool body, a dust-lightened top edge, a
+ * grain overlay), `--brasswork` is aged brass (a warm hairline with patina in the
+ * crevice), and the lantern pips are pre-integrated glass — a bright core, a
+ * fresnel rim, no refraction. Nothing else invents a fourth.
+ *
+ * §6.4 is the motion, and it is a short list of prohibitions as much as anything:
+ * **nothing bounces, nothing overshoots, 240 ms cubic-out on everything, money
+ * counts on a tabular roll and never spins, and there is no confetti, no coin
+ * fountain and no screen shake on a win, ever.** There is no keyframe in this file
+ * that overshoots its end state and no `cubic-bezier` with a negative control
+ * point. What celebration exists is light and sound (§6.4: *"Celebration is light
+ * and sound, not kinetics"*), which is why a bank warms the frame and does not
+ * throw anything across it.
+ *
+ * §6.5's sizes are treated as hard limits, because §6.5 writes them as limits:
+ * **15 px body, 13 px secondary, 28 px for the claim figure, and no numeral
+ * anywhere below 15 px** (one CSS pixel is one point on the 390 x 844 baseline).
+ * The `--floor-*` tokens are those numbers, every rule that sets a size uses one
+ * of them or a raw value above the body floor, and `tests/type-floor.test.mjs`
+ * fails the build otherwise. `docs/ADR-001-the-numeral-floor.md` records which
+ * text is a figure and which is prose that mentions one.
  *
  * Layout is portrait-first on a 390 x 844 baseline. The app is exactly one
  * viewport tall and never scrolls as a page: each screen is a flex column whose
@@ -51,7 +68,24 @@
   --grows: var(--fossil);
   --falls: var(--fog-far);
 
-  --display: ui-sans-serif, "Helvetica Neue", "Arial Narrow", system-ui, sans-serif;
+  /*
+   * §6.2's three materials, as surface recipes.
+   *
+   * `--plate` is the stone every panel is cut from: a cool body that is lighter
+   * at the top, which is the dust layer in the material brief and also what makes
+   * a flat rectangle read as a face catching a key from above.
+   */
+  --plate: linear-gradient(178deg, rgba(56, 67, 75, 0.34) 0%, rgba(26, 32, 38, 0.5) 46%, rgba(14, 17, 20, 0.62) 100%);
+  --plate-raised: linear-gradient(178deg, rgba(70, 82, 91, 0.42) 0%, rgba(31, 38, 45, 0.58) 52%, rgba(14, 17, 20, 0.7) 100%);
+  /* The dust-lightened top edge, and the shadow the plate sits in. */
+  --plate-edge: inset 0 1px 0 rgba(216, 207, 187, 0.14);
+  --plate-lift: 0 1px 0 rgba(216, 207, 187, 0.05), 0 6px 14px -8px rgba(14, 17, 20, 0.9),
+    0 18px 34px -22px rgba(14, 17, 20, 0.95);
+  --plate-press: inset 0 1px 3px rgba(14, 17, 20, 0.85), inset 0 1px 0 rgba(216, 207, 187, 0.06);
+  /* Aged brass: a warm hairline with patina in the crevice. */
+  --brasswork: 1px solid rgba(201, 162, 39, 0.55);
+
+  --display: "Helvetica Neue Condensed", "Roboto Condensed", "Arial Narrow", ui-sans-serif, system-ui, sans-serif;
   --body: ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, monospace;
 
@@ -62,8 +96,11 @@
   --claim-figure: 28px;
 
   --gutter: 16px;
-  --radius: 3px;
+  --radius: 4px;
   --hairline: 1px solid rgba(138, 152, 160, 0.18);
+  /* §6.4: 240 ms cubic-out on everything. One token, so nothing drifts off it. */
+  --beat: 240ms;
+  --curve: cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 
 * {
@@ -94,6 +131,26 @@ body {
   flex-direction: column;
   overflow: hidden;
   position: relative;
+  /* The frame the whole thing sits in, so a lobby iframe has an edge to it. */
+  box-shadow: inset 0 0 60px -20px rgba(14, 17, 20, 0.9);
+}
+
+/*
+ * A grain pass over the entire frame.
+ *
+ * §6.6's second reference is macro photography of petrified wood, and the thing
+ * to take from it is that no surface in this world is perfectly smooth. One
+ * static overlay at 2.5% is enough to stop every panel reading as flat digital
+ * fill, and being static it costs one composite and never repaints.
+ */
+#app::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 15;
+  opacity: 0.03;
+  background-image: repeating-linear-gradient(0deg, rgba(216, 207, 187, 0.6) 0 1px, transparent 1px 3px);
 }
 
 /* ------------------------------------------------------------------ type */
@@ -103,25 +160,41 @@ h2,
 h3 {
   font-family: var(--display);
   font-weight: 600;
-  letter-spacing: 0.01em;
+  /*
+   * §6.5: condensed humanist grotesque, high x-height, squared terminals, tight
+   * tracking — *"it should look stencilled onto crates, not inflated"*, and
+   * explicitly not rounded, chunky or bubbly. `font-stretch` gets the condensed
+   * axis out of a variable system face where there is one; the family list falls
+   * back to a narrow cut where there is not.
+   */
+  font-stretch: 92%;
+  letter-spacing: 0.006em;
   margin: 0;
+  color: var(--mist);
 }
 
 h1 {
-  font-size: 26px;
+  font-size: 27px;
+  line-height: 1.12;
 }
 h2 {
   font-size: 19px;
+  line-height: 1.2;
 }
 h3 {
   font-size: 16px;
 }
 
+/*
+ * Route names are the only element allowed to shout, and all four shout equally
+ * (§6.5, §S2). No badge, no highlight, no colour hierarchy between them.
+ */
 .route-name {
   font-family: var(--display);
   text-transform: uppercase;
   letter-spacing: 0.14em;
   font-weight: 700;
+  font-stretch: 88%;
   font-size: 16px;
 }
 
@@ -137,6 +210,7 @@ h3 {
   font-variant-numeric: tabular-nums lining-nums;
   font-feature-settings: "tnum" 1;
   font-size: var(--floor-numeral);
+  letter-spacing: -0.01em;
 }
 
 .small,
@@ -155,12 +229,14 @@ h3 {
   font-style: italic;
   color: var(--fog-far);
   font-size: var(--floor-secondary);
+  letter-spacing: 0.01em;
 }
 
+/* §6.5: as if written on a luggage tag tied to the figure. */
 .runner-name {
   font-family: var(--display);
   font-style: italic;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.012em;
 }
 
 /* ---------------------------------------------------------------- chrome */
@@ -181,8 +257,9 @@ h3 {
   white-space: nowrap;
   gap: 4px;
   padding: 4px var(--gutter);
-  background: var(--void);
+  background: linear-gradient(180deg, #0b0e11 0%, var(--void) 100%);
   border-bottom: var(--hairline);
+  box-shadow: 0 1px 0 rgba(216, 207, 187, 0.04);
   font-size: var(--floor-secondary);
   color: var(--fog-far);
   flex: none;
@@ -195,6 +272,47 @@ h3 {
 
 .session-strip .money {
   color: var(--mist);
+}
+
+/*
+ * The sound toggle.
+ *
+ * §7 asks for a mix that carries state and §10.8 asks for full parity with audio
+ * off, so the control belongs where the player is rather than three taps into
+ * settings — and it is a glyph plus a word, because colour is never the sole
+ * carrier of a state (§10.8).
+ */
+/*
+ * The arena label is `pointer-events: none` so a tap goes to the world behind it,
+ * and the controls docked in it have to opt back in — a mute button inside a
+ * pass-through overlay is a mute button that does nothing, which is what the first
+ * build of this shipped.
+ */
+.label-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  pointer-events: auto;
+}
+
+.mute {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fog-far);
+  font-size: var(--floor-secondary);
+  padding: 2px 4px;
+  border-radius: var(--radius);
+  transition: color var(--beat) var(--curve);
+}
+
+.mute[aria-pressed="true"] {
+  color: var(--brass);
+}
+
+.mute .glyph {
+  font-family: var(--mono);
 }
 
 .screen {
@@ -246,41 +364,81 @@ button {
   background: none;
   border: 0;
   cursor: pointer;
+  /* Instant feedback on every tap is the whole point; a 300 ms tap delay is not. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
+/*
+ * A control is a physical object: a stone plate with a dust-lit top edge, sitting
+ * in its own shadow. Pressing it drops it into the shadow, and the drop is
+ * *instant* while the return takes the beat — which is what makes a tap feel
+ * answered rather than animated. Nothing overshoots on the way back (§6.4).
+ */
 .btn {
+  position: relative;
   min-height: 48px;
   padding: 12px 18px;
-  border: 1px solid var(--fog-mid);
+  border: 1px solid rgba(138, 152, 160, 0.28);
   border-radius: var(--radius);
-  background: transparent;
+  background: var(--plate-raised);
+  box-shadow: var(--plate-edge), var(--plate-lift);
   color: var(--mist);
   font-family: var(--display);
   font-size: 16px;
+  font-stretch: 94%;
   letter-spacing: 0.02em;
   width: 100%;
-  transition: border-color 240ms cubic-bezier(0.2, 0.8, 0.3, 1);
+  transition:
+    transform var(--beat) var(--curve),
+    box-shadow var(--beat) var(--curve),
+    border-color var(--beat) var(--curve),
+    color var(--beat) var(--curve);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: var(--plate-press);
+  transition-duration: 0ms;
 }
 
 .btn:disabled {
-  opacity: 0.4;
+  opacity: 0.38;
+  box-shadow: none;
+  background: var(--plate);
   cursor: not-allowed;
 }
 
 /*
  * There is one primary style and it never marks a *choice* as the right one.
- * `Bank` and `Run the next branch` are rendered with identical weight (§S4).
+ * `Bank` and `Run the next branch` are rendered with identical weight (§S4), so
+ * the brass rim below is only ever on an action that has no alternative on the
+ * same screen — buy, commit, continue — and never on one of two.
  */
 .btn.primary {
-  border-color: var(--brass);
+  border: var(--brasswork);
   color: var(--lamp-core);
+  background:
+    radial-gradient(120% 180% at 50% 0%, rgba(255, 165, 61, 0.14) 0%, rgba(255, 165, 61, 0) 62%),
+    var(--plate-raised);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 231, 190, 0.16),
+    0 6px 16px -9px rgba(210, 98, 28, 0.5),
+    var(--plate-lift);
 }
 
 .btn.quiet {
   border-color: transparent;
+  background: none;
+  box-shadow: none;
   color: var(--fog-far);
   min-height: 44px;
   font-size: var(--floor-body);
+}
+
+.btn.quiet:active:not(:disabled) {
+  box-shadow: none;
+  color: var(--mist);
 }
 
 .btn-row {
@@ -295,6 +453,11 @@ button {
   text-underline-offset: 3px;
   font-size: var(--floor-secondary);
   padding: 3px 0;
+  transition: color var(--beat) var(--curve);
+}
+
+.link:active {
+  color: var(--mist);
 }
 
 /*
@@ -307,27 +470,52 @@ button {
   background: rgba(138, 152, 160, 0.2);
   margin-top: 6px;
   overflow: hidden;
+  border-radius: 1px;
 }
 
 .cycle > span {
   display: block;
   height: 100%;
-  background: var(--brass);
+  background: linear-gradient(90deg, rgba(201, 162, 39, 0.4) 0%, var(--brass) 100%);
   width: 0;
 }
 
-/* -------------------------------------------------------------- viewport */
+/* -------------------------------------------------------------- the stage */
 
-/* The world. Every shape in here is a placeholder for authored art. */
+/*
+ * The world. Everything inside is drawn by `client/src/stage.ts` onto one canvas
+ * that is re-parented between screens rather than rebuilt — which is what lets
+ * the whole DOM re-render on every tap without the fog restarting.
+ */
 .viewport {
   position: relative;
   height: 34vh;
   min-height: 200px;
   max-height: 320px;
-  background:
-    linear-gradient(180deg, #202832 0%, var(--night) 38%, var(--fog-mid) 84%, var(--fog-far) 100%);
+  background: var(--void);
   overflow: hidden;
   flex: none;
+}
+
+/*
+ * The canvas host fills the frame absolutely rather than flowing in it.
+ *
+ * It has to: the stage measures this element with a `ResizeObserver` and sizes its
+ * bitmap from it, so a host that took its height from its (empty) content would
+ * hand the stage a one-pixel world. That is not a hypothetical — it is what the
+ * first build of this file did.
+ */
+.stage-host {
+  position: absolute;
+  inset: 0;
+}
+
+.stage-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 /*
@@ -336,9 +524,8 @@ button {
  * §5's 58/42 seam is the layout for the run, where the viewport expands to full
  * bleed and the decision surface slides away. On S2 the decision *is* the
  * screen: four cards, their controls and the commit action have to sit in one
- * unscrolled viewport, and at graybox fidelity the world is a rectangle and a
- * gradient. It shrinks first when the viewport is short, and never below the
- * height that keeps the arena name and counter legible.
+ * unscrolled viewport. The band shrinks first when the viewport is short, and
+ * never below the height that keeps the arena name and counter legible.
  */
 .viewport.compact {
   height: auto;
@@ -347,12 +534,26 @@ button {
   max-height: 120px;
 }
 
-.viewport .fog {
-  position: absolute;
-  inset: auto 0 0 0;
-  height: 46%;
-  background: linear-gradient(180deg, rgba(138, 152, 160, 0) 0%, rgba(138, 152, 160, 0.55) 70%, rgba(214, 221, 224, 0.7) 100%);
-  pointer-events: none;
+/* S1's strip: the squad waiting, as context under the stake field. */
+.viewport.band {
+  height: auto;
+  flex: 0 1 150px;
+  min-height: 104px;
+  max-height: 170px;
+}
+
+/*
+ * §S3: *"Viewport expands to full bleed."*
+ *
+ * Two thirds of the frame rather than half: the run, the wipe and the Lamp House
+ * are the three screens where the world *is* the content, and an even split with
+ * the text under it made §9's signature shot the smaller half of the picture.
+ */
+.viewport.full {
+  height: auto;
+  flex: 2 1 0;
+  min-height: 0;
+  max-height: none;
 }
 
 .viewport .arena-label {
@@ -364,92 +565,100 @@ button {
   justify-content: space-between;
   align-items: flex-start;
   gap: 10px;
+  z-index: 2;
+  pointer-events: none;
 }
 
 .arena-label h2 {
   text-transform: uppercase;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.15em;
   font-size: var(--floor-body);
+  font-weight: 700;
   color: var(--fossil);
+  text-shadow: 0 1px 6px rgba(14, 17, 20, 0.95);
 }
 
-.viewport.compact .fiction,
-.viewport.compact .kindling .tag {
+.arena-label .fiction {
+  text-shadow: 0 1px 6px rgba(14, 17, 20, 0.95);
+}
+
+.viewport.compact .fiction {
   display: none;
 }
 
-.branch {
+/* The band's label is one line: the figures below it have 45 px to stand in. */
+.viewport.band .fiction {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
+ * The runner names, over the canvas.
+ *
+ * §10.1: individuals are named, always — *"Bramble did not make it", not "1
+ * runner eliminated"*. The canvas draws the figures and the DOM carries the
+ * names, because a name is text and text belongs in the accessibility tree.
+ */
+.stage-tags {
   position: absolute;
-  left: 0;
-  right: 0;
-  top: 52%;
-  height: 16px;
-  background: linear-gradient(180deg, var(--bark-lit) 0%, var(--bark) 45%, var(--bark-deep) 100%);
+  inset: auto 0 0 0;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
 }
 
-.branch.thin {
-  height: 7px;
-  top: 70%;
-  right: 12%;
-  left: 8%;
-}
-
-.branch.collapsed {
-  background: linear-gradient(180deg, var(--fog-mid) 0%, var(--void) 100%);
-  opacity: 0.5;
-}
-
-.kindling {
+.stage-tag {
   position: absolute;
-  width: 11px;
-  height: 26px;
   transform: translate(-50%, -100%);
-  transition: left 400ms linear, opacity 400ms linear;
-}
-
-.kindling .body {
-  position: absolute;
-  inset: 0;
-  background: var(--bark-deep);
-  border: 1px solid rgba(216, 207, 187, 0.35);
-  border-radius: 2px 2px 0 0;
-}
-
-.kindling .lantern {
-  position: absolute;
-  left: 50%;
-  top: 12px;
-  width: 8px;
-  height: 8px;
-  margin-left: -4px;
-  border-radius: 50%;
-  background: var(--lamp-core);
-  box-shadow: 0 0 14px 6px rgba(255, 165, 61, 0.45);
-}
-
-.kindling.lost .lantern {
-  background: var(--extinguish);
-  box-shadow: none;
-}
-
-.kindling.lost {
-  opacity: 0.35;
-}
-
-.kindling.home .lantern {
-  background: var(--brass);
-  box-shadow: 0 0 10px 4px rgba(201, 162, 39, 0.35);
-}
-
-.kindling .tag {
-  position: absolute;
-  top: -18px;
-  left: 50%;
-  transform: translateX(-50%);
+  font-family: var(--display);
+  font-style: italic;
   font-size: var(--floor-secondary);
   white-space: nowrap;
   color: var(--fog-far);
-  text-shadow: 0 1px 3px rgba(14, 17, 20, 0.9);
+  text-shadow: 0 1px 4px rgba(14, 17, 20, 0.95);
+  transition: opacity var(--beat) var(--curve), color var(--beat) var(--curve);
+}
+
+.stage-tag.lost {
+  color: var(--extinguish);
+  opacity: 0.5;
+}
+
+.stage-tag.home {
+  color: var(--brass);
+}
+
+/*
+ * §S3: only the claim and the squad count remain, docked bottom-left. §9 dims it
+ * to 40% for the Last Lamp, which is the one place in the game where the HUD is
+ * deliberately hard to read: the point of the shot is the figure, not the number.
+ */
+.hud-dock {
+  position: absolute;
+  left: var(--gutter);
+  bottom: 12px;
+  z-index: 2;
+  pointer-events: none;
+  transition: opacity 600ms var(--curve);
+}
+
+.hud-dock .claim-figure {
+  text-shadow: 0 2px 12px rgba(14, 17, 20, 0.95);
+}
+
+.hud-dock.dimmed {
+  opacity: 0.4;
+}
+
+.stage-skip {
+  position: absolute;
+  right: var(--gutter);
+  bottom: 12px;
+  z-index: 3;
+  width: auto;
+  min-height: 44px;
+  padding: 8px 14px;
 }
 
 /* ------------------------------------------------------------ claim meter */
@@ -457,10 +666,17 @@ button {
 /*
  * §5.2.2 — the teaching object *is* the HUD. One pip per share, each labelled
  * with its own value. It is never dismissed and never graduates.
+ *
+ * The seam it sits on is brass, because this is the money object and banked money
+ * is the brass family (§6.1). It is the only horizontal rule in the game that is
+ * warm, and that is the whole reason it reads as the money line.
  */
 .claim-meter {
-  background: var(--void);
-  border-top: var(--hairline);
+  position: relative;
+  background:
+    radial-gradient(120% 220% at 50% 0%, rgba(255, 165, 61, 0.07) 0%, rgba(255, 165, 61, 0) 70%),
+    linear-gradient(180deg, #0c0f12 0%, var(--void) 100%);
+  border-top: 1px solid rgba(201, 162, 39, 0.22);
   border-bottom: var(--hairline);
   padding: 5px var(--gutter) 6px;
   text-align: center;
@@ -480,6 +696,19 @@ button {
   font-size: var(--claim-figure);
   line-height: 1.1;
   color: var(--money-running);
+  letter-spacing: -0.02em;
+}
+
+/*
+ * The claim rolling (§S4: tabular, ~600 ms, no spinning).
+ *
+ * The figure is allowed to *warm* while it moves and nothing else: it does not
+ * scale, it does not shake and it does not spin, because §6.4 rules all three out
+ * and because a number that moves is harder to read than one that does not.
+ */
+.claim-figure.rolling {
+  text-shadow: 0 0 18px rgba(255, 165, 61, 0.45);
+  transition: text-shadow var(--beat) var(--curve);
 }
 
 .claim-caption {
@@ -488,11 +717,22 @@ button {
   letter-spacing: 0.03em;
 }
 
+/*
+ * Five pips, one row, on a 390 pt screen.
+ *
+ * §5.2.2 puts one pip per share under the claim figure with its own value beside
+ * it, and on a Split it adds a lane gap between the clusters. At five runners that
+ * is five 59 px readouts plus a divider in 358 px of gutter-to-gutter width, so the
+ * gaps are a fit and not a spacing choice: at 9 px the row wrapped to two lines and
+ * took `Commit route` off the bottom of the screen with it. `flex-wrap` stays as
+ * the last resort for a narrower device — a wrapped money row is bad and a clipped
+ * one is worse.
+ */
 .pips {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 9px;
+  gap: 6px;
   margin-top: 3px;
   flex-wrap: wrap;
 }
@@ -500,26 +740,43 @@ button {
 .pip {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
 }
 
+/*
+ * A pip is a lantern: blown glass in brass, with an emissive core.
+ *
+ * §6.2 rules out refraction on every tier and asks for *"a lit object behind
+ * slightly warped glass"* from a fresnel rim over a bright core. That is exactly
+ * what these three layers are — an inset rim, a radial core, and an outer bloom —
+ * and it is why the pip does not use a flat fill.
+ */
 .pip .dot {
-  width: 9px;
-  height: 9px;
+  position: relative;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  background: var(--lamp);
-  box-shadow: 0 0 10px 3px rgba(255, 165, 61, 0.3);
+  background:
+    radial-gradient(circle at 38% 32%, var(--lamp-core) 0%, var(--lamp) 46%, rgba(210, 98, 28, 0.9) 100%);
+  box-shadow:
+    inset 0 0 0 0.5px rgba(255, 231, 190, 0.85),
+    0 0 10px 3px rgba(255, 165, 61, 0.32);
   flex: none;
+  /* §5.2.2: on a resolve the fallen pips go dark first, held, cause before effect. */
+  transition:
+    background 220ms var(--curve),
+    box-shadow 220ms var(--curve);
 }
 
+/* §6.3: a dying light is a lighting event — it falls off with a blue shift. */
 .pip.lost .dot {
-  background: var(--extinguish);
-  box-shadow: none;
+  background: radial-gradient(circle at 38% 32%, #6d6079 0%, var(--extinguish) 70%);
+  box-shadow: inset 0 0 0 0.5px rgba(90, 78, 99, 0.9);
 }
 
 .pip.home .dot {
-  background: var(--brass);
-  box-shadow: none;
+  background: radial-gradient(circle at 38% 32%, var(--lamp-core) 0%, var(--brass) 60%, #8d7118 100%);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 231, 190, 0.6), 0 0 8px 2px rgba(201, 162, 39, 0.28);
 }
 
 .pip .value {
@@ -543,7 +800,7 @@ button {
 }
 
 .lane-gap {
-  width: 14px;
+  width: 10px;
   align-self: stretch;
   border-left: 1px dashed rgba(138, 152, 160, 0.35);
 }
@@ -564,6 +821,7 @@ button {
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  background: linear-gradient(180deg, rgba(56, 67, 75, 0.1) 0%, rgba(26, 32, 38, 0) 90px);
 }
 
 /* ------------------------------------------------------------ the S2 rail */
@@ -573,8 +831,9 @@ button {
  *
  * All four routes and all four prices are on screen at rest, in identical
  * weight: no badge, no recommendation, no highlight of the higher multiplier.
- * The selected tab is marked by the same fossil hairline the selected card
- * carries, and by nothing else.
+ * The selected tab is marked by a fossil edge and by nothing else — no warm
+ * colour, because a warm mark on one of four money choices is a recommendation
+ * whatever the copy beside it says.
  */
 .route-tabs {
   display: grid;
@@ -594,9 +853,10 @@ button {
   gap: 1px;
   min-height: 44px;
   padding: 4px 2px;
-  background: var(--night);
+  background: linear-gradient(180deg, rgba(56, 67, 75, 0.2) 0%, var(--night) 100%);
   color: var(--fog-far);
   border-top: 2px solid transparent;
+  transition: background var(--beat) var(--curve), color var(--beat) var(--curve);
 }
 
 .route-tab .route-name {
@@ -610,13 +870,17 @@ button {
 }
 
 .route-tab[aria-selected="true"] {
-  background: rgba(216, 207, 187, 0.06);
+  background: linear-gradient(180deg, rgba(216, 207, 187, 0.12) 0%, rgba(216, 207, 187, 0.03) 100%);
   border-top-color: var(--fossil);
   color: var(--fossil);
 }
 
 .route-tab[aria-selected="true"] .money {
   color: var(--fossil);
+}
+
+.route-tab:active {
+  background: rgba(14, 17, 20, 0.6);
 }
 
 /* The product's thesis, permanently on the route screen (§3). */
@@ -651,7 +915,6 @@ button {
 .card-pager {
   display: flex;
   flex: 1;
-  min-height: 0;
   overflow-x: auto;
   overflow-y: hidden;
   /*
@@ -677,21 +940,99 @@ button {
   min-width: 0;
 }
 
-/* All four cards have identical visual weight (§S2). No badge, no highlight. */
+/*
+ * The route card — *"the most important UI object in the game"* (§3.2).
+ *
+ * A cut stone plate: a cool body lightened at the top by the dust layer, sitting
+ * in its own shadow, with the petrified grain of §6.2 as a two-scale overlay. All
+ * four cards have identical visual weight (§S2): the selected one gains a fossil
+ * edge and a fraction more lift, and nothing else about it changes.
+ */
 .card {
-  height: 100%;
-  overflow-y: auto;
-  border: var(--hairline);
-  border-radius: var(--radius);
-  background: linear-gradient(180deg, rgba(56, 67, 75, 0.28) 0%, rgba(26, 32, 38, 0.28) 100%);
-  padding: 7px 11px;
+  position: relative;
+  border: 1px solid rgba(138, 152, 160, 0.2);
+  border-radius: 6px;
+  background: var(--plate);
+  box-shadow: var(--plate-edge), var(--plate-lift);
+  padding: 8px 12px;
   display: flex;
   flex-direction: column;
   gap: 3px;
+  transition:
+    border-color var(--beat) var(--curve),
+    box-shadow var(--beat) var(--curve),
+    transform var(--beat) var(--curve);
+}
+
+/*
+ * Filling the rail is the *pager's* job, not the card's.
+ *
+ * §S7's round summary reuses `.card` for each arena in a vertical strip, and while
+ * `height: 100%` lived on `.card` itself a one-arena round drew one card the height
+ * of the screen with the money under it pushed off the bottom. The rail is the only
+ * place a card is asked to fill its box.
+ */
+.card-page .card {
+  height: 100%;
+  overflow-y: auto;
+}
+
+/* The grain, at two scales — 10 cm ripple and 2 m sweep (§6.2). */
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image:
+    repeating-linear-gradient(94deg, rgba(216, 207, 187, 0.035) 0 1px, transparent 1px 7px),
+    linear-gradient(178deg, rgba(216, 207, 187, 0.05) 0%, transparent 40%);
+}
+
+/* §S7: the arenas as a vertical strip, one row each, with what happened at each. */
+.arena-row {
+  display: block;
+  padding: 8px 12px;
+}
+
+.arena-row + .arena-row {
+  margin-top: 8px;
 }
 
 .card.selected {
-  border-color: var(--fossil);
+  border-color: rgba(216, 207, 187, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(216, 207, 187, 0.2),
+    0 8px 20px -10px rgba(14, 17, 20, 0.95),
+    0 22px 40px -26px rgba(14, 17, 20, 1);
+}
+
+/*
+ * Committing a card stamps it down (§6.4's terms: a fast settle, no bounce).
+ *
+ * The plate drops into its shadow and comes back to rest — it never rises past
+ * where it started, because §6.4 rules out overshoot and because a card that
+ * springs up reads as a reward for choosing, which §10.3 forbids on a set of
+ * choices with identical return.
+ */
+.card.stamped {
+  animation: stamp 260ms var(--curve);
+}
+
+@keyframes stamp {
+  0% {
+    transform: translateY(0) scale(1);
+    box-shadow: var(--plate-edge), var(--plate-lift);
+  }
+  38% {
+    transform: translateY(3px) scale(0.994);
+    box-shadow: var(--plate-press);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    box-shadow: var(--plate-edge), var(--plate-lift);
+  }
 }
 
 /*
@@ -715,6 +1056,7 @@ button {
   justify-content: space-between;
   align-items: flex-start;
   gap: 8px;
+  position: relative;
 }
 
 .card-price {
@@ -724,9 +1066,10 @@ button {
 
 .multiplier {
   font-family: var(--mono);
-  font-size: 20px;
+  font-size: 21px;
   color: var(--fossil);
   line-height: 1.1;
+  letter-spacing: -0.02em;
 }
 
 .head-note {
@@ -761,6 +1104,22 @@ button {
   text-align: right;
 }
 
+/*
+ * The break-even field, which §3.2 makes a build requirement.
+ *
+ * *"A player should be able to see which side of the line the mass sits on before
+ * reading a digit."* It is emphasised in the growing family — fossil, a cool
+ * colour — and not in a warm one, because the field states where the claim turns
+ * and not whether the card is good.
+ */
+.field.emphasis {
+  border-top: 1px solid rgba(216, 207, 187, 0.12);
+  border-bottom: 1px solid rgba(216, 207, 187, 0.12);
+  padding: 3px 0;
+  margin: 2px 0;
+}
+
+.field.emphasis .label,
 .field.emphasis .value {
   color: var(--fossil);
 }
@@ -797,7 +1156,15 @@ button {
   position: relative;
   flex: 1 1 auto;
   min-height: 28px;
-  max-height: 84px;
+  /*
+   * The chart is what the card spends spare height on.
+   *
+   * §3.2's second build requirement is that a player can see which side of the
+   * break-even the mass sits on *before reading a digit*, so on a tall viewport the
+   * bars grow rather than leaving a gap above the fields — a distribution the height
+   * of a word is not the object the requirement is about.
+   */
+  max-height: 152px;
 }
 
 .bar {
@@ -817,25 +1184,29 @@ button {
   width: 100%;
   display: flex;
   align-items: flex-end;
+  /* The trough the bar sits in, so an empty outcome is still a place. */
+  background: linear-gradient(180deg, rgba(14, 17, 20, 0) 0%, rgba(14, 17, 20, 0.45) 100%);
+  border-radius: 2px 2px 0 0;
 }
 
 .bar .fill {
   width: 100%;
   min-height: 2px;
-  background: var(--falls);
-  border-radius: 1px 1px 0 0;
+  background: linear-gradient(180deg, var(--falls) 0%, rgba(138, 152, 160, 0.55) 100%);
+  border-radius: 2px 2px 0 0;
+  box-shadow: inset 0 1px 0 rgba(214, 221, 224, 0.35);
 }
 
 .bar.grows .fill {
-  background: var(--grows);
+  background: linear-gradient(180deg, var(--grows) 0%, rgba(216, 207, 187, 0.5) 100%);
 }
 
 .bar.holds .fill {
-  background: var(--bark-lit);
+  background: linear-gradient(180deg, var(--bark-lit) 0%, rgba(122, 98, 72, 0.5) 100%);
 }
 
 .bar.wipe .fill {
-  background: var(--extinguish);
+  background: linear-gradient(180deg, var(--extinguish) 0%, rgba(90, 78, 99, 0.5) 100%);
 }
 
 /*
@@ -862,11 +1233,6 @@ button {
   display: flex;
   flex-direction: column;
   min-height: 0;
-}
-
-.bars-pair {
-  flex: 1 1 auto;
-  min-height: 46px;
 }
 
 .bar .axis {
@@ -907,8 +1273,19 @@ button {
   flex: none;
 }
 
+/*
+ * A chart in a sheet has no flex column above it to take height from, so it is
+ * given one here as a backstop. §5.2.4's whole argument is *"a picture instead of a
+ * claim"*, and a picture with no bars in it is a claim.
+ */
+.sheet .bars {
+  min-height: 56px;
+}
+
 /* The fork's shared axis: both balances, side by side, neither highlighted. */
 .bars-pair {
+  flex: 1 1 auto;
+  min-height: 46px;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
@@ -919,6 +1296,7 @@ button {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  transition: border-color var(--beat) var(--curve);
 }
 
 .bars-half.on {
@@ -979,7 +1357,7 @@ button {
   flex: none;
   padding: 5px var(--gutter) 4px;
   border-top: var(--hairline);
-  background: rgba(14, 17, 20, 0.5);
+  background: linear-gradient(180deg, rgba(14, 17, 20, 0.72) 0%, rgba(14, 17, 20, 0.4) 100%);
 }
 
 .control-strip p {
@@ -995,18 +1373,30 @@ button {
 }
 
 .balance-tab {
-  border: var(--hairline);
+  border: 1px solid rgba(138, 152, 160, 0.24);
   border-radius: var(--radius);
+  background: var(--plate);
+  box-shadow: var(--plate-edge);
   padding: 6px;
   text-align: center;
   font-family: var(--mono);
   font-size: var(--floor-numeral);
   min-height: 44px;
   color: var(--fog-far);
+  transition:
+    border-color var(--beat) var(--curve),
+    color var(--beat) var(--curve),
+    box-shadow var(--beat) var(--curve);
 }
 
+.balance-tab:active {
+  box-shadow: var(--plate-press);
+  transition-duration: 0ms;
+}
+
+/* No colour hierarchy, no recommended mark, no default (§3.3 requirement 2). */
 .balance-tab[aria-pressed="true"] {
-  border-color: var(--fossil);
+  border-color: rgba(216, 207, 187, 0.6);
   color: var(--fossil);
 }
 
@@ -1024,13 +1414,25 @@ button {
   align-items: center;
   justify-content: center;
   gap: 3px;
-  border: var(--hairline);
+  border: 1px solid rgba(138, 152, 160, 0.22);
   border-radius: var(--radius);
+  background: var(--plate);
+  box-shadow: var(--plate-edge);
   padding: 4px 2px;
   min-height: 40px;
   font-size: var(--floor-secondary);
   color: var(--fog-far);
   overflow: hidden;
+  transition:
+    border-color var(--beat) var(--curve),
+    color var(--beat) var(--curve),
+    box-shadow var(--beat) var(--curve),
+    opacity var(--beat) var(--curve);
+}
+
+.limb-chip:active {
+  box-shadow: var(--plate-press);
+  transition-duration: 0ms;
 }
 
 .limb-chip .runner-name {
@@ -1040,10 +1442,11 @@ button {
 }
 
 .limb-chip .dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: var(--lamp);
+  background: radial-gradient(circle at 38% 32%, var(--lamp-core) 0%, var(--lamp) 55%, rgba(210, 98, 28, 0.9) 100%);
+  box-shadow: 0 0 6px 1px rgba(255, 165, 61, 0.3);
   flex: none;
 }
 
@@ -1056,12 +1459,13 @@ button {
 }
 
 .limb-chip[aria-pressed="true"] {
-  border-color: var(--brass);
+  border-color: rgba(201, 162, 39, 0.7);
   color: var(--lamp-core);
 }
 
 .limb-chip[aria-pressed="true"] .dot {
-  background: var(--brass);
+  background: radial-gradient(circle at 38% 32%, var(--lamp-core) 0%, var(--brass) 60%, #8d7118 100%);
+  box-shadow: 0 0 8px 2px rgba(201, 162, 39, 0.32);
 }
 
 .limb-divider {
@@ -1096,23 +1500,55 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  border: var(--hairline);
+  border: 1px solid rgba(138, 152, 160, 0.24);
   border-radius: 999px;
+  background: var(--plate);
+  box-shadow: var(--plate-edge);
   padding: 6px 12px;
   margin: 0 4px 4px 0;
   font-size: var(--floor-body);
   min-height: 36px;
+  color: var(--mist);
+  transition:
+    border-color var(--beat) var(--curve),
+    color var(--beat) var(--curve),
+    box-shadow var(--beat) var(--curve);
+}
+
+.chip:active {
+  box-shadow: var(--plate-press);
+  transition-duration: 0ms;
 }
 
 .chip .dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: var(--lamp);
+  background: radial-gradient(circle at 38% 32%, var(--lamp-core) 0%, var(--lamp) 55%, rgba(210, 98, 28, 0.9) 100%);
+}
+
+/*
+ * The five stake presets, on one row.
+ *
+ * `25.00` at the numeral floor does not leave room for five pill-shaped chips with
+ * chip padding, so the grid takes the padding down rather than letting the last
+ * preset wrap onto a line of its own — a lone chip below four others reads as a
+ * different kind of control, and these five are one control.
+ */
+.presets {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
+}
+
+.presets .chip {
+  margin: 0;
+  padding: 6px 2px;
+  justify-content: center;
 }
 
 .chip[aria-pressed="true"] {
-  border-color: var(--brass);
+  border-color: rgba(201, 162, 39, 0.7);
   color: var(--lamp-core);
 }
 
@@ -1131,10 +1567,18 @@ button {
   gap: 10px;
   min-height: 44px;
   padding: 6px 12px;
-  border: var(--hairline);
+  border: 1px solid rgba(138, 152, 160, 0.22);
   border-radius: var(--radius);
+  background: var(--plate);
+  box-shadow: var(--plate-edge);
   color: var(--fog-far);
   font-size: var(--floor-body);
+  transition: box-shadow var(--beat) var(--curve), color var(--beat) var(--curve);
+}
+
+.strip-button:active {
+  box-shadow: var(--plate-press);
+  transition-duration: 0ms;
 }
 
 .sidebet-row {
@@ -1154,9 +1598,12 @@ button {
 .stepper {
   display: inline-flex;
   align-items: center;
-  border: var(--hairline);
+  border: 1px solid rgba(138, 152, 160, 0.24);
   border-radius: var(--radius);
+  background: var(--plate);
+  box-shadow: var(--plate-edge);
   flex: none;
+  overflow: hidden;
 }
 
 .stepper button {
@@ -1164,6 +1611,12 @@ button {
   height: 48px;
   font-size: 20px;
   color: var(--mist);
+  transition: background var(--beat) var(--curve);
+}
+
+.stepper button:active {
+  background: rgba(14, 17, 20, 0.7);
+  transition-duration: 0ms;
 }
 
 .stepper .amount {
@@ -1178,10 +1631,11 @@ button {
 
 .footer {
   flex: none;
-  background: var(--night);
+  background: linear-gradient(180deg, var(--night) 0%, #131820 100%);
   box-shadow: 0 -14px 18px -12px rgba(14, 17, 20, 0.9);
   padding: 7px var(--gutter) calc(8px + env(safe-area-inset-bottom));
   border-top: var(--hairline);
+  z-index: 16;
 }
 
 /*
@@ -1211,11 +1665,13 @@ button {
 .sheet-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(14, 17, 20, 0.82);
+  background: rgba(14, 17, 20, 0.84);
+  backdrop-filter: blur(2px);
   display: flex;
   align-items: flex-end;
   justify-content: center;
   z-index: 40;
+  animation: fade var(--beat) var(--curve);
 }
 
 .sheet {
@@ -1223,10 +1679,24 @@ button {
   max-width: 460px;
   max-height: 86dvh;
   overflow-y: auto;
-  background: var(--night);
-  border-top: 1px solid var(--fog-mid);
-  border-radius: 8px 8px 0 0;
+  background: linear-gradient(180deg, #202830 0%, var(--night) 120px);
+  border-top: 1px solid rgba(216, 207, 187, 0.22);
+  border-radius: 10px 10px 0 0;
+  box-shadow: 0 -20px 50px -20px rgba(14, 17, 20, 1);
   padding: 16px var(--gutter) calc(24px + env(safe-area-inset-bottom));
+  animation: rise 300ms var(--curve);
+}
+
+/* A sheet arrives from below and stops. It does not pass its resting place. */
+@keyframes rise {
+  from {
+    transform: translateY(22px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 .sheet h2 {
@@ -1273,10 +1743,14 @@ button {
 
 /*
  * §S8 — a deliberately different visual family, because proof must never look
- * like a reward. `--verify` appears here and nowhere in the world.
+ * like a reward. `--verify` appears here and nowhere in the world, and this is
+ * the one screen in the game with no warm colour on it at all.
  */
 .verify {
   --mist: #dff2ff;
+  --plate: linear-gradient(178deg, rgba(30, 58, 78, 0.4) 0%, rgba(11, 22, 32, 0.6) 100%);
+  --plate-raised: linear-gradient(178deg, rgba(38, 70, 92, 0.45) 0%, rgba(11, 22, 32, 0.7) 100%);
+  --plate-edge: inset 0 1px 0 rgba(127, 212, 255, 0.14);
   background: #0b1620;
   color: #dff2ff;
 }
@@ -1353,8 +1827,9 @@ button {
  */
 .badge {
   display: inline-block;
-  border: var(--hairline);
+  border: 1px solid rgba(138, 152, 160, 0.3);
   border-radius: 999px;
+  background: rgba(14, 17, 20, 0.55);
   padding: 2px 9px;
   font-size: var(--floor-numeral);
   letter-spacing: 0.06em;
@@ -1376,18 +1851,35 @@ button {
   color: var(--extinguish);
 }
 
+/*
+ * §S4's arithmetic, shown in full for one beat: `4.775 x (3/5) x 1.333 = 3.820`.
+ * Never a mystery multiplier — so it is a plate of its own rather than a line of
+ * prose, and it arrives *after* the pips have gone dark and the claim has rolled.
+ */
+.arithmetic {
+  border: 1px solid rgba(216, 207, 187, 0.16);
+  border-radius: var(--radius);
+  background: var(--plate);
+  box-shadow: var(--plate-edge);
+  padding: 8px 10px;
+  text-align: center;
+  color: var(--fossil);
+}
+
 .toast {
   position: fixed;
   left: 50%;
   bottom: 96px;
   transform: translateX(-50%);
-  background: var(--void);
-  border: 1px solid var(--fog-mid);
+  background: linear-gradient(180deg, #232b33 0%, var(--void) 100%);
+  border: 1px solid rgba(138, 152, 160, 0.32);
   border-radius: var(--radius);
+  box-shadow: 0 10px 30px -12px rgba(14, 17, 20, 1);
   padding: 10px 14px;
   font-size: var(--floor-body);
   max-width: 90%;
   z-index: 50;
+  animation: rise var(--beat) var(--curve);
 }
 
 .error {
@@ -1405,20 +1897,22 @@ button {
 .reality-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(14, 17, 20, 0.94);
+  background: rgba(14, 17, 20, 0.95);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: var(--gutter);
   z-index: 60;
+  animation: fade var(--beat) var(--curve);
 }
 
 .reality {
   width: 100%;
   max-width: 420px;
-  border: 1px solid var(--fog-mid);
-  border-radius: var(--radius);
-  background: var(--night);
+  border: 1px solid rgba(138, 152, 160, 0.3);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #212932 0%, var(--night) 100%);
+  box-shadow: 0 24px 60px -24px rgba(14, 17, 20, 1);
   padding: 20px var(--gutter);
 }
 
@@ -1428,16 +1922,26 @@ button {
 
 /* ------------------------------------------------------------ animation */
 
+/*
+ * §10.8 asks for full parity with reduced motion, and §6.4's beats are all
+ * traversals between two states the player can read either way. So the calm
+ * variant removes the traversal and keeps the state: `motion.ts` applies every
+ * animation's end value immediately and the stage stops its parallax, its embers
+ * and its camera drift. Nothing is skipped, and nothing is only legible in motion.
+ */
 @media (prefers-reduced-motion: reduce) {
-  * {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
 }
 
 .fade-in {
-  animation: fade 240ms cubic-bezier(0.2, 0.8, 0.3, 1);
+  animation: fade var(--beat) var(--curve);
 }
 
 @keyframes fade {
@@ -1447,6 +1951,33 @@ button {
   to {
     opacity: 1;
   }
+}
+
+/*
+ * The reveal on a settled screen.
+ *
+ * A short lift into place, and it stops there. §S5 is a door closing on a light
+ * that is still burning and §S6 is two seconds of fog; neither is a moment for
+ * something to spring, and §6.4's ban on overshoot has no exception for the good
+ * ending.
+ */
+.settle-in {
+  animation: settle 420ms var(--curve) both;
+}
+
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.settle-in.late {
+  animation-delay: 180ms;
 }
 
 /* The wipe screen holds on empty fog before it says anything (§S6). */

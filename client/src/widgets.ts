@@ -13,6 +13,7 @@
 import { credits } from './api.js';
 import { RTP_LINE } from './copy.js';
 import { el, type Child } from './dom.js';
+import { countUp } from './motion.js';
 import type { Figures, SquadMember } from './types.js';
 
 /**
@@ -36,6 +37,16 @@ export function claimMeter(options: {
   readonly laneSizes?: readonly number[] | null;
   readonly bankedNote?: string | null;
   readonly perRunner?: string | null;
+  /**
+   * Where the claim figure starts, when it is about to move.
+   *
+   * §S4: *"the claim number rolls (tabular, ~600 ms, no spinning)"*. The screen
+   * that knows the claim has just changed passes the old value here; the meter
+   * prints that and counts to `claim`. Absent, the figure is simply printed —
+   * which is every other screen, because a claim that has not moved must not
+   * animate as though it had.
+   */
+  readonly rollFrom?: string | null;
 }): HTMLElement {
   const running = options.squad.filter((member) => member.status === 'running');
   const pips: Child[] = [];
@@ -62,20 +73,44 @@ export function claimMeter(options: {
     for (const member of options.squad) push(member);
   }
 
+  const rollFrom = options.rollFrom ?? null;
+  const figure = el('div', {
+    class: `claim-figure money${rollFrom !== null && rollFrom !== options.claim ? ' rolling' : ''}`,
+    text: rollFrom ?? options.claim,
+  });
+  if (rollFrom !== null && rollFrom !== options.claim) roll(figure, rollFrom, options.claim);
+
   return el(
     'div',
     { class: 'claim-meter' },
-    el(
-      'div',
-      { class: 'claim-line' },
-      el('div', { class: 'claim-figure money', text: options.claim }),
-      el('div', { class: 'claim-caption', text: options.caption }),
-    ),
+    el('div', { class: 'claim-line' }, figure, el('div', { class: 'claim-caption', text: options.caption })),
     el('div', { class: 'pips' }, pips),
     options.bankedNote
       ? el('div', { class: 'banked-row money', text: options.bankedNote })
       : null,
   );
+}
+
+/**
+ * The claim, counting from one value to another.
+ *
+ * Two rules from §6.4 and §S4 are load-bearing and both are about *not* doing
+ * something: it is a tabular roll and **never a slot-machine spin**, and a
+ * multiplier must never reflow while counting. So the width is fixed by taking the
+ * decimal places from the destination string and formatting every intermediate
+ * value to the same ones — the digits change and the box does not — and the final
+ * frame writes the server's own string rather than a rounding of it.
+ */
+function roll(node: HTMLElement, from: string, to: string): void {
+  const places = to.includes('.') ? to.length - to.indexOf('.') - 1 : 0;
+  const start = Number.parseFloat(from);
+  const end = Number.parseFloat(to);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    node.textContent = to;
+    return;
+  }
+  countUp(node, start, end, to, (value) => value.toFixed(places));
+  window.setTimeout(() => node.classList.remove('rolling'), 900);
 }
 
 /**
