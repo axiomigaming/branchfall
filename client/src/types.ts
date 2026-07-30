@@ -100,8 +100,18 @@ export interface ArenaRecord {
   }[];
 }
 
+/**
+ * How a round ended, as the *server* decided it — `server/rounds.ts`.
+ *
+ * Written as a union rather than `string` because the client reads this field to
+ * choose between two screens that say opposite things, and a comparison against
+ * a misspelled literal has to fail the typecheck rather than fail quietly at the
+ * end of a round. `WIPE` is the only kind on which nobody came home.
+ */
+export type SettlementKind = 'BANK' | 'FINISH' | 'WIPE' | 'AUTO_BANK' | 'VOID';
+
 export interface Settlement {
-  readonly kind: string;
+  readonly kind: SettlementKind;
   readonly creditedMicro: string;
   readonly totalCreditedMicro: string;
   readonly routeStakeMicro: string;

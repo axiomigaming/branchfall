@@ -16,7 +16,7 @@
  *   The one place it legitimately holds a table is the rehearsal, which has no
  *   stake, no wallet and no ledger entry in it (`ENGINE.md` §10.2).
  */
-import { ApiError, api, credits, idempotencyKey, isSeed, micro, newClientSeed } from './api.js';
+import { ApiError, api, credits, idempotencyKey, isSeed, micro, newClientSeed, wasWipe } from './api.js';
 import { COPY } from './copy.js';
 import { rederive, type Rederivation } from './derive.js';
 import { el, frag, type Child } from './dom.js';
@@ -1407,16 +1407,22 @@ async function resolveArena(): Promise<void> {
     adopt(payload);
     state.lastArena = payload.resolution;
     const next = payload.frame;
+    // `next` is the frame as the resolve left it, which is the only moment at
+    // which an empty live set means "nobody is out there" rather than "this round
+    // is over" — the settle below empties it either way (see `wasWipe`).
     if (next.phase === 'FINISHED' && next.live.length === 0) {
-      state.view = 'wipe';
-      state.wipeAtMs = Date.now();
       // A wipe leaves the model with no action in it, so closing the round is
       // bookkeeping rather than a decision — and the screen should be able to
       // state what was already sheltered or won on a side bet without asking the
       // player to press a button to find out (§S6). This is already inside a
       // guarded block, so it settles directly rather than through `finishRound`.
       if (next.settlement === null) await settleRound();
-      state.view = 'wipe';
+      // Through `wasWipe` like every other settled screen, even though the live
+      // set has already answered the question here: one rule, so there is no
+      // second place left that can disagree with the settlement. And last, so
+      // that §S6's two seconds of fog are measured from the moment the screen is
+      // drawn rather than from the moment the settle was sent.
+      enterSettled(wasWipe((state.frame as Frame).settlement, next.live.length));
     } else state.view = 'resolve';
   });
 }
@@ -1607,7 +1613,9 @@ async function bankRound(): Promise<void> {
       { idempotencyKey: idempotencyKey('bank'), expectedFrameRevision: frame.frameRevision },
     );
     adopt(payload);
-    state.view = 'banked';
+    // A bank is only legal while someone is still out (`server/rounds.ts`), so it
+    // is never the round where nobody came home.
+    enterSettled(false);
   });
 }
 
@@ -1635,9 +1643,33 @@ async function settleRound(): Promise<void> {
 
 async function finishRound(): Promise<void> {
   await guard(async () => {
+    // The settlement's own `kind` decides this, and `wasWipe` carries the reason
+    // why. The live set is read here only as its fallback, and it is read *before*
+    // the settle because that is the last moment it still means "still out there".
+    const liveBeforeSettle = (state.frame as Frame).live.length;
     await settleRound();
-    state.view = (state.frame as Frame).live.length === 0 ? 'wipe' : 'banked';
+    enterSettled(wasWipe((state.frame as Frame).settlement, liveBeforeSettle));
   });
+}
+
+/**
+ * The one place that chooses between the two settled screens.
+ *
+ * They say opposite things about the same round — S6 *"No one made it back"* and
+ * S5's brass door closing on a light that is still burning — so the choice is
+ * made once, from the settlement, and every path into a settled screen goes
+ * through here rather than re-deciding it locally.
+ */
+function enterSettled(wiped: boolean): void {
+  if (!wiped) {
+    state.view = 'banked';
+    return;
+  }
+  state.view = 'wipe';
+  // §S6's two seconds of fog with no UI on them are measured from the moment the
+  // screen is entered, so every path into it starts that clock. It also gates the
+  // `Run again` affordance, which must never appear on a round that was not lost.
+  state.wipeAtMs = Date.now();
 }
 
 /* ------------------------------------------------------------- S5 and S6 */
@@ -1647,13 +1679,25 @@ function bankedScreen(): HTMLElement {
   const settlement = frame.settlement;
   const total = micro(settlement?.totalCreditedMicro ?? '0');
   const staked = micro(settlement?.routeStakeMicro ?? '0') + micro(settlement?.sideBetStakeMicro ?? '0');
+  /*
+   * Two ways to reach this screen, and they are not the same place.
+   *
+   * A bank is a Lamp House door, mid-tree (§S5). A round that ran every arena
+   * ended at the top of the tree instead, where §9 puts the Crown Lamp — so the
+   * screen names the door the runners actually walked through. Nothing about the
+   * money changes with it: the figure, the return against the stake and the named
+   * squad are the same statements on both.
+   */
+  const finished = settlement?.kind === 'FINISH';
   return el(
     'div',
     { class: 'screen fade-in' },
     viewport({
-      title: 'The Lamp House',
-      subtitle: 'The door closes on a light that is still burning.',
-      counter: 'banked',
+      title: finished ? 'The Crown Lamp' : 'The Lamp House',
+      subtitle: finished
+        ? 'The Crown Lamp resolves out of the fog.'
+        : 'The door closes on a light that is still burning.',
+      counter: finished ? 'home' : 'banked',
       lanes: 1,
       runners: frame.squad
         .filter((member) => member.status === 'home')
@@ -1664,9 +1708,8 @@ function bankedScreen(): HTMLElement {
       'div',
       { class: 'surface pad stack' },
       el('h1', { class: 'money banked-figure', text: credits(total, 2) }),
-      // Always stated against the stake. A sub-stake return is never a win (§10.5).
-      // Always against the stake, and never presented as a win when it is not
-      // one: a 0.76x recovery says 0.76x (§10.5).
+      // Always stated against the stake, and never presented as a win when it is
+      // not one: a 0.76x recovery says 0.76x (§10.5).
       el('p', {
         class: 'note',
         text: `Home with ${credits(total, 2)} in total — that's ${settlement?.returnMultiple ?? '0'}x the ${credits(staked, 2)} you staked.`,

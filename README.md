@@ -245,9 +245,16 @@ the live DOM is measured by review rather than by a headless test this repo does
 not have. Two rounds of review found the same counter under the floor; it is at
 15 px now, with the footer's `stake 5.00` and the fork-balance headings.
 
-Three properties of the client are worth stating because they are the ones a
+Four properties of the client are worth stating because they are the ones a
 graybox usually gets wrong:
 
+- **The ending on screen is the ending that happened.** A round settles onto one
+  of two terminal screens, and they say opposite things. Which one it is comes
+  from the settlement the server returns — the only value that still knows whether
+  anyone was running — and never from the engine's live set, which the settle
+  empties on a won round and a lost one alike. `tests/settled-screen.test.mjs`
+  drives both endings through the API on fixed seeds and pins the decision to the
+  settlement.
 - **The decision screen is one screen.** On the 390 x 844 baseline, S2 fits the
   four routes with their prices, the claim, the whole selected card, the controls
   that name a Kindling and `Commit route` in a single unscrolled viewport, and

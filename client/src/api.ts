@@ -8,6 +8,8 @@
  * probability, a multiplier or a claim: those arrive already exact from the
  * server, which reads them out of the engine.
  */
+import type { Settlement } from './types.js';
+
 export interface Wire {
   readonly [key: string]: unknown;
 }
@@ -54,6 +56,29 @@ export function credits(micro: string | bigint, places = 2): string {
 
 export function micro(value: string | bigint): bigint {
   return typeof value === 'bigint' ? value : BigInt(value || '0');
+}
+
+/**
+ * Did this round end with nobody coming home?
+ *
+ * The only honest source for that is the settlement's own `kind`, and reading it
+ * anywhere else is a defect this client shipped once. The engine's settle empties
+ * the live set on *every* path — the finish line included — so
+ * `frame.live.length === 0` is true of every settled round, and the client used
+ * it to pick the screen: a player who ran all five arenas, brought three runners
+ * home and was credited 6.85 was told *"No one made it back."* (round-2 review).
+ *
+ * `kind` is decided before the settle, from the live set as it stood
+ * (`server/rounds.ts` `finish()`): `WIPE` when nothing was still running,
+ * `FINISH` at the finish line, `BANK`/`AUTO_BANK` when the claim was taken.
+ *
+ * `liveBeforeSettle` is the fallback for a settled frame that carries no
+ * settlement — which this server never sends, so it is a defence and not a path —
+ * and it has to be read *before* the settle request, because that is the only
+ * moment at which the live set still means "still out there".
+ */
+export function wasWipe(settlement: Settlement | null, liveBeforeSettle: number): boolean {
+  return settlement === null ? liveBeforeSettle === 0 : settlement.kind === 'WIPE';
 }
 
 /** A fresh client seed, generated **on the device** (`ENGINE.md` §10.1, residual 1). */
