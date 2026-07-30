@@ -13,8 +13,57 @@
 import { credits } from './api.js';
 import { RTP_LINE } from './copy.js';
 import { el, type Child } from './dom.js';
-import { countUp } from './motion.js';
+import { CLAIM_ROLL, countUp } from './motion.js';
 import type { Figures, SquadMember } from './types.js';
+
+/**
+ * The hero figure on a terminal screen (`DESIGN.md` §S5, §9).
+ *
+ * §9 says the rescue *"is deliberately given the same production value as the
+ * biggest win"*, and the round-2 review measured the opposite: the banked figure
+ * was 15 px — the same size as the status-bar balance — while the wipe headline
+ * was 28 px, so the loss shouted and the win whispered. §6.5 writes 28 pt as a
+ * *floor* for the claim, not a ceiling, and this is the one figure in the game
+ * that is the whole point of the screen it is on.
+ *
+ * It is brass, because banked money is the brass family (§6.1); it counts up on
+ * a tabular roll and never spins (§6.4); and it carries its label above it so the
+ * number is never a number on its own. Nothing scales, shakes or overshoots — the
+ * production value is size, colour, light and sound, which is exactly what §6.4
+ * permits and all it permits.
+ */
+export function heroFigure(options: {
+  readonly label: string;
+  readonly value: string;
+  /** Where the count starts. Absent, the figure is simply printed. */
+  readonly from?: string | null;
+  readonly note?: Child;
+  readonly ms?: number;
+  /**
+   * Warm or cold.
+   *
+   * The two endings are the same size and they are not the same temperature.
+   * `brass` is money that came home; `cold` is the wipe's own statement of what
+   * happened, held at the same weight so the loss is not the loudest thing in the
+   * game (round-2 finding) and given none of the light, because §S6 is quiet and
+   * §10.2 forbids dressing a loss as an event.
+   */
+  readonly tone?: 'brass' | 'cold';
+}): HTMLElement {
+  const figure = el('div', {
+    class: `hero-figure${options.tone === 'cold' ? ' cold' : ' money'}`,
+    text: options.from ?? options.value,
+  });
+  if (options.from !== undefined && options.from !== null && options.from !== options.value)
+    roll(figure, options.from, options.value, options.ms ?? 900);
+  return el(
+    'div',
+    { class: `hero${options.tone === 'cold' ? ' cold' : ''}` },
+    el('div', { class: 'hero-label', text: options.label }),
+    figure,
+    options.note ?? null,
+  );
+}
 
 /**
  * The claim meter (`DESIGN.md` §5.2.2).
@@ -101,7 +150,7 @@ export function claimMeter(options: {
  * value to the same ones — the digits change and the box does not — and the final
  * frame writes the server's own string rather than a rounding of it.
  */
-function roll(node: HTMLElement, from: string, to: string): void {
+function roll(node: HTMLElement, from: string, to: string, ms = CLAIM_ROLL): void {
   const places = to.includes('.') ? to.length - to.indexOf('.') - 1 : 0;
   const start = Number.parseFloat(from);
   const end = Number.parseFloat(to);
@@ -109,8 +158,8 @@ function roll(node: HTMLElement, from: string, to: string): void {
     node.textContent = to;
     return;
   }
-  countUp(node, start, end, to, (value) => value.toFixed(places));
-  window.setTimeout(() => node.classList.remove('rolling'), 900);
+  countUp(node, start, end, to, (value) => value.toFixed(places), ms);
+  window.setTimeout(() => node.classList.remove('rolling'), ms + 300);
 }
 
 /**
@@ -125,24 +174,37 @@ export function distributionBars(
   figures: Figures,
   height?: number,
   /**
-   * A shared denominator, for the fork's two charts.
+   * A second distribution on the same axis, drawn as a stepped outline.
    *
    * §3.3's whole argument is that `4 + 1` is *visibly* taller at both ends and
-   * shorter in the middle. Normalising each chart against its own peak would
-   * rescale that difference away and draw two charts that look alike, which is
-   * the opposite of what the control is for.
+   * shorter in the middle, *"rendered on a shared axis"*. The first build did
+   * that as two half-width charts side by side, and the round-2 review measured
+   * the result: 44 px tall, with 1.30% and 3.39% both drawn as 1 px lines and no
+   * label saying which chart was which. Two cramped pictures of one comparison
+   * are worse than one full-width picture of it — so the selected balance is the
+   * fill and the other is an outline over the same bars, on one scale, at the
+   * card's full width. Fill against outline is a *shape* difference, so colour is
+   * not carrying the distinction (§10.8).
    */
-  scale?: number,
+  ghost?: { readonly figures: Figures; readonly label: string } | null,
 ): HTMLElement {
   const values = figures.outcomes.map((row) => Number(row.probability.decimal));
-  const peak = Math.max(scale ?? 0, ...values, 0.0001);
+  const ghostValues = ghost ? ghost.figures.outcomes.map((row) => Number(row.probability.decimal)) : [];
+  const peak = Math.max(...values, ...ghostValues, 0.0001);
   return el(
     'div',
     // Heights are a percentage of whatever box the chart is given, so the card
     // can spend its spare height on the graphic rather than on empty space.
-    { class: 'bars', style: height === undefined ? '' : `height:${height}px;flex:none` },
+    { class: `bars${ghost ? ' paired' : ''}`, style: height === undefined ? '' : `height:${height}px;flex:none` },
     figures.outcomes.map((row, index) => {
-      const fill = Math.max(3, Math.round(((values[index] ?? 0) / peak) * 100));
+      const value = values[index] ?? 0;
+      /*
+       * A floor in *percent of the track*, so a 1.30% outcome is a bar and not a
+       * hairline. Three percent of a 100 px track is 3 px, which is the least that
+       * still reads as a place with something in it; the bars above it are exact.
+       */
+      const fill = value <= 0 ? 0 : Math.max(4, Math.round((value / peak) * 100));
+      const shade = ghostValues[index];
       return el(
         'div',
         {
@@ -154,18 +216,29 @@ export function distributionBars(
         // against the whole bar instead let the flex box shrink the tallest
         // fills unevenly, which drew two identical probabilities at two
         // different heights — a chart that lies about the one thing it is for.
-        el('span', { class: 'track' }, el('span', { class: 'fill', style: `height:${fill}%` })),
+        el(
+          'span',
+          { class: 'track' },
+          el('span', { class: 'fill', style: `height:${fill}%` }),
+          shade === undefined
+            ? null
+            : el('span', {
+                class: 'ghost',
+                style: `bottom:${shade <= 0 ? 0 : Math.max(4, Math.round((shade / peak) * 100))}%`,
+                title: `${ghost?.label}: ${ghost?.figures.outcomes[index]?.probability.exact ?? ''}`,
+              }),
+        ),
         el('span', { class: 'axis', text: String(row.survivors) }),
       );
     }),
   );
 }
 
-function barsBlock(figures: Figures, caption: string): HTMLElement {
+function barsBlock(figures: Figures, caption: string, ghost?: { figures: Figures; label: string } | null): HTMLElement {
   return el(
     'div',
     { class: 'bars-block' },
-    distributionBars(figures),
+    distributionBars(figures, undefined, ghost),
     el('div', { class: 'bars-caption', text: caption }),
   );
 }
@@ -214,29 +287,35 @@ function forkBody(fork: ForkView): HTMLElement {
   const first = fork.figuresOf(fork.balances[0] as number);
   const rows: [string, (figures: Figures) => string][] = [
     ['Chance of that', (figures) => figures.display.growsPct],
+    ['Claim falls, run goes on', (figures) => figures.display.fallsNonZeroPct],
     ['Nobody makes it', (figures) => figures.display.wipePct],
     [`All ${fork.running} make it`, (figures) => figures.display.allClearPct],
     ['One alone comes home', (figures) => figures.display.solePct],
-    ['Expected survivors', (figures) => figures.display.expectedSurvivors],
   ];
-  const shared = Math.max(
-    ...fork.balances.flatMap((balance) =>
-      fork.figuresOf(balance).outcomes.map((row) => Number(row.probability.decimal)),
-    ),
-  );
+  const balances = fork.balances;
+  const selected = fork.selected ?? (balances[0] as number);
+  const other = balances.find((balance) => balance !== selected) ?? selected;
+  const label = (balance: number) => `${balance} + ${fork.running - balance}`;
   return el(
     'div',
     { class: 'card-body' },
+    /*
+     * One chart, two distributions, one axis. The filled bars are the balance the
+     * player has selected and the hairline is the other — both always drawn, with
+     * the legend naming each by its own numbers, because §3.3 forbids a
+     * recommendation and requires both to be visible at once.
+     */
+    barsBlock(
+      fork.figuresOf(selected),
+      `survivors, ${fork.running} running · ▲ the claim grows from here`,
+      { figures: fork.figuresOf(other), label: label(other) },
+    ),
     el(
       'div',
-      { class: 'bars-pair' },
-      ...fork.balances.map((balance) =>
-        el(
-          'div',
-          { class: `bars-half${fork.selected === balance ? ' on' : ''}` },
-          distributionBars(fork.figuresOf(balance), undefined, shared),
-        ),
-      ),
+      { class: 'bars-legend' },
+      el('span', { class: 'key filled' }, el('i', {}), el('span', { class: 'money', text: label(selected) })),
+      el('span', { class: 'key ghost' }, el('i', {}), el('span', { class: 'money', text: label(other) })),
+      el('span', { class: 'tiny', text: `${first.display.expectedSurvivors} expected either way` }),
     ),
     field('Your claim grows if', `${first.breakEven} of ${fork.running} get back`, true),
     el(
@@ -249,10 +328,10 @@ function forkBody(fork: ForkView): HTMLElement {
           'tr',
           {},
           el('th', { text: '' }),
-          ...fork.balances.map((balance) =>
+          ...balances.map((balance) =>
             el('th', {
               class: fork.selected === balance ? 'on' : '',
-              text: `${balance} + ${fork.running - balance}`,
+              text: label(balance),
             }),
           ),
         ),
@@ -260,12 +339,16 @@ function forkBody(fork: ForkView): HTMLElement {
       el(
         'tbody',
         {},
-        ...rows.map(([label, read]) =>
+        ...rows.map(([text, read]) =>
           el(
             'tr',
             {},
-            el('td', { text: label }),
-            ...fork.balances.map((balance) =>
+            // The label column is prose, so it is the body face. §6.5 reserves
+            // tabular monospace for money and multipliers, and the round-2 review
+            // found this one column in mono while the identical labels on the
+            // other three cards were not — the same information in two faces.
+            el('td', { class: 'row-label', text }),
+            ...balances.map((balance) =>
               el('td', {
                 class: fork.selected === balance ? 'on' : '',
                 text: read(fork.figuresOf(balance)),
@@ -347,12 +430,16 @@ export function routeCard(options: {
       el(
         'div',
         { class: 'card-footer' },
-        el('span', { text: RTP_LINE(options.rtp) }),
+        el('span', { class: 'rtp', text: RTP_LINE(options.rtp) }),
         el(
           'span',
           { class: 'row' },
+          // §10.8's 44 pt target, taken from the touch area rather than from the
+          // ink: a 44 px-tall underlined word inside a card footer would push an
+          // odds figure off the card, which is the trade the round-2 review found
+          // on the SHELTER card. `.link.tap` grows the hit box, not the type.
           el('button', {
-            class: 'link',
+            class: 'link tap',
             text: 'compare',
             onClick: (event: MouseEvent) => {
               event.stopPropagation();
@@ -360,7 +447,7 @@ export function routeCard(options: {
             },
           }),
           el('button', {
-            class: 'link',
+            class: 'link tap',
             text: 'full odds ▸',
             onClick: (event: MouseEvent) => {
               event.stopPropagation();

@@ -588,6 +588,46 @@ export function bank(lanterns: number): void {
   }
 }
 
+/**
+ * The Lamp House door on its hinge, before anything has been banked (§S5).
+ *
+ * `bank()` strikes the mechanism and the bell together, which is right for the
+ * moment the door *shuts*. The door has to open first — the picture opens on it
+ * — so the mechanism is available on its own, softer and with nothing struck.
+ */
+export function doorSwing(): void {
+  const g = speaking();
+  if (!g) return;
+  door(g, g.ctx.currentTime);
+}
+
+/**
+ * One lantern going through the doorway.
+ *
+ * A small brass tick per rescued Kindling, on the same beat as the figure walking
+ * in. §7's rule for this family is that it thickens rather than climbs: this is
+ * one note at one pitch, played once per lantern, never a rising sweep — a rising
+ * pitch on money is the slot-machine gesture §6.4 rules out.
+ */
+export function lanternHome(): void {
+  const g = speaking();
+  if (!g) return;
+  const at = g.ctx.currentTime;
+  for (const [ratio, level, decay] of [
+    [1, 0.06, 0.5],
+    [2.76, 0.02, 0.32],
+  ] as const) {
+    const osc = g.ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = 329.63 * ratio;
+    const gain = envelope(g, level, at, 0.004, decay);
+    osc.connect(gain);
+    gain.connect(g.world);
+    osc.start(at);
+    osc.stop(at + decay + 0.1);
+  }
+}
+
 function door(g: Graph, at: number): void {
   const mech = noiseSource(g, false);
   const band = g.ctx.createBiquadFilter();

@@ -47,7 +47,7 @@
  * which stops dead when the tab is hidden. A frame is a handful of `drawImage`
  * calls and one path per figure.
  */
-import { calm, hash01, onCalmChange, onFrame, stepped } from './motion.js';
+import { calm, hash01, onCalmChange, onFrame, outCubic, stepped } from './motion.js';
 
 /* ------------------------------------------------------------------ palette */
 
@@ -82,6 +82,45 @@ const SILHOUETTE = '#12161a';
  * decision band and on the full-bleed run.
  */
 const THIN_LIMB_DROP = 0.13;
+
+/** Where along the branch the Lamp House stands, so the runners have somewhere to go. */
+const DOOR_U = 0.72;
+
+/**
+ * §S5's door beat, in milliseconds, and the reason it is published.
+ *
+ * *"The Lamp House door opens, the chosen lanterns go inside, the brass bell
+ * strikes once, and the saved lights stack into a small constellation above the
+ * door."* That is four events in a fixed order, and the screen above the stage
+ * has to arrive on the same ones: the hero figure lands on the bell, the copy
+ * arrives after the constellation, and the exit control is not drawn until the
+ * beat is over (`DESIGN.md` §9 — the rescue gets *"the same production value as
+ * the biggest win"*, and a `Round summary` button mounted over it is the round-2
+ * finding that it did not).
+ *
+ * So the timeline lives here, next to the drawing that plays it, and `main.ts`
+ * reads it rather than keeping a second copy of the same numbers.
+ */
+export const DOOR_BEAT = {
+  /** The leaf swings, and the first warm light spills onto the stone. */
+  openMs: 420,
+  /** One lantern carried in, per lantern, in file. */
+  perLanternMs: 240,
+  /** The last one is through the doorway this long after its turn comes. */
+  walkMs: 260,
+  /** The leaf comes back, and the grille lights from inside. */
+  closeMs: 300,
+} as const;
+
+/** When the door is shut on `n` lanterns, in ms from the beat's start. */
+export function doorClosedMs(lanterns: number): number {
+  return (
+    DOOR_BEAT.openMs +
+    Math.max(1, lanterns) * DOOR_BEAT.perLanternMs +
+    DOOR_BEAT.walkMs +
+    DOOR_BEAT.closeMs
+  );
+}
 
 interface Theme {
   readonly name: string;
@@ -295,6 +334,10 @@ interface Body {
   seed: number;
   /** Set when the fall is the hero descent §9 keeps in frame all the way down. */
   hero: boolean;
+  /** Place in the file walking into the Lamp House, so they go in one at a time. */
+  order: number;
+  /** Through the doorway: safe, and no longer drawn in the world (§S5). */
+  inside: boolean;
 }
 
 /* -------------------------------------------------------------- the director */
@@ -353,6 +396,17 @@ class Stage {
   private heroSlot: number | null = null;
   private shudder = 0;
   private bloom = 0;
+  /**
+   * When §S5's door beat started, on the stage's own clock, or -1 for "not on".
+   *
+   * The beat is a property of the *scene*, not of a call: a settled screen that
+   * re-renders — a session poll, a toast, the reality check — must not restart the
+   * door, so the clock is set once when the mode becomes `door` and read from
+   * there. `houseTime()` is the only reader, and under the calm variant it returns
+   * a time past the end of the beat so the frame holds the finished state (§10.8:
+   * parity, not a degraded mode).
+   */
+  private houseStart = -1;
 
   private dust: { x: number; y: number; vx: number; vy: number; life: number }[] = [];
 
@@ -426,6 +480,17 @@ class Stage {
     const previous = this.scene;
     this.scene = scene;
 
+    /*
+     * §S5's door beat starts once, on the render that first says `door`.
+     *
+     * Every other render of the settled screen — the session poll, a toast, the
+     * reality check — hands the stage the same scene again, and a beat that
+     * restarted on those would play the rescue as a stutter.
+     */
+    const doorOpens = scene.mode === 'door' && previous.mode !== 'door';
+    if (doorOpens) this.houseStart = performance.now();
+    if (scene.mode !== 'door') this.houseStart = -1;
+
     const seen = new Set<number>();
     scene.runners.forEach((runner, index) => {
       seen.add(runner.slot);
@@ -442,22 +507,51 @@ class Stage {
        * The Reach, and five legible name tags. At the narrow spread this started
        * with, adjacent names overlapped into one word.
        */
-      const target = 0.09 + spread * 0.4 + scene.progress * 0.44;
+      /*
+       * On the door screen the file has one destination and it is the doorway.
+       *
+       * §S5 is *"the chosen lanterns go inside"*, so the target is the door rather
+       * than a place on the branch, and the queue order is what makes them go in
+       * one at a time instead of arriving as a group.
+       */
+      const target = scene.mode === 'door' ? DOOR_U : 0.09 + spread * 0.4 + scene.progress * 0.44;
 
       if (!body) {
+        /*
+         * A figure that arrives *already* lost on §S6's screen still falls.
+         *
+         * A body created lost is `gone` — it has fallen somewhere the camera was
+         * not, in an earlier arena, and there is nothing to play. The wipe screen
+         * is the exception, and it is the one that matters: if the squad's bodies
+         * were dropped between the run and the wipe, recreating them as `gone`
+         * meant §9's descent — *"we stay with it all the way down"* — played over
+         * an empty frame. On `quiet` a lost runner is a runner in the air.
+         */
+        const falling = runner.status === 'lost' && scene.mode === 'quiet';
         this.bodies.set(runner.slot, {
           slot: runner.slot,
           name: runner.name,
           lane: runner.lane,
-          pose: runner.status === 'home' ? 'home' : runner.status === 'lost' ? 'gone' : 'idle',
-          u: target,
+          pose:
+            runner.status === 'home'
+              ? 'home'
+              : runner.status === 'lost'
+                ? falling
+                  ? 'fall'
+                  : 'gone'
+                : 'idle',
+          // A body that arrives already at the door would be standing in it. It
+          // starts back along the branch and walks in like the rest.
+          u: scene.mode === 'door' ? DOOR_U - 0.3 - order * 0.09 : target,
           targetU: target,
           phase: hash01(runner.slot * 7.3) * 4,
-          fell: -1,
-          light: runner.status === 'lost' ? 0 : 1,
-          chill: runner.status === 'lost' ? 1 : 0,
+          fell: falling ? 0 : -1,
+          light: runner.status === 'lost' && !falling ? 0 : 1,
+          chill: runner.status === 'lost' && !falling ? 1 : 0,
           seed: runner.slot * 3 + index,
-          hero: false,
+          hero: falling && scene.runners.every((peer) => peer.status === 'lost'),
+          order,
+          inside: false,
         });
         return;
       }
@@ -465,6 +559,7 @@ class Stage {
       body.lane = runner.lane;
       body.name = runner.name;
       body.targetU = target;
+      body.order = order;
 
       if (runner.status === 'lost' && body.pose !== 'fall' && body.pose !== 'gone') {
         body.pose = 'fall';
@@ -473,8 +568,11 @@ class Stage {
         // the fall of the last light in the frame.
         body.hero = scene.runners.filter((peer) => peer.status !== 'lost').length === 0;
         this.puff(body);
-      } else if (runner.status === 'home' && body.pose !== 'home') {
-        body.pose = 'home';
+      } else if (runner.status === 'home') {
+        // On the door screen a runner who is home is *walking home*: the pose is
+        // the walk until the doorway takes them, and only then the standing one.
+        if (scene.mode === 'door' && !body.inside) body.pose = 'travel';
+        else if (body.pose !== 'home') body.pose = 'home';
         body.fell = -1;
       } else if (runner.status === 'running' && (body.pose === 'idle' || body.pose === 'travel'))
         body.pose = scene.mode === 'run' ? 'travel' : 'idle';
@@ -482,6 +580,21 @@ class Stage {
 
     for (const [slot, body] of this.bodies)
       if (!seen.has(slot) && body.pose !== 'fall') this.bodies.delete(slot);
+
+    /*
+     * The squad, put into a file behind the door as the beat opens.
+     *
+     * They arrive on this screen standing wherever the last arena left them,
+     * which is four figures within a few percent of each other — so they reached
+     * the doorway together and the beat that is meant to be *one lantern at a
+     * time* was over in a third of a second. A file, spaced by queue order, is
+     * what makes the count readable as a count.
+     */
+    if (doorOpens)
+      for (const body of this.bodies.values()) {
+        body.u = DOOR_U - 0.15 - body.order * 0.11;
+        body.inside = false;
+      }
 
     // A lane that has just given way, from the transcript and from nowhere else.
     scene.collapsed.forEach((collapsed, lane) => {
@@ -491,8 +604,18 @@ class Stage {
       }
     });
 
-    this.spotTarget = scene.lastLamp ? 0.44 : 1;
-    this.pushTarget = scene.lastLamp ? 1.16 : 1;
+    /*
+     * The spotlight, on both of §9's endings.
+     *
+     * It narrows for the last light on the branch, and it narrows again on the
+     * door — *"the same production value as the biggest win"* is a lighting
+     * instruction as much as a copy one, and the one thing this stage can do that
+     * a panel of type cannot is put the frame's whole attention on the doorway
+     * while the lanterns go in. It is a mask and a push, not a colour grade, and
+     * §6.4 still forbids the shake and the confetti that usually come with this.
+     */
+    this.spotTarget = scene.lastLamp ? 0.44 : scene.mode === 'door' ? 0.62 : 1;
+    this.pushTarget = scene.lastLamp ? 1.16 : scene.mode === 'door' ? 1.12 : 1;
     if (previous.arena !== scene.arena) {
       this.backdropKey = '';
       this.followPx = 0;
@@ -568,7 +691,8 @@ class Stage {
     const base = THEMES[Math.max(0, Math.min(THEMES.length - 1, this.scene.arena))] as Theme;
     const short = this.height < 150;
     const fork = this.scene.lanes > 1;
-    if (!short && !fork) return base;
+    const door = this.scene.mode === 'door';
+    if (!short && !fork && !door) return base;
 
     let deck = base.deck;
     let fogTop = base.fogTop;
@@ -576,6 +700,20 @@ class Stage {
     let horizon = base.horizon;
     let thickness = base.thickness;
 
+    if (door && !short) {
+      /*
+       * The door screen is a portrait composition with a building in it.
+       *
+       * At the travelling deck height the Lamp House sits in the middle of the
+       * frame with a third of the picture empty above it and a third empty below
+       * — which is how the round-1 terminal screens came to be mostly grey. The
+       * deck comes down so the house stands *on the lower third*, the fog plane
+       * comes with it, and the frame is filled by the thing it is about.
+       */
+      deck = 0.72;
+      fogTop = Math.max(base.fogTop, 0.88);
+      horizon *= 1.1;
+    }
     if (short) {
       deck = 0.66;
       fogTop = Math.max(fogTop, 0.76);
@@ -702,6 +840,9 @@ class Stage {
     this.paintBackdrop(ctx);
     this.paintUnderside(ctx);
     this.paintFog(ctx, 0);
+    // The house stands on the branch, so it is drawn with the branch: behind the
+    // figures walking toward it, in front of the fog they came out of.
+    this.paintLampHouse(ctx);
     this.paintFigures(ctx, delta);
     this.paintFog(ctx, 1);
     this.paintDust(ctx, delta);
@@ -789,18 +930,51 @@ class Stage {
     const h = this.height;
     const top = h * theme.fogTop;
     const depth = this.followPx + h;
+    /*
+     * Deep, and never black.
+     *
+     * §S6 asks for *"two full seconds of fog and wind"*, and the first build gave
+     * two seconds of `--void`: past 30% of the drop the gradient had bottomed out
+     * at the deepest value in the palette and the frame was a black rectangle,
+     * which reads as a rendering fault rather than as the Understory. It bottoms
+     * out above black now, and the volume keeps its structure all the way down —
+     * fog banks and the fossil trunks streaking past — because what makes a fall
+     * read as a fall is the things going *up* past the camera.
+     */
     const gradient = ctx.createLinearGradient(0, top, 0, top + depth);
     gradient.addColorStop(0, `rgba(56,67,75,${(0.34 * theme.fogDensity).toFixed(3)})`);
-    gradient.addColorStop(0.3, 'rgba(20,25,30,0.9)');
-    gradient.addColorStop(1, C.void);
+    gradient.addColorStop(0.42, 'rgba(30,37,44,0.92)');
+    gradient.addColorStop(1, '#111820');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, top, this.width, depth);
 
-    // A little internal parallax on the way down, so the drop has texture in it.
     if (calm()) return;
+
+    // Trunks, going up past the camera: the only thing that gives the drop speed.
+    ctx.save();
+    for (let index = 0; index < 5; index += 1) {
+      const seed = index * 13.7;
+      const width = this.width * (0.04 + hash01(seed) * 0.08);
+      const x = this.width * hash01(seed + 3);
+      const span = h * (0.5 + hash01(seed + 5) * 0.9);
+      const drift = (this.followPx * (0.55 + hash01(seed + 7) * 0.5) + index * h * 0.8) % (depth + span);
+      const y0 = top + drift - span;
+      // Ends that fade rather than stop: a hard-edged rectangle in fog is a bar.
+      const trunk = ctx.createLinearGradient(0, y0, 0, y0 + span);
+      const alpha = 0.16 + hash01(seed + 9) * 0.2;
+      trunk.addColorStop(0, 'rgba(12,16,20,0)');
+      trunk.addColorStop(0.3, `rgba(12,16,20,${alpha.toFixed(3)})`);
+      trunk.addColorStop(0.7, `rgba(12,16,20,${alpha.toFixed(3)})`);
+      trunk.addColorStop(1, 'rgba(12,16,20,0)');
+      ctx.fillStyle = trunk;
+      ctx.fillRect(x, y0, width, span);
+    }
+    ctx.restore();
+
+    // And the fog itself, in three planes at three speeds.
     const tile = fogTile();
     ctx.save();
-    ctx.globalAlpha = 0.06 * theme.fogDensity;
+    ctx.globalAlpha = 0.13 * theme.fogDensity;
     const band = h * 0.7;
     for (let index = 0; index < 3; index += 1) {
       const y = top + ((this.followPx * (0.5 + index * 0.35) + index * band) % (depth + band));
@@ -909,6 +1083,361 @@ class Stage {
     ctx.beginPath();
     ctx.arc(x, y, Math.max(1.6, h * 0.011), 0, Math.PI * 2);
     ctx.fill();
+  }
+
+  /* ------------------------------------------------------- §S5: the door */
+
+  /**
+   * Seconds since the door beat began; past the end of it under the calm variant.
+   *
+   * §10.8 asks for parity rather than a degraded mode, and the parity form of a
+   * beat is its finished frame: door shut, grille lit, constellation up. Nothing
+   * is skipped, because the end state is the state the traversal was heading for.
+   */
+  private houseTime(): number {
+    if (this.scene.mode !== 'door') return -1;
+    if (calm()) return 99;
+    /*
+     * Wall clock, not the stage's own accumulated time.
+     *
+     * `this.time` is a sum of frame deltas clamped to 64 ms, which is the right
+     * clock for a gait or a swing — a device that drops frames should not
+     * fast-forward the animation. It is the wrong clock for this: the screen
+     * above is landing its own beats on `setTimeout`, so a stage running behind
+     * wall time puts the banked figure on screen while the door is still open.
+     * The two timelines have to be the same timeline.
+     */
+    return this.houseStart < 0 ? 0 : (performance.now() - this.houseStart) / 1000;
+  }
+
+  /**
+   * The Lamp House (`DESIGN.md` §S5, §9).
+   *
+   * *"The Lamp House door opens, the chosen lanterns go inside, the brass bell
+   * strikes once, and the saved lights stack into a small constellation above the
+   * door."* Round 1 shipped that sentence as a screen subtitle over a picture of
+   * three figures standing on a branch — the door the copy is about was never
+   * drawn, which made the rescue the one moment in the game with no object in it.
+   *
+   * It is built out of the same two materials as everything else the player has
+   * been looking at for five arenas: petrified stone for the mass, brass for the
+   * frame, and one warm interior light that is the only emissive surface in it
+   * (§6.2's exception list). Nothing here is a new colour and nothing bounces:
+   * the leaf swings, the light spills, the leaf closes, and the light comes back
+   * through the grille — which is exactly the read §9 asks the rescue to have,
+   * *"safe, and visibly still burning"*.
+   */
+  private paintLampHouse(ctx: CanvasRenderingContext2D): void {
+    const t = this.houseTime();
+    if (t < 0) return;
+
+    const ground = this.deckY(DOOR_U, 0);
+    const x = DOOR_U * this.width;
+    // The subject of the shot, and sized like one: the house is three figures
+    // tall, so the doorway a Kindling walks into is a *door* and not a slot.
+    const H = Math.max(58, this.figureHeight() * 3);
+    const W = H * 0.7;
+    const top = ground - H;
+
+    // The beat, read off the one published timeline (`DOOR_BEAT`).
+    const lamps = this.scene.runners.filter((runner) => runner.status === 'home').length;
+    const closedAt = doorClosedMs(lamps) / 1000;
+    const open = Math.min(1, t / (DOOR_BEAT.openMs / 1000));
+    const shut = Math.max(0, Math.min(1, (t - closedAt) / (DOOR_BEAT.closeMs / 1000)));
+    // How wide the doorway is standing, 0 shut to 1 wide: open, then closed again.
+    const gape = outCubic(open) * (1 - outCubic(shut));
+    const inside = [...this.bodies.values()].filter((body) => body.inside).length;
+
+    const doorW = W * 0.46;
+    const doorH = H * 0.56;
+    const doorLeft = x - doorW / 2;
+    const doorTop = ground - doorH;
+
+    ctx.save();
+
+    // The mass sits on the stone, so it gets the same contact decal as a figure.
+    ctx.fillStyle = 'rgba(14,17,20,0.5)';
+    ctx.beginPath();
+    ctx.ellipse(x, ground + 1, W * 0.62, H * 0.026, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    /*
+     * The mass: a squat stone gatehouse, wider at the foot, with a heavy hood.
+     *
+     * Drawn as a silhouette against the fog wall like everything else on the
+     * branch — §6.1's ninety percent — with one cool rim off the sky key down its
+     * left edge so it reads as stone with a form rather than as a cut-out.
+     */
+    const shoulderY = top + H * 0.26;
+    const body = new Path2D();
+    body.moveTo(x - W * 0.5, ground);
+    body.lineTo(x - W * 0.42, shoulderY);
+    body.lineTo(x - W * 0.5, shoulderY);
+    body.lineTo(x - W * 0.44, top + H * 0.12);
+    body.lineTo(x, top);
+    body.lineTo(x + W * 0.44, top + H * 0.12);
+    body.lineTo(x + W * 0.5, shoulderY);
+    body.lineTo(x + W * 0.42, shoulderY);
+    body.lineTo(x + W * 0.5, ground);
+    body.closePath();
+
+    /*
+     * Stone, not a black barn.
+     *
+     * §6.2's material is petrified wood at two scales — courses of grain and a
+     * hairline fracture network — and a flat silhouette fill reads as a cut-out
+     * of the sky. So the mass is a value *above* the figures rather than the same
+     * one: it is architecture, and it is the thing they are walking into.
+     */
+    const stone = ctx.createLinearGradient(0, top, 0, ground);
+    stone.addColorStop(0, '#2b333b');
+    stone.addColorStop(0.5, '#1d242b');
+    stone.addColorStop(1, '#10151a');
+    ctx.fillStyle = stone;
+    ctx.fill(body);
+
+    ctx.save();
+    ctx.clip(body);
+    // Courses, at the 2 m scale.
+    ctx.strokeStyle = 'rgba(216,207,187,0.09)';
+    ctx.lineWidth = 1;
+    for (let course = 1; course < 9; course += 1) {
+      const y = top + (H * course) / 9 + hash01(course * 3.7) * 2;
+      ctx.beginPath();
+      ctx.moveTo(x - W * 0.5, y);
+      ctx.lineTo(x + W * 0.5, y);
+      ctx.stroke();
+    }
+    // Fractures, at the 10 cm scale: short, angular, never parallel.
+    ctx.strokeStyle = 'rgba(14,17,20,0.5)';
+    for (let crack = 0; crack < 7; crack += 1) {
+      const cx = x - W * 0.5 + hash01(crack * 5.1) * W;
+      const cy = top + hash01(crack * 2.3 + 1) * H;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + (hash01(crack * 7.7) - 0.5) * W * 0.3, cy + hash01(crack * 3.3) * H * 0.16);
+      ctx.stroke();
+    }
+    // The dust layer, lightening the upward-facing hood toward `--fossil` (§6.2).
+    const dust = ctx.createLinearGradient(0, top, 0, top + H * 0.3);
+    dust.addColorStop(0, 'rgba(216,207,187,0.16)');
+    dust.addColorStop(1, 'rgba(216,207,187,0)');
+    ctx.fillStyle = dust;
+    ctx.fillRect(x - W * 0.5, top, W, H * 0.3);
+    ctx.restore();
+
+    // The cool rim off the sky key, on the left edge only (§6.3: one key light).
+    ctx.strokeStyle = 'rgba(138,152,160,0.34)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x - W * 0.5, ground);
+    ctx.lineTo(x - W * 0.42, shoulderY);
+    ctx.lineTo(x - W * 0.44, top + H * 0.12);
+    ctx.lineTo(x, top);
+    ctx.stroke();
+
+    /*
+     * The doorway, and what is behind it.
+     *
+     * The opening is the darkest shape in the frame until the leaf moves, and
+     * then it is the warmest: the light is *inside*, and the door is the only
+     * thing between the player and it. That is the whole picture the rescue is.
+     */
+    const arch = new Path2D();
+    arch.moveTo(doorLeft, ground);
+    arch.lineTo(doorLeft, doorTop + doorW * 0.42);
+    arch.quadraticCurveTo(doorLeft, doorTop, doorLeft + doorW * 0.5, doorTop);
+    arch.quadraticCurveTo(doorLeft + doorW, doorTop, doorLeft + doorW, doorTop + doorW * 0.42);
+    arch.lineTo(doorLeft + doorW, ground);
+    arch.closePath();
+    ctx.fillStyle = '#07090b';
+    ctx.fill(arch);
+
+    if (gape > 0.02) {
+      // Warm interior, seen through the opening.
+      ctx.save();
+      ctx.clip(arch);
+      const glow = ctx.createLinearGradient(0, ground, 0, doorTop);
+      glow.addColorStop(0, `rgba(255,165,61,${(0.5 * gape).toFixed(3)})`);
+      glow.addColorStop(1, `rgba(255,231,190,${(0.28 * gape).toFixed(3)})`);
+      ctx.fillStyle = glow;
+      ctx.fillRect(doorLeft, doorTop, doorW, doorH);
+      ctx.restore();
+
+      // The spill on the stone in front of it: a trapezoid of light, not a glow.
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.5 * gape;
+      const spill = ctx.createLinearGradient(x, ground, x - W * 1.1, ground);
+      spill.addColorStop(0, 'rgba(255,165,61,0.42)');
+      spill.addColorStop(1, 'rgba(255,165,61,0)');
+      ctx.fillStyle = spill;
+      ctx.beginPath();
+      ctx.moveTo(doorLeft, ground - 1);
+      ctx.lineTo(doorLeft + doorW, ground - 1);
+      ctx.lineTo(x + W * 0.1, ground + H * 0.05);
+      ctx.lineTo(x - W * 1.2, ground + H * 0.05);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    /*
+     * The leaf: brass-banded stone on a hinge at the left jamb.
+     *
+     * Swung open it is foreshortened rather than rotated — a door seen from the
+     * side of the branch the camera is on — which is the honest read at this
+     * scale and costs no transform stack.
+     */
+    const leafW = doorW * (1 - gape * 0.86);
+    if (leafW > 1) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(doorLeft, doorTop - 1, leafW, doorH + 1);
+      ctx.clip();
+      const leaf = ctx.createLinearGradient(doorLeft, 0, doorLeft + leafW, 0);
+      leaf.addColorStop(0, '#161b21');
+      leaf.addColorStop(1, '#0d1114');
+      ctx.fillStyle = leaf;
+      ctx.fill(arch);
+
+      // The grille: four brass bars in the head of the leaf, and the light from
+      // inside behind them once the door is shut (§9's *"through the grille"*).
+      const grilleTop = doorTop + doorH * 0.14;
+      const grilleH = doorH * 0.26;
+      const lit = Math.max(0, Math.min(1, (t - closedAt - DOOR_BEAT.closeMs / 1000) / 0.5));
+      if (lit > 0) {
+        const inner = ctx.createLinearGradient(0, grilleTop, 0, grilleTop + grilleH);
+        inner.addColorStop(0, `rgba(255,231,190,${(0.85 * lit).toFixed(3)})`);
+        inner.addColorStop(1, `rgba(255,165,61,${(0.55 * lit).toFixed(3)})`);
+        ctx.fillStyle = inner;
+        ctx.fillRect(doorLeft + doorW * 0.12, grilleTop, doorW * 0.76, grilleH);
+      }
+      ctx.strokeStyle = C.brass;
+      ctx.lineWidth = Math.max(1, doorW * 0.045);
+      for (let bar = 1; bar <= 4; bar += 1) {
+        const bx = doorLeft + doorW * (0.12 + (0.76 * bar) / 5);
+        ctx.beginPath();
+        ctx.moveTo(bx, grilleTop);
+        ctx.lineTo(bx, grilleTop + grilleH);
+        ctx.stroke();
+      }
+      // Two brass bands across the leaf, and the ring.
+      ctx.lineWidth = Math.max(1, doorW * 0.06);
+      ctx.strokeStyle = 'rgba(201,162,39,0.72)';
+      for (const level of [0.52, 0.82] as const) {
+        ctx.beginPath();
+        ctx.moveTo(doorLeft, doorTop + doorH * level);
+        ctx.lineTo(doorLeft + doorW, doorTop + doorH * level);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      if (lit > 0) {
+        /*
+         * The light reaching out of the grille — and the frame going warm.
+         *
+         * §6.4: *"The reward for a big bank is that the tree is briefly warm."*
+         * That is the entire win presentation the document allows, so this is it:
+         * a wide, slow warm wash off the door, over the stone the squad crossed.
+         * No confetti, no coin fountain, no shake.
+         */
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = 0.44 * lit;
+        drawGlow(ctx, glowSprite('warm'), x, grilleTop + grilleH * 0.5, doorW * 2.4);
+        ctx.globalAlpha = 0.16 * lit;
+        drawGlow(ctx, glowSprite('warm'), x, ground - H * 0.2, this.width * 1.1);
+        ctx.restore();
+      }
+    }
+
+    /*
+     * The brass hood and the bell.
+     *
+     * §S5 strikes the bell once, and the sound layer already does; this is the
+     * object it is struck on, so the sound has something on screen to belong to.
+     */
+    ctx.strokeStyle = C.brass;
+    ctx.lineWidth = Math.max(2, H * 0.024);
+    ctx.beginPath();
+    ctx.moveTo(doorLeft - doorW * 0.08, doorTop - H * 0.015);
+    ctx.lineTo(doorLeft + doorW * 1.08, doorTop - H * 0.015);
+    ctx.stroke();
+    // The jambs, so the brass frames the opening rather than crossing it.
+    ctx.lineWidth = Math.max(1, H * 0.012);
+    ctx.strokeStyle = 'rgba(201,162,39,0.62)';
+    for (const side of [-1, 1] as const) {
+      const jx = x + side * (doorW / 2 + doorW * 0.06);
+      ctx.beginPath();
+      ctx.moveTo(jx, doorTop - H * 0.015);
+      ctx.lineTo(jx, ground);
+      ctx.stroke();
+    }
+
+    const bellX = x + W * 0.36;
+    const bellY = top + H * 0.3;
+    const struck = Math.max(0, 1 - Math.abs(t - closedAt) * 2.4);
+    ctx.save();
+    ctx.translate(bellX, bellY);
+    ctx.rotate((calm() ? 0 : Math.sin(this.time * 9) * 0.12) * struck);
+    // The yoke it hangs from, then the bell: a shouldered cone with a lip and a
+    // clapper, which is what makes it a bell and not a lampshade.
+    const R = H * 0.05;
+    ctx.strokeStyle = 'rgba(201,162,39,0.8)';
+    ctx.lineWidth = Math.max(1, H * 0.008);
+    ctx.beginPath();
+    ctx.moveTo(-R * 0.8, -R * 0.7);
+    ctx.lineTo(R * 0.8, -R * 0.7);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, -R * 0.7);
+    ctx.lineTo(0, -R * 0.2);
+    ctx.stroke();
+    ctx.fillStyle = C.brass;
+    ctx.beginPath();
+    ctx.moveTo(-R * 0.9, R);
+    ctx.quadraticCurveTo(-R * 0.78, -R * 0.28, 0, -R * 0.28);
+    ctx.quadraticCurveTo(R * 0.78, -R * 0.28, R * 0.9, R);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,231,190,0.55)';
+    ctx.fillRect(-R * 0.9, R, R * 1.8, Math.max(1, R * 0.16));
+    ctx.fillStyle = 'rgba(201,162,39,0.9)';
+    ctx.beginPath();
+    ctx.arc(0, R * 1.28, Math.max(1, R * 0.16), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    /*
+     * The constellation: one saved light per lantern, stacked above the door.
+     *
+     * They arrive in the order the lanterns went in, which makes the count
+     * readable as a count — this is the picture of what was rescued, and §10.5's
+     * rule that a sub-stake return is never dressed as a win is why it is a row of
+     * small lights and not a fountain.
+     */
+    for (let index = 0; index < inside; index += 1) {
+      const entered = closedAt + 0.35 + index * 0.14;
+      const life = Math.max(0, Math.min(1, (t - entered) / 0.45));
+      if (life <= 0) continue;
+      const spread = (index - (lamps - 1) / 2) * W * 0.3;
+      const dy = top - H * (0.16 + (index % 2) * 0.1);
+      const dot = { x: x + spread, y: dy };
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.5 * life;
+      drawGlow(ctx, glowSprite('brass'), dot.x, dot.y, H * 0.3);
+      ctx.restore();
+      ctx.fillStyle = C.lampCore;
+      ctx.globalAlpha = life;
+      ctx.beginPath();
+      ctx.arc(dot.x, dot.y, Math.max(1.4, H * 0.017), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.restore();
   }
 
   /**
@@ -1246,6 +1775,7 @@ class Stage {
   private paintFigures(ctx: CanvasRenderingContext2D, delta: number): void {
     const height = this.figureHeight();
     const bodies = [...this.bodies.values()].sort((a, b) => a.lane - b.lane || a.u - b.u);
+    const doorTime = this.houseTime();
 
     for (const body of bodies) {
       body.phase += delta;
@@ -1271,10 +1801,28 @@ class Stage {
         }
         if (body.hero) this.heroSlot = body.slot;
         if (body.fell > 4.5) body.pose = 'gone';
+      } else if (this.scene.mode === 'door') {
+        /*
+         * §S5's file into the doorway: one at a time, and only once it is open.
+         *
+         * The walk is at a constant rate rather than the eased approach every
+         * other screen uses, because an asymptote never arrives — and this one has
+         * to arrive, on a schedule the screen above the stage is timing its own
+         * beats against (`DOOR_BEAT`).
+         */
+        const due = (DOOR_BEAT.openMs + body.order * DOOR_BEAT.perLanternMs) / 1000;
+        if (doorTime >= due) body.u = Math.min(DOOR_U, body.u + delta * 1.15);
+        if (calm()) body.u = DOOR_U;
+        if (body.u >= DOOR_U - 0.004 && !body.inside) {
+          body.inside = true;
+          body.pose = 'home';
+        }
       } else {
         body.u += (body.targetU - body.u) * Math.min(1, delta * (calm() ? 20 : 2.6));
       }
-      if (body.pose === 'gone') continue;
+      // Inside the Lamp House: safe, and off the branch. The light it carried is
+      // the constellation above the door from here on.
+      if (body.inside || body.pose === 'gone') continue;
       this.paintKindling(ctx, body, height);
       if (this.scene.names && height >= 26) this.paintName(ctx, body, height);
     }
@@ -1284,7 +1832,7 @@ class Stage {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (const body of bodies) {
-      if (body.light <= 0.02) continue;
+      if (body.light <= 0.02 || body.inside) continue;
       const { x, y } = this.figureAnchor(body, height);
       const lanternY = y - height * 0.56;
       const radius = height * (2.4 + this.bloom * 2.2);
@@ -1316,19 +1864,51 @@ class Stage {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
     const fading = body.pose === 'fall' ? Math.max(0, 1 - body.fell / 2.2) : 1;
-    ctx.fillStyle =
+    // A dead runner's name is the reading that matters most on the screen it is
+    // on, so it takes the *text* tint of `--extinguish` (5.4:1) rather than the
+    // object colour (2.12:1) the round-1 build painted it in.
+    const ink =
       body.pose === 'home'
         ? `rgba(201,162,39,${fading})`
         : body.light < 0.5
-          ? `rgba(90,78,99,${fading})`
+          ? `rgba(156,143,174,${fading})`
           : `rgba(138,152,160,${fading})`;
+    /*
+     * Two rows, and a leader line down to the figure it belongs to.
+     *
+     * Alternating rows keep five names from overlapping — adjacent figures are
+     * ~40 px apart and same-row names are ~80. What that alone does not do is say
+     * *which figure* a label belongs to: the round-2 review found five labels
+     * floating at five heights reading as a debug overlay, and on a 3+1 fork the
+     * thin-limb runner's name drawn above the broad limb, next to the three
+     * runners she is not with — on the one screen whose whole point is knowing
+     * who took the thin limb. A tag needs a string to the thing it is tied to
+     * (§6.5: *"as if written on a luggage tag tied to the figure"*), so the label
+     * is anchored over its own figure's *lane* and the line is drawn.
+     */
+    const row = [...this.bodies.keys()].sort((a, b) => a - b).indexOf(body.slot) % 2;
+    /*
+     * On a fork the thin limb's names go *below* their own figures.
+     *
+     * Above, they land in the air over the broad limb — which is how `Sable` came
+     * to be labelled among the three runners she is not with. There is nothing
+     * under the thin limb but fog, so that is where its labels belong, and the
+     * two lanes' names can then never be read as one row.
+     */
+    const under = body.lane > 0 && this.scene.lanes > 1;
+    const top = under ? y + height * 0.58 : y - height * (row === 0 ? 1.2 : 1.58);
+    ctx.strokeStyle = ink;
+    ctx.globalAlpha = 0.42;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, under ? y + 2 : top + 4);
+    ctx.lineTo(x, under ? top - 11 : y - height * 0.98);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = ink;
     ctx.shadowColor = 'rgba(14,17,20,0.95)';
     ctx.shadowBlur = 4;
-    // Two rows, alternating along the file, so five names never overlap: adjacent
-    // figures are ~40 px apart and same-row names are ~80, which fits every default
-    // name in `DEFAULT_RUNNER_NAMES` at the secondary size.
-    const row = [...this.bodies.keys()].sort((a, b) => a - b).indexOf(body.slot) % 2;
-    ctx.fillText(body.name, x, y - height * (row === 0 ? 1.2 : 1.58));
+    ctx.fillText(body.name, x, top);
     ctx.restore();
   }
 
@@ -1731,7 +2311,14 @@ class Stage {
     if (this.spot < 0.99) {
       const strength = 1 - this.spot;
       const focus = this.bodies.size === 1 ? [...this.bodies.values()][0] : undefined;
-      const x = focus ? this.place(focus.u, focus.lane).x : this.width * 0.5;
+      // On the door screen the subject is the door, whatever is still walking
+      // toward it: the narrowing is what puts the frame's attention on the light.
+      const x =
+        this.scene.mode === 'door'
+          ? DOOR_U * this.width
+          : focus
+            ? this.place(focus.u, focus.lane).x
+            : this.width * 0.5;
       const gradient = ctx.createRadialGradient(
         x,
         this.height * 0.5,

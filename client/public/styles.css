@@ -59,6 +59,18 @@
   --ember: #d2621c;
   --brass: #c9a227;
   --extinguish: #5a4e63;
+  /*
+   * The same violet, as *text*.
+   *
+   * §6.1's token is an object colour and it stays one — the dead glass, the lost
+   * pip and the fallen figure are all still painted `--extinguish`. Used as type
+   * on `--night` it measures 2.12:1, which is below AA and below AA-large, and
+   * §10.8 does not have a clause for the sad sentences. This tint is the same hue
+   * and chroma lifted to 5.4:1 on `--night` (6.3:1 on `--void`), so "Wren did not
+   * make it" and the `0.000` beside it are readable by everyone the rest of the
+   * screen is readable by.
+   */
+  --extinguish-text: #9c8fae;
   --verify: #7fd4ff;
   --alert: #e0442f;
 
@@ -456,6 +468,25 @@ button {
   transition: color var(--beat) var(--curve);
 }
 
+/*
+ * §10.8's 44 pt target, taken out of the touch area rather than out of the ink.
+ *
+ * The round-2 review measured `compare` at 53 x 22 and `full odds ▸` at 62 x 22,
+ * four of each on the core decision screen. A 44 px-tall underlined word inside a
+ * card footer would push an odds figure off the card — which is the trade that
+ * produced the SHELTER overlap — so the hit box grows and the type does not: the
+ * padding is negative-margined back out of the flow, so the control is 44 pt to a
+ * finger and unchanged to the layout.
+ */
+.link.tap {
+  position: relative;
+  padding: 11px 6px;
+  margin: -11px -6px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+
 .link:active {
   color: var(--mist);
 }
@@ -620,9 +651,10 @@ button {
   transition: opacity var(--beat) var(--curve), color var(--beat) var(--curve);
 }
 
+/* A name is text, so it takes the text tint and enough opacity to be read. */
 .stage-tag.lost {
-  color: var(--extinguish);
-  opacity: 0.5;
+  color: var(--extinguish-text);
+  opacity: 0.85;
 }
 
 .stage-tag.home {
@@ -785,8 +817,9 @@ button {
   color: var(--mist);
 }
 
+/* Money, so the numeral floor and the contrast floor both apply (§6.5, §10.8). */
 .pip.lost .value {
-  color: var(--extinguish);
+  color: var(--extinguish-text);
   text-decoration: line-through;
 }
 
@@ -1129,8 +1162,22 @@ button {
    * Pushed down by the body's own flex growth, not by an auto margin: an auto
    * margin in a container that has started scrolling positions against the box
    * rather than the content, and drew the footer over the chart caption.
+   *
+   * And pinned to the bottom of the card when the card scrolls. The two things
+   * on this line are the honest-return disclosure and the way to the full odds;
+   * §3.2 and §10.5 both make them card-face furniture, so they are the one part
+   * of a card that may not go under the fold. The body scrolls beneath it.
    */
-  padding-top: 4px;
+  position: sticky;
+  /* Flush with the card's own bottom edge, so nothing shows below it: the card's
+   * bottom padding is where the round-1 build let a clipped row peek out. */
+  bottom: -8px;
+  /* Opaque, not translucent: text read *through* a footer is the same defect as
+   * text drawn under one. The card body is hidden behind it, cleanly, and the
+   * fade above says there is more of it. */
+  background: #171d23;
+  margin: 0 -12px -8px;
+  padding: 5px 12px 6px;
   border-top: var(--hairline);
   line-height: 1.25;
   font-size: var(--floor-secondary);
@@ -1138,7 +1185,39 @@ button {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  gap: 14px;
+}
+
+/* The two controls on the footer never wrap: `full odds ▸` broken across two
+ * lines is a control that looks like a mistake. The disclosure line wraps. */
+.card-footer .row {
+  flex: none;
+  gap: 12px;
+  white-space: nowrap;
+}
+
+.card-footer .rtp {
+  min-width: 0;
+}
+
+/*
+ * The scroll cue.
+ *
+ * SPLIT and SHELTER carry a chart, a comparison and their fields, and at a
+ * readable chart height that is more than the rail can give them on a 390 x 844
+ * screen. The card scrolls — which the layout rules above always claimed it
+ * would — so it has to *look* scrollable: a short fade above the pinned footer,
+ * drawn only where content passes under it.
+ */
+.card-footer::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 18px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(20, 25, 30, 0) 0%, rgba(20, 25, 30, 0.92) 100%);
 }
 
 /* ------------------------------------------------------- distribution bars */
@@ -1155,7 +1234,7 @@ button {
   gap: 4px;
   position: relative;
   flex: 1 1 auto;
-  min-height: 28px;
+  min-height: 58px;
   /*
    * The chart is what the card spends spare height on.
    *
@@ -1184,6 +1263,8 @@ button {
   width: 100%;
   display: flex;
   align-items: flex-end;
+  /* The ghost outline of the other balance is positioned against this. */
+  position: relative;
   /* The trough the bar sits in, so an empty outcome is still a place. */
   background: linear-gradient(180deg, rgba(14, 17, 20, 0) 0%, rgba(14, 17, 20, 0.45) 100%);
   border-radius: 2px 2px 0 0;
@@ -1219,20 +1300,57 @@ button {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  min-height: 62px;
+  /*
+   * The floor is a *readable* distribution, not a present one.
+   *
+   * At the old 62 px floor the chart on SPLIT and SHELTER collapsed to 44 px of
+   * bar, where a 1.30% outcome and a 3.39% outcome are both one pixel and §3.2's
+   * requirement — see which side of the break-even the mass is on before reading
+   * a digit — is not met by the object it is a requirement about. 94 px keeps
+   * 58 px of bar under the axis row and the caption on every card, which is where
+   * the smallest outcome on the busiest card is still a bar with a top on it.
+   */
+  min-height: 94px;
 }
 
 .bars-block .bars {
   margin-bottom: 2px;
 }
 
-/* The one child of a card that takes the spare height. Declared after the
- * `.card > *` floor above, so it wins on order rather than on `!important`. */
+/*
+ * The one child of a card that takes the spare height. Declared after the
+ * `.card > *` floor above, so it wins on order rather than on `!important`.
+ *
+ * `min-height: min-content` and not `0`, and that is the SHELTER blocker: at `0`
+ * the flex algorithm was free to shrink this box below the rows inside it, and
+ * because the rows themselves refuse to shrink they simply painted outside it —
+ * the round-2 review measured `Expected survivors 3.36` drawn through the
+ * `Returns 95.5%` footer with an 11 px overlap, on the default state of a card,
+ * with an odds figure and the honest-return line defacing each other. At
+ * `min-content` the box stops at its contents and the card scrolls instead,
+ * which is what the paragraph above always claimed happened.
+ */
 .card-body {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  min-height: min-content;
+}
+
+/*
+ * A card that also carries a comparison gives the chart a shorter floor.
+ *
+ * SPLIT and SHELTER carry a five-row table under the chart, and on a 390 x 844
+ * screen the two do not both fit at the tall floor. The chart keeps enough height
+ * to answer §3.2's question — which side of the break-even the mass sits on,
+ * before reading a digit — and the rows it is compared against get the rest.
+ */
+.card-body:has(.compare-table) .bars-block {
+  min-height: 76px;
+}
+
+.card-body:has(.compare-table) .bars {
+  min-height: 46px;
 }
 
 .bar .axis {
@@ -1282,25 +1400,63 @@ button {
   min-height: 56px;
 }
 
-/* The fork's shared axis: both balances, side by side, neither highlighted. */
-.bars-pair {
-  flex: 1 1 auto;
-  min-height: 46px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
+/*
+ * The fork's shared axis: one full-width chart carrying both balances.
+ *
+ * §3.3 asks for `3 + 2` and `4 + 1` *"rendered on a shared axis"* so the wider
+ * spread is visible rather than argued. The first build did that as two
+ * half-width charts, and the round-2 review measured the result: 44 px tall, with
+ * a 1.30% outcome and a 3.39% outcome both drawn as 1 px lines and no label
+ * saying which chart was which. So the selected balance is the fill and the other
+ * is a hairline over the same bars — one scale, one axis, full width, and the
+ * difference between them is a *shape* difference rather than a colour one
+ * (§10.8: colour is never the sole carrier).
+ */
+.bar .ghost {
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  height: 2px;
+  border-radius: 1px;
+  background: rgba(216, 207, 187, 0.85);
+  box-shadow: 0 0 0 1px rgba(14, 17, 20, 0.6);
+  pointer-events: none;
 }
 
-.bars-half {
-  border-bottom: 2px solid transparent;
+.bars-legend {
   display: flex;
-  flex-direction: column;
-  min-height: 0;
-  transition: border-color var(--beat) var(--curve);
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  font-size: var(--floor-secondary);
+  color: var(--fog-far);
 }
 
-.bars-half.on {
-  border-bottom-color: var(--fossil);
+.bars-legend .key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.bars-legend .key i {
+  width: 12px;
+  height: 10px;
+  display: inline-block;
+  border-radius: 1px;
+}
+
+.bars-legend .key.filled i {
+  background: linear-gradient(180deg, var(--fossil) 0%, rgba(216, 207, 187, 0.45) 100%);
+}
+
+.bars-legend .key.ghost i {
+  height: 2px;
+  background: rgba(216, 207, 187, 0.85);
+}
+
+.bars-legend .key .money {
+  color: var(--mist);
 }
 
 /* -------------------------------------------------------------- fork ctl */
@@ -1323,7 +1479,8 @@ button {
   text-align: right;
   border-bottom: 1px solid rgba(138, 152, 160, 0.1);
   font-weight: 400;
-  line-height: 1.25;
+  /* Tight rows, so five of them and a chart fit on one card face. */
+  line-height: 1.18;
   color: var(--fog-far);
 }
 
@@ -1338,6 +1495,21 @@ button {
   font-variant-numeric: tabular-nums;
   font-size: var(--floor-numeral);
   color: var(--mist);
+}
+
+/*
+ * The label column is prose, so it is the body face (§6.5).
+ *
+ * §6.5 reserves tabular monospace for money and multipliers. The round-2 review
+ * found `Chance of that` and `Nobody makes it` set in mono on the SPLIT card and
+ * in the body face on the other three — the same information in two faces on two
+ * cards of the same screen. The mono rule above is for the numeric cells; this
+ * takes the label column back out of it.
+ */
+.compare-table td.row-label {
+  font-family: var(--body);
+  font-size: var(--floor-secondary);
+  color: var(--fog-far);
 }
 
 .compare-table th.on,
@@ -1703,6 +1875,44 @@ button {
   margin-bottom: 8px;
 }
 
+/*
+ * The sheet's head, and the one control that closes it.
+ *
+ * It was a 32 x 25 px `close` link, which is both under §10.8's 44 pt floor and —
+ * until the sheet was made a builder rather than a built tree — the only escape
+ * from a sheet that had emptied itself behind a scrim. The smallest control in
+ * the build was guarding the worst dead end in it. This one is a 44 pt square
+ * with a real glyph in it, at the top right where a sheet's dismiss belongs.
+ */
+.sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sheet-close {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  margin: -10px -8px 0 0;
+  border: none;
+  background: none;
+  color: var(--fog-far);
+  font-family: var(--body);
+  font-size: var(--floor-body);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--beat) var(--curve);
+}
+
+.sheet-close:active {
+  color: var(--mist);
+}
+
 .odds-table {
   width: 100%;
   border-collapse: collapse;
@@ -1847,8 +2057,20 @@ button {
   color: var(--money-banked);
 }
 
+/*
+ * The loss vocabulary, legible.
+ *
+ * `--extinguish` is an *object* colour — §6.1 gives it to dead lantern glass and
+ * to lost runners in the world — and the round-1 client used the token itself as
+ * a text colour on the night surface, which measures 2.12:1. That is below AA and
+ * below AA-large, and it was carrying the one reading a player most needs: which
+ * Kindling died, and the 0.000 where their share used to be. §10.8 requires 4.5:1
+ * on body text, so the *text* tint of that hue is its own token: the same violet,
+ * lifted until it passes (measured 5.6:1 on `--night`). The palette token is
+ * untouched and still paints the glass.
+ */
 .lost-name {
-  color: var(--extinguish);
+  color: var(--extinguish-text);
 }
 
 /*
@@ -1988,6 +2210,128 @@ button {
   justify-content: center;
   color: var(--fog-mid);
   font-size: var(--floor-secondary);
+}
+
+/* --------------------------------------------------------- the two endings */
+
+/*
+ * The hero figure (§9, §6.5).
+ *
+ * §6.5 writes 28 pt as the *floor* for the claim, and §9 asks the rescue to be
+ * given the same production value as the biggest win. The round-1 build had the
+ * banked figure at 15 px — the size of the status-bar balance — under a 28 px
+ * wipe headline, so the loss shouted and the win whispered. This is the
+ * correction: one figure, 46 px, tabular, brass, with its label above it, and no
+ * kinetics at all. §6.4 allows exactly this much — *"celebration is light and
+ * sound, not kinetics"* — so the size, the colour and the bloom behind it are the
+ * whole celebration, and nothing bounces, shakes or overshoots.
+ */
+.hero {
+  text-align: center;
+  padding: 4px 0 2px;
+}
+
+.hero-label {
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: var(--floor-secondary);
+  color: var(--fog-far);
+  margin-bottom: 2px;
+}
+
+.hero-figure {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1;
+  font-size: 46px;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--brass);
+  /* The frame going briefly warm, on the figure itself (§6.4's one reward). */
+  text-shadow: 0 0 28px rgba(201, 162, 39, 0.4);
+}
+
+/* The other ending: the same weight, none of the light (§S6, §10.2). */
+.hero.cold .hero-figure {
+  color: var(--mist);
+  text-shadow: none;
+}
+
+.hero.cold .hero-label {
+  color: var(--mist);
+}
+
+.hero-note {
+  margin-top: 6px;
+  font-size: var(--floor-secondary);
+  color: var(--fog-far);
+}
+
+/*
+ * A settled screen while its beat is still playing.
+ *
+ * §S6 asks for *"two full seconds of fog and wind with no UI at all"* and §9 asks
+ * for the door to be the whole frame while it opens. Both are the same rule: for
+ * the length of the beat the world is the screen, so the panel and the footer are
+ * not drawn — not empty, not disabled, not there. The round-1 build left the
+ * footer mounted through both, which put a brass exit button under a lantern that
+ * was still falling.
+ */
+.screen.settled.held .surface {
+  /* Not empty — absent. The world is the whole screen for the length of the
+   * beat, which is what "no UI at all" means. */
+  display: none;
+}
+
+.screen.settled.held .footer {
+  display: none;
+}
+
+/*
+ * A terminal screen's words, over its world.
+ *
+ * The panel under the stage cost the two most composed screens in the game a
+ * third of their height — the round-2 review measured 255 px of empty surface on
+ * one of them — and made the stage resize under the door in the middle of its own
+ * beat. Over the frame, the scene keeps its full height, the type has a scrim
+ * to sit on, and the only thing that moves during the beat is the type arriving.
+ */
+.settle-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 22px var(--gutter) 20px;
+  text-align: center;
+  background: linear-gradient(
+    180deg,
+    rgba(14, 17, 20, 0) 0%,
+    rgba(14, 17, 20, 0.66) 34%,
+    rgba(14, 17, 20, 0.9) 100%
+  );
+}
+
+.settle-panel p {
+  margin: 6px 0 0;
+}
+
+/*
+ * S4, sized so the slack goes to the world.
+ *
+ * The panel takes the height its copy needs and the stage takes everything left
+ * over, instead of a fixed-height stage above a plate with 255 px of nothing in
+ * it. It is also what gives §9's descent room on the resolve screen: a fall on
+ * the thin limb was playing inside a 200 px strip with the panel already mounted
+ * under it.
+ */
+.screen.resolving .viewport {
+  flex: 1 1 auto;
+  max-height: none;
+}
+
+.screen.resolving .surface {
+  flex: 0 1 auto;
 }
 
 /*

@@ -59,6 +59,64 @@ export function micro(value: string | bigint): bigint {
 }
 
 /**
+ * A loss, floored **away** from zero.
+ *
+ * `credits()` truncates the magnitude, which is player-safe on a credit — the
+ * figure shown is never more than the figure paid. On a *negative* net the same
+ * truncation runs the other way: a true net of `-10.045000` displayed as
+ * `-10.04` understates the loss by a hundredth, which is the one direction a
+ * responsible-play figure may not err in (round-2 review found exactly that in
+ * the session strip). So the magnitude is rounded up when there is anything
+ * below the last shown place, and the arithmetic stays in `bigint`.
+ */
+export function creditsSigned(value: string | bigint, places = 2): string {
+  const amount = micro(value);
+  if (amount >= 0n) return credits(amount, places);
+  const magnitude = -amount;
+  const unit = 10n ** BigInt(6 - places);
+  const ceiled = ((magnitude + unit - 1n) / unit) * unit;
+  return `-${credits(ceiled, places)}`;
+}
+
+/**
+ * A server-rendered decimal string, re-rendered at fewer places, half-up.
+ *
+ * One precision ladder, held everywhere: probabilities at two places,
+ * multipliers at three. The round-2 review found the same quantity printed as
+ * `49.24%` on a route card and `49.2393% likely` in the side-bet sheet, and a
+ * multiplier as `1.190x` on a card and `1.93950933x` in a worked example. The
+ * server publishes both a long decimal and the exact fraction; the *card's*
+ * rendering is round-half-up (`server/money.ts` `rounded`), so this reproduces
+ * that rule rather than truncating — a card and a sheet that disagree in the
+ * last digit disagree about the odds.
+ *
+ * It is string arithmetic on digits, deliberately: `Number.parseFloat` on a
+ * published probability is how a displayed figure stops being the published one.
+ */
+export function places(decimal: string, count: number): string {
+  const match = /^(-?)(\d+)(?:\.(\d*))?$/u.exec(decimal.trim());
+  if (!match) return decimal;
+  const [, sign, whole, fractionPart = ''] = match;
+  const digits = (fractionPart as string).padEnd(count + 1, '0');
+  const kept = `${whole}${digits.slice(0, count)}`;
+  const carry = Number(digits[count]) >= 5;
+  const scaled = (BigInt(kept) + (carry ? 1n : 0n)).toString().padStart(count + 1, '0');
+  const head = scaled.slice(0, scaled.length - count);
+  const tail = scaled.slice(scaled.length - count);
+  return count === 0 ? `${sign}${head}` : `${sign}${head}.${tail}`;
+}
+
+/** `49.2393%` -> `49.24%`, on the card's own rounding rule. */
+export function pct(value: string): string {
+  return `${places(value.replace('%', ''), 2)}%`;
+}
+
+/** `1.93950933` -> `1.940x`, the one multiplier format in the client. */
+export function multiplier(value: string): string {
+  return `${places(value.replace('x', ''), 3)}x`;
+}
+
+/**
  * Did this round end with nobody coming home?
  *
  * The only honest source for that is the settlement's own `kind`, and reading it
