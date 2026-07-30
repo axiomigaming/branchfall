@@ -456,6 +456,9 @@ class Stage {
    */
   private houseStart = -1;
 
+  /** §10.7's watermark lines, or null when nothing is being recorded. */
+  private watermark: readonly string[] | null = null;
+
   private dust: { x: number; y: number; vx: number; vy: number; life: number }[] = [];
 
   /* ------------------------------------------------------------------ mount */
@@ -483,6 +486,31 @@ class Stage {
     if (this.canvas.parentElement !== host) host.appendChild(this.canvas);
     this.measure();
     this.run();
+  }
+
+  /**
+   * The canvas itself, for §9's clip export and for nothing else.
+   *
+   * `client/src/clip.ts` captures this element's stream. It is deliberately the
+   * *canvas* and not the screen: §10.7 forbids a stake, a claim, a multiplier, a
+   * balance or a result figure from appearing in the export, and the stage draws
+   * no numerals at all — so a canvas capture cannot carry money, whatever the
+   * screen around it is showing.
+   */
+  surface(): HTMLCanvasElement | null {
+    return this.canvas;
+  }
+
+  /**
+   * §10.7's watermark, drawn into the frames while the recorder is running.
+   *
+   * *"The watermark is the round id, the verification code, the game name, an 18+
+   * mark and the operator's safer-gambling URL."* It is drawn by the stage rather
+   * than composited afterwards because the export is a capture of this canvas,
+   * so anything that is not painted here is not in the file.
+   */
+  mark(lines: readonly string[] | null): void {
+    this.watermark = lines;
   }
 
   /** Called when a screen without a stage takes over, so the loop can stop. */
@@ -905,6 +933,7 @@ class Stage {
     ctx.restore();
 
     this.paintVignette(ctx);
+    this.paintWatermark(ctx);
   }
 
   /* --------------------------------------------------------- static layers */
@@ -1425,11 +1454,17 @@ class Stage {
          * That is the entire win presentation the document allows, so this is it:
          * a wide, slow warm wash off the door, over the stone the squad crossed.
          * No confetti, no coin fountain, no shake.
+         *
+         * It is *small* over the door and wide over the branch, deliberately. A
+         * big additive glow centred on the doorway washed the grille bars and the
+         * brass bands out of the picture and left the door reading as an open
+         * amber hole — the light was drawn over the object it is supposed to be
+         * coming through.
          */
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha = 0.44 * lit;
-        drawGlow(ctx, glowSprite('warm'), x, grilleTop + grilleH * 0.5, doorW * 2.4);
+        ctx.globalAlpha = 0.2 * lit;
+        drawGlow(ctx, glowSprite('warm'), x, grilleTop + grilleH * 0.5, doorW * 1.5);
         ctx.globalAlpha = 0.16 * lit;
         drawGlow(ctx, glowSprite('warm'), x, ground - H * 0.2, this.width * 1.1);
         ctx.restore();
@@ -2418,6 +2453,33 @@ class Stage {
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, this.width, this.height);
     }
+  }
+
+  /**
+   * §10.7's watermark: the round id, the code, the game, an age mark and a
+   * safer-gambling reference — and no money, because there is none to draw.
+   *
+   * It is on screen while the recorder runs, which is also the honest thing: the
+   * player can see exactly what the file will carry before they decide to save
+   * it. Top-left and under the arena label, because the *bottom* of this canvas
+   * is where a settled screen puts its words — a watermark there is legible in
+   * the exported file and illegible in the game, which is the wrong way round.
+   */
+  private paintWatermark(ctx: CanvasRenderingContext2D): void {
+    const lines = this.watermark;
+    if (!lines || lines.length === 0) return;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.save();
+    ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.shadowColor = 'rgba(14,17,20,0.9)';
+    ctx.shadowBlur = 3;
+    lines.forEach((line, index) => {
+      ctx.fillStyle = index === 0 ? 'rgba(216,207,187,0.85)' : 'rgba(214,221,224,0.62)';
+      ctx.fillText(line, 14, 124 + index * 14);
+    });
+    ctx.restore();
   }
 }
 

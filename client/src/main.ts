@@ -30,6 +30,7 @@ import {
   wasWipe,
 } from './api.js';
 import * as sound from './audio.js';
+import * as clip from './clip.js';
 import { COPY } from './copy.js';
 import { rederive, type Rederivation } from './derive.js';
 import { el, frag, type Child } from './dom.js';
@@ -158,6 +159,17 @@ interface State {
    * | 3 | the way out |
    */
   settleStep: number;
+  /**
+   * Whether this round has contained a Last Lamp beat (§9).
+   *
+   * One light carrying the whole claim across, on any arena and at any squad
+   * size — including the fork's thin limb, which is the variant §9 says *"only
+   * exists because of the fork"*. It is what decides whether S7 offers the clip,
+   * and it is a fact about the round rather than about the ending: §10.7 requires
+   * *both* endings to export, and a losing export that is *"degraded, delayed or
+   * hidden"* is the specific thing it forbids.
+   */
+  lastLampRound: boolean;
 }
 
 const state: State = {
@@ -189,6 +201,7 @@ const state: State = {
   rederiving: false,
   beatStep: 2,
   settleStep: 3,
+  lastLampRound: false,
 };
 
 /**
@@ -1971,6 +1984,10 @@ function runScreen(): HTMLElement {
   // §9's beat, and the condition for it is a fact about the frame: one runner is
   // carrying the whole claim across.
   const lastLamp = frame.live.length === 1;
+  // It is also a fact about the *round* from that moment on, whichever way the
+  // round ends: §10.7 requires both endings to export, so S7 reads this and not
+  // the settlement.
+  if (lastLamp) state.lastLampRound = true;
   /*
    * The travel tick stops the moment a command is in flight.
    *
@@ -2336,6 +2353,7 @@ function enterSettled(wiped: boolean): void {
   // Both endings open on the world and nothing else, and step up from there.
   state.settleStep = 0;
   heroRolled = false;
+  startClip();
   if (!wiped) {
     state.view = 'banked';
     // §S5 / §9: a door, a bell and a frame that goes briefly warm. The bell's
@@ -2550,6 +2568,96 @@ function bankedScreen(): HTMLElement {
         )
       : null,
   );
+}
+
+/** S7's clip row: the save, or the one-time opt-in, or nothing at all. */
+function clipBlock(): Child[] {
+  if (!state.lastLampRound || !clip.supported()) return [];
+  // Six seconds of beat can outlast the tap that leaves it, so the screen says
+  // what is happening rather than showing nothing and then changing its mind.
+  if (clip.recording())
+    return [
+      el('hr', {}),
+      el('p', { class: 'tiny', text: 'Saving the last six seconds of that beat…' }),
+    ];
+  const saved = clip.ready();
+  if (saved)
+    return [
+      el('hr', {}),
+      el('button', {
+        class: 'btn quiet',
+        text: 'Save the clip',
+        onClick: () => clip.save(),
+      }),
+      el('p', {
+        class: 'tiny',
+        text: 'Six seconds of the beat as it played, watermarked with the round id and its verification code, saved to this device. No money figure is in the file, and saving it earns nothing.',
+      }),
+    ];
+  if (clip.asked()) return [];
+  return [
+    el('hr', {}),
+    el('p', {
+      class: 'tiny',
+      text: 'That round had a Last Lamp beat in it. This build can save the next one as a six-second clip — watermarked with the round id, its verification code and an 18+ mark, carrying no money figure, kept on this device. It is off unless you turn it on, it earns you nothing, and you will not be asked again.',
+    }),
+    el(
+      'div',
+      { class: 'btn-row' },
+      el('button', {
+        class: 'btn',
+        text: 'Turn clips on',
+        onClick: () => {
+          clip.setOptedIn(true);
+          render();
+        },
+      }),
+      el('button', {
+        class: 'btn',
+        text: 'No clips',
+        onClick: () => {
+          clip.setOptedIn(false);
+          render();
+        },
+      }),
+    ),
+  ];
+}
+
+/**
+ * §9's clip, recorded as the beat plays (§10.7's terms in `client/src/clip.ts`).
+ *
+ * The two endings are the two clips: the door closing on the last lantern, and
+ * the lantern going down. Both are the settled screen's own beat, so this is one
+ * call in one place — and it is deliberately a capture of what is happening
+ * rather than a replay of it, because the verification code on the watermark is a
+ * claim that this is what the round did.
+ *
+ * It does nothing at all unless the player has turned the export on, which is
+ * off by default and never re-prompted.
+ */
+function startClip(): void {
+  clip.discard();
+  const frame = state.frame;
+  if (!frame || !state.lastLampRound || !clip.optedIn()) return;
+  const canvas = stage.surface();
+  if (!canvas) return;
+  const code = frame.roundId.slice(-6).toUpperCase();
+  // §10.7's watermark, and every line of it is required: the round id and the
+  // verification code (§9), the game, the age mark and the safer-gambling
+  // reference. No stake, no claim, no multiplier, no balance, no result.
+  stage.mark([
+    'BRANCHFALL',
+    `round ${frame.roundId.slice(0, 8)} · verify ${code}`,
+    '18+ · begambleaware.org · free play, no real money',
+  ]);
+  clip.record(canvas, frame.roundId, code);
+  window.setTimeout(() => stage.mark(null), clip.CLIP_MS);
+  // The offer belongs to the round it was recorded on, so the screen that offers
+  // it is told when the file exists rather than being left with a stale answer.
+  clip.onReady(() => {
+    if (state.view === 'summary') render();
+  });
 }
 
 /** `'0.00'` the first time a settled screen draws its figure, and never again. */
@@ -2769,6 +2877,17 @@ function summaryScreen(): HTMLElement {
           : `−${creditsSigned(credited - staked).slice(1)}`,
       ),
       el('p', { class: 'tiny', text: `Return ${settlement?.returnMultiple ?? '—'}x on everything staked.` }),
+      /*
+       * §9's clip, offered on the round it belongs to (§10.7's terms).
+       *
+       * The offer appears after any round that contained a Last Lamp beat, won or
+       * lost, and the losing one is not degraded, delayed or hidden. Saving is a
+       * file on this device and nothing else: no upload, no acknowledgement, no
+       * bonus, no progress — §10.7's no-incentive rule with no telemetry behind
+       * it. The first time the beat could have been recorded, the offer is the
+       * opt-in instead, asked once and never again.
+       */
+      ...clipBlock(),
     ),
     el(
       'div',
@@ -3307,6 +3426,39 @@ function settingsScreen(): HTMLElement {
       toggle('Ghost Line', session.ghostLineEnabled, (value) => ({ ghostLineEnabled: value })),
       toggle('Side bets', session.sideBetsOptedIn, (value) => ({ sideBetsOptedIn: value })),
       toggle('Show every control', session.showEverything, (value) => ({ showEverything: value })),
+      /*
+       * §9's clip export, and §10.7's switch for it.
+       *
+       * Off by default, one tap to turn off permanently, never re-prompted. It is
+       * a *device* preference rather than a session one, because the session is
+       * server state and this build's server is closed — the copy says so rather
+       * than implying an account-level setting the build does not have. The
+       * operator's per-jurisdiction advertising switch (§10.7) sits above this
+       * one and is not this repository's to implement.
+       */
+      ...(clip.supported()
+        ? [
+            el(
+              'div',
+              { class: 'spread' },
+              el('span', { text: 'Save the clip' }),
+              el('button', {
+                class: 'chip',
+                'aria-pressed': String(clip.optedIn()),
+                text: clip.optedIn() ? 'on' : 'off',
+                onClick: () => {
+                  sound.tap('toggle');
+                  clip.setOptedIn(!clip.optedIn());
+                  render();
+                },
+              }),
+            ),
+            el('p', {
+              class: 'tiny',
+              text: 'After a round with a Last Lamp beat in it, the six seconds of that beat can be saved as a watermarked video on this device — the round id, its verification code and an 18+ mark, and no stake, claim or balance anywhere in the file. Saving earns nothing and is never asked for. This preference is kept on this device, not on an account.',
+            }),
+          ]
+        : []),
       el(
         'div',
         { class: 'spread' },
