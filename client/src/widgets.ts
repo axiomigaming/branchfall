@@ -173,10 +173,10 @@ export function claimMeter(options: {
            * the identity lives on the rim, which is brass, which is an object.
            */
           'data-kin': String(member.slot % 5),
-          title: `${member.name} — ${credits(member.valueMicro, 3)}`,
+          title: `${member.name} — ${MONEY(credits(member.valueMicro, 2))}`,
         },
         el('span', { class: 'dot' }),
-        el('span', { class: 'value', text: credits(member.valueMicro, 3) }),
+        el('span', { class: 'value', text: credits(member.valueMicro, 2) }),
       ),
     );
 
@@ -324,168 +324,6 @@ function barsBlock(figures: Figures, caption: string, ghost?: { figures: Figures
   );
 }
 
-/**
- * What happens to the claim, as one object instead of a table (`DESIGN.md` §3.2).
- *
- * ## The finding this replaces
- *
- * The round-1 blind ranking put our decision screen third of four real game
- * frames and named the tell precisely: *"at thumbnail size our decision screen
- * reads as a financial dashboard, because ~60% of its height is a
- * survivor-distribution bar chart plus a five-row percentage table."* It also
- * counted the duplication — `Chance of that 49.24%` and `All 5 make it 49.24%`,
- * the same number four rows apart — and measured the cost in hard-edge share,
- * which the table's hairline rules drove to 7.89% against a 2–9% reference band
- * whose top end is a *failure* signature.
- *
- * ## Why this is not a deletion of the information
- *
- * §3.2's three build requirements are the reason the card carries probabilities
- * at all, and two of them are about a specific pair of fields: the break-even,
- * and how often the claim falls *without ending the round*. Both are still on the
- * face, and they are still the fields the section argues for. What changed is the
- * *form*: four mutually exclusive outcomes that sum to one are a partition, and a
- * partition drawn as a table asks the player to add four numbers to see the
- * shape. Drawn as one divided bar, the shape is the picture — which is
- * requirement 2's own sentence (*"a player should be able to see which side of
- * the line the mass sits on before reading a digit"*) done properly rather than
- * by a tick mark on a second chart.
- *
- * The exact survivor distribution and the per-outcome fractions did not go
- * behind a paywall; they went behind `full odds ▸`, one tap, where §3.2 already
- * puts the exact table and where §5.2.5's disclosure ladder says depth belongs.
- *
- * ## The colour is the legend
- *
- * §6.1's money colours already run through the whole product — `--grows` on a
- * rising claim, `--falls` on a falling one, `--extinguish` on a light that went
- * out — so the four segments are not a new vocabulary to learn. `RUBRIC` §2:
- * *"colour maps to meaning, consistently and without a legend."*
- */
-interface Segment {
-  readonly kind: string;
-  readonly name: string;
-  /**
-   * The one-word version, printed *on* the segment.
-   *
-   * The round-2 judge on this object: *"the legend 'grows · falls, run goes on
-   * 7.81% · nobody makes it' places one percentage inline between three labels
-   * with no stable mapping to the three segments."* A caption under a bar is a
-   * legend, and rubric §2 is that colour and layout map to meaning **without**
-   * one. Four characters on the segment itself is the whole fix.
-   */
-  readonly short: string;
-  readonly share: number;
-  readonly label: string;
-  readonly wide: boolean;
-  readonly named: boolean;
-}
-
-/**
- * The four outcomes, their shares of the track, and which of them can hold ink.
- *
- * Split out because the caption depends on it: a segment too narrow to print its
- * own percentage has that percentage named in the line underneath instead, so
- * every figure appears exactly once and none is dropped, rounded or restated at a
- * second precision. The precision ladder in `api.ts` exists because the round-2
- * review found `49.24%` on a card and `49.2393% likely` in a sheet; printing a
- * bar label at one place and the odds sheet at two would be the same fault in a
- * new object.
- *
- * `wide` is 13% of the track, which is 45 px at the card's 350 px — the width a
- * six-character percentage needs at the §6.5 numeral floor. Below it the ink
- * would be clipped, and a clipped number is worse than a number somewhere else.
- */
-function outcomeSegments(figures: Figures): readonly Segment[] {
-  const holds = Number(figures.holds.decimal);
-  const raw: { kind: string; name: string; short: string; value: number; label: string }[] = [
-    { kind: 'grows', name: 'grows', short: 'grows', value: Number(figures.grows.decimal), label: figures.display.growsPct },
-    ...(holds > 0
-      ? [{ kind: 'holds', name: 'holds', short: 'holds', value: holds, label: figures.display.holdsPct }]
-      : []),
-    {
-      kind: 'falls',
-      name: 'falls, run goes on',
-      short: 'falls',
-      value: Number(figures.fallsNonZero.decimal),
-      label: figures.display.fallsNonZeroPct,
-    },
-    {
-      kind: 'wipe',
-      name: 'nobody makes it',
-      short: 'none home',
-      value: Number(figures.wipe.decimal),
-      label: figures.display.wipePct,
-    },
-  ];
-  const total = raw.reduce((sum, segment) => sum + segment.value, 0) || 1;
-  return raw.map((segment) => {
-    /*
-     * A floor in width, so a 1.30% outcome is a place and not a seam.
-     *
-     * The same argument the distribution bars make about a 5 px fill: an outcome
-     * the player can lose everything to has to be visible as a region. Four
-     * percent of the track is 14 px, which is a block you can see and still small
-     * enough that nobody could read it as a tenth of the picture.
-     */
-    const share = Math.max(4, (segment.value / total) * 100);
-    return {
-      kind: segment.kind,
-      name: segment.name,
-      short: segment.short,
-      share,
-      label: segment.label,
-      wide: share >= 13,
-      /*
-       * 22% of the track is 77 px at the card's 350, which is what a word needs
-       * at §6.5's 13 px secondary floor with its tracking. Below it the segment
-       * carries its percentage only and the caption names it, which is the same
-       * contract `wide` already had one rung down.
-       */
-      named: share >= 22,
-    };
-  });
-}
-
-export function outcomeBar(figures: Figures): HTMLElement {
-  return el(
-    'div',
-    { class: 'outcome-bar' },
-    ...outcomeSegments(figures).map((segment) =>
-      el(
-        'span',
-        {
-          class: `seg ${segment.kind}`,
-          style: `flex:${segment.share.toFixed(3)}`,
-          title: `${segment.name} — ${segment.label}`,
-        },
-        segment.wide
-          ? el(
-              'span',
-              { class: 'seg-stack' },
-              el('span', { class: 'seg-value money', text: segment.label }),
-              segment.named ? el('span', { class: 'seg-name', text: segment.short }) : null,
-            )
-          : null,
-      ),
-    ),
-  );
-}
-
-/**
- * The line under the bar: the key, carrying whatever the bar could not print.
- *
- * It is one text run, not a row of labels, and it is the only prose on the card
- * body. A segment that printed its own percentage is named here without one; a
- * segment too narrow to print it carries it here instead.
- */
-export function outcomeCaption(figures: Figures): HTMLElement {
-  const parts = outcomeSegments(figures).map((segment) =>
-    segment.wide ? segment.name : `${segment.name} ${segment.label}`,
-  );
-  return el('div', { class: 'bars-caption', text: parts.join(' · ') });
-}
-
 export function field(label: string, value: string, emphasis = false): HTMLElement {
   return el(
     'div',
@@ -507,74 +345,6 @@ function fieldStack(figures: Figures): HTMLElement {
     field('Nobody makes it', figures.display.wipePct),
     field(`All ${figures.running} make it`, figures.display.allClearPct),
     field('Expected survivors', figures.display.expectedSurvivors),
-  );
-}
-
-export interface ForkView {
-  readonly balances: readonly number[];
-  readonly running: number;
-  readonly figuresOf: (balance: number) => Figures;
-  readonly selected: number | null;
-  /** Picking a balance, from the column that carries its numbers (§3.3). */
-  readonly onBalance: (balance: number) => void;
-}
-
-/**
- * The fork's two columns, on the card face (`DESIGN.md` §3.3).
- *
- * Both balances are shown at once, always, with no default highlighted and no
- * recommendation, on a shared axis. The two numbers that are identical on both —
- * the break-even and the expected survivors — are stated once above the columns
- * rather than printed twice, because their being identical is the content: the
- * dial moves the tails and nothing else.
- */
-function forkBody(fork: ForkView): HTMLElement {
-  const first = fork.figuresOf(fork.balances[0] as number);
-  const label = (balance: number) => `${balance} + ${fork.running - balance}`;
-  /*
-   * The dial, drawn as the thing it moves.
-   *
-   * §3.3 asks for both balances at once, no default and no recommendation,
-   * *"rendered on a shared axis"*, and its own words for what the dial does are
-   * *"more of both endings, same average, same 95.5%"*. Two partitions stacked on
-   * one 100% track say exactly that as a picture: `4 + 1`'s growing segment is
-   * visibly longer **and** its wipe segment is visibly longer, and the middle —
-   * the claim falling while the run continues — is what shrank to pay for both.
-   * The round-1 form of this was a paired bar chart plus a four-row table, which
-   * is two pictures and eight numbers for one comparison.
-   *
-   * The row is the control, as §3.3 requires: the numbers a balance owns are
-   * inside the surface you tap to choose it. Neither is highlighted until the
-   * player picks one, and the difference between them is a *shape*, so colour is
-   * not carrying it (§10.8).
-   */
-  return el(
-    'div',
-    { class: 'card-body fork-body' },
-    el(
-      'div',
-      { class: 'break-even' },
-      el('span', { class: 'label', text: `${COPY.breakEven} ` }),
-      el('span', { class: 'value money', text: `${first.breakEven} of ${fork.running}` }),
-      el('span', { class: 'label', text: ' get back' }),
-    ),
-    ...fork.balances.map((balance) =>
-      el(
-        'button',
-        {
-          class: `fork-row${fork.selected === balance ? ' on' : ''}`,
-          'aria-pressed': String(fork.selected === balance),
-          'aria-label': `Fork balance ${label(balance)} — tap to choose it`,
-          onClick: (event: MouseEvent) => {
-            event.stopPropagation();
-            fork.onBalance(balance);
-          },
-        },
-        el('span', { class: 'fork-name money', text: label(balance) }),
-        outcomeBar(fork.figuresOf(balance)),
-      ),
-    ),
-    el('div', { class: 'bars-caption', text: COPY.outcomeBar }),
   );
 }
 
@@ -620,116 +390,6 @@ export function oddsDetail(
 }
 
 /**
- * A route card (`DESIGN.md` §3.2) — the most important UI object in the game.
- *
- * Every field on the face, in the same weight, at every squad size: the
- * multiplier, the break-even, the chance the claim grows, the chance nobody
- * makes it, the chance everybody does, expected survivors, and the footer that
- * says every route returns the same. The two fields the v2 card did not carry —
- * where the claim turns, and how often it falls *without ending the round* — are
- * on the face and never behind `full odds`.
- *
- * What is *not* on the card is any control that names a Kindling. The fork
- * balance, who takes the thin limb and who comes home are decisions, and they
- * live in the thumb zone directly above `Commit route` (§5, "all primary actions
- * in the bottom 280 pt"), where they are visible while you build the selection
- * rather than somewhere inside a card you are also being asked to read.
- */
-export function routeCard(options: {
-  readonly route: string;
-  readonly fiction: string;
-  readonly figures: Figures;
-  readonly selected: boolean;
-  readonly rtp: string;
-  readonly onSelect: () => void;
-  readonly onOdds: () => void;
-  readonly onCompare: () => void;
-  readonly fork?: ForkView | null;
-  readonly headNote?: string | null;
-}): HTMLElement {
-  const figures = options.figures;
-  return el(
-    'div',
-    { class: 'card-page', 'data-route': options.route },
-    el(
-      'section',
-      {
-        class: `card${options.selected ? ' selected' : ''}`,
-        'data-band': String(payoutBand(figures.display.multiplier)),
-        onClick: options.onSelect,
-      },
-      el(
-        'div',
-        { class: 'card-head' },
-        el(
-          'div',
-          { class: 'card-title' },
-          el('div', { class: 'route-name', text: options.route }),
-          el('div', { class: 'fiction', text: options.fiction }),
-        ),
-        el(
-          'div',
-          { class: 'card-price' },
-          el('div', { class: 'multiplier money', text: figures.display.multiplier }),
-          el('div', { class: 'tiny', text: 'per runner who clears' }),
-        ),
-      ),
-      options.headNote ? el('div', { class: 'head-note', text: options.headNote }) : null,
-      options.fork
-        ? forkBody(options.fork)
-        : el(
-            'div',
-            { class: 'card-body' },
-            /*
-             * §3.2's two load-bearing fields, and then the shape.
-             *
-             * The break-even is a *sentence* rather than a row, because it is the
-             * one thing on the card that is not a percentage and reading it as
-             * one is how it got lost among six of them. The bar underneath is
-             * every outcome that follows from it.
-             */
-            el('div', { class: 'break-even' },
-              el('span', { class: 'label', text: `${COPY.breakEven} ` }),
-              el('span', { class: 'value money', text: `${figures.breakEven} of ${figures.running}` }),
-              el('span', { class: 'label', text: ' get back' }),
-            ),
-            outcomeBar(figures),
-            outcomeCaption(figures),
-          ),
-      el(
-        'div',
-        { class: 'card-footer' },
-        el('span', { class: 'rtp', text: RTP_LINE(options.rtp) }),
-        el(
-          'span',
-          { class: 'row' },
-          // §10.8's 44 pt target, taken from the touch area rather than from the
-          // ink: a 44 px-tall underlined word inside a card footer would push an
-          // odds figure off the card, which is the trade the round-2 review found
-          // on the SHELTER card. `.link.tap` grows the hit box, not the type.
-          el('button', {
-            class: 'link tap',
-            text: 'compare',
-            onClick: (event: MouseEvent) => {
-              event.stopPropagation();
-              options.onCompare();
-            },
-          }),
-          el('button', {
-            class: 'link tap',
-            text: 'full odds ▸',
-            onClick: (event: MouseEvent) => {
-              event.stopPropagation();
-              options.onOdds();
-            },
-          }),
-        ),
-      ),
-    ),
-  );
-}
-
-/**
  * Which rung of the payout ramp a multiple sits on, 1 (lowest) to 4 (highest).
  *
  * `RUBRIC` criterion 11 — *"the player learns the payout scale by looking, never
@@ -752,40 +412,162 @@ export function payoutBand(multiplier: string): 1 | 2 | 3 | 4 {
   return 4;
 }
 
+export interface RouteObject {
+  readonly route: string;
+  readonly multiplier: string;
+  /**
+   * How many of the squad come home on a typical crossing of this route.
+   *
+   * The route's expected survivors, as the server computes them. It is the one
+   * figure that makes the four prices comparable without arithmetic: multiplied
+   * by the price and divided by the squad it is the same
+   * <!-- fig:rtpPct --> on every route, which is the product's whole thesis
+   * (§3) expressed as a picture instead of a sentence.
+   */
+  readonly typical: number;
+  readonly running: number;
+}
+
 /**
- * The page indicator, which is also the way to reach a page.
+ * The four routes, as four objects (`DESIGN.md` §3.2).
  *
- * `DESIGN.md` §S2 asks for a paged stack of cards with a page indicator. An
- * indicator that only *reports* the page leaves a four-way money decision behind
- * a swipe, so this one is tappable and carries each route's price: all four
- * options and all four multipliers are on screen at rest, which is what makes the
- * screen comparable at a glance. All four segments have identical weight — no
- * badge, no recommendation, no highlight of the higher multiplier (§S2). What a
- * segment does carry is `payoutBand`, which is the price itself expressed as a
- * colour rather than as an endorsement of it.
+ * ## The finding this closes
+ *
+ * The round-3 blind ranking could pick our decision screen out of four real
+ * products in a second, and named the tell as *register* rather than polish:
+ * *"ours is the only frame in the whole comparison set carrying a stacked
+ * two-tone probability bar, a prose odds line, a 'Returns 95.5%, like every
+ * route' footnote and a 'compare | full odds ▸' link row. No commercial
+ * crash/instant game puts an analytics chart on the decision surface; Plinko
+ * puts the same information on nine coloured chips with the multiplier printed
+ * on each. Ours reads as a fintech UI wearing good game art."*
+ *
+ * `RUBRIC` §2 and criterion 11 say the same thing from the other side: *"the
+ * player learns the payout scale by looking, never by reading."*
+ *
+ * ## What is on the object
+ *
+ * The name, the price, and one picture: a row of lanterns showing how many of
+ * the squad come home on a typical crossing. Nothing else. Four of these side by
+ * side are the whole comparison, because the two things that differ between the
+ * routes are exactly these two — you pay more per lantern for a crossing that
+ * brings fewer of them home — and the product's thesis is that the two cancel:
+ * `typical x price / squad` is the same return on all four.
+ *
+ * The lantern is not a bar. It is the object the game is made of, at the size it
+ * fits, and a partly-lit last lantern is what `4.20 of 5` looks like — a picture
+ * of a fractional expectation rather than a chart of one.
+ *
+ * ## What is not on it
+ *
+ * The break-even and the chance the claim falls without ending the run are
+ * §3.2's two load-bearing fields and they are on the *selected* route's line
+ * directly beneath the strip, in words, once — not four times, not as a chart,
+ * and not behind a tap. Everything below them is one tap away under
+ * `full odds ▸`, where §5.2.5's disclosure ladder puts depth.
+ *
+ * All four objects hold identical weight, area and luminance: what differs is
+ * the band hue on the price, which is the price expressed as a colour and never
+ * a recommendation (§S2, §10.3).
  */
-export function routeTabs(
-  entries: readonly { readonly route: string; readonly multiplier: string }[],
+export function routeStrip(
+  entries: readonly RouteObject[],
   selected: string,
   onPick: (route: string) => void,
 ): HTMLElement {
   return el(
     'div',
-    { class: 'route-tabs', role: 'tablist' },
+    { class: 'route-strip', role: 'tablist' },
     ...entries.map((entry) =>
       el(
         'button',
         {
           class: 'route-tab',
           role: 'tab',
+          'data-route': entry.route,
           'data-band': String(payoutBand(entry.multiplier)),
           'aria-selected': String(entry.route === selected),
+          'aria-label': `${entry.route}, ${entry.multiplier} per runner who clears, typically ${entry.typical.toFixed(2)} of ${entry.running} come home`,
           onClick: () => onPick(entry.route),
         },
         el('span', { class: 'route-name', text: entry.route }),
         el('span', { class: 'money', text: entry.multiplier }),
+        lampRow(entry.typical, entry.running),
       ),
     ),
+  );
+}
+
+/**
+ * `4.20 of 5`, drawn as lanterns rather than written as a figure.
+ *
+ * One lamp per runner. Whole lamps for the whole part of the expectation and a
+ * part-filled glass for the remainder, which is the honest picture: a route that
+ * brings back one and a quarter lanterns should not draw the same row as one
+ * that brings back two. The fill is a *height*, because a lantern fills from the
+ * bottom, and because a partial width would read as a bar chart segment.
+ *
+ * The row is `aria-hidden`: the tab's own label already states the figure in
+ * words, and a screen reader has no use for five decorative spans.
+ */
+function lampRow(typical: number, running: number): HTMLElement {
+  const lamps: Child[] = [];
+  for (let index = 0; index < running; index += 1) {
+    const fill = Math.max(0, Math.min(1, typical - index));
+    lamps.push(
+      el(
+        'span',
+        { class: `lamp${fill >= 0.999 ? ' lit' : fill > 0.02 ? ' part' : ''}` },
+        fill > 0.02 && fill < 0.999
+          ? el('span', { class: 'wick', style: `height:${Math.round(fill * 100)}%` })
+          : null,
+      ),
+    );
+  }
+  return el('span', { class: 'lamp-row', 'aria-hidden': 'true' }, lamps);
+}
+
+/**
+ * The selected route's terms, in words, once (`DESIGN.md` §3.2).
+ *
+ * §3.2's build requirement 1 is that the break-even and the chance the claim
+ * falls *without ending the round* are on the decision surface at rest, on every
+ * route and at every squad size. This is where they are: one sentence under the
+ * strip, about the route the player has actually selected, naming the fiction
+ * the world above is drawing and the two numbers a player cannot infer from the
+ * price.
+ *
+ * It carries the product's thesis in the same breath, because §3 requires that
+ * line permanently visible on this screen and because the two belong together:
+ * the terms differ on every route, the return does not.
+ */
+export function routeLine(options: {
+  readonly fiction: string;
+  readonly figures: Figures;
+  readonly rtp: string;
+  readonly onOdds: () => void;
+}): HTMLElement {
+  const figures = options.figures;
+  return el(
+    'p',
+    { class: 'route-line' },
+    el('span', { class: 'fiction', text: options.fiction }),
+    el('span', {
+      text: ` — ${COPY.breakEven.toLowerCase()} `,
+    }),
+    el('span', { class: 'money', text: `${figures.breakEven} of ${figures.running}` }),
+    el('span', { text: ' get back, and falls ' }),
+    el('span', { class: 'money', text: figures.display.fallsNonZeroPct }),
+    el('span', { text: ' of the time without ending the run. ' }),
+    el('span', { class: 'rtp', text: RTP_LINE(options.rtp) }),
+    el('button', {
+      class: 'link tap',
+      text: 'full odds ▸',
+      onClick: (event: MouseEvent) => {
+        event.stopPropagation();
+        options.onOdds();
+      },
+    }),
   );
 }
 

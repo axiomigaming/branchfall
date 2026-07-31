@@ -49,7 +49,7 @@ npm install && npm run dev      # http://localhost:4173
 on a published seed everybody shares. It does not pay — the seed is chosen so
 you lose runners and see what that costs — because a practice run that opens
 with a win teaches a distribution that does not exist. It exists to make one
-picture land: two route cards side by side, two completely different survivor
+picture land: two routes side by side, two completely different survivor
 distributions, the same <!-- fig:rtpPct -->95.5%<!-- /fig --> under both.
 `docs/DESIGN.md` §5.2 specifies it, down to the strings.
 
@@ -226,7 +226,7 @@ speed-of-play floor and the reality check fire; it is refused otherwise.
 
 **What the graybox is.** The complete product, drawn. Real
 information architecture, real flows, real mathematics, real fairness: the four
-route cards with their exact numbers, the fork balance and the choice of who
+routes with their exact numbers, the fork balance and the choice of who
 takes the thin limb, the shelter picker, the three side bets with their prices,
 bank-or-continue, the wipe, the round summary, the verification screen, the
 Ghost Line, and the unstaked three-branch rehearsal on the published seed pair.
@@ -270,12 +270,14 @@ graybox usually gets wrong:
   empties on a won round and a lost one alike. `tests/settled-screen.test.mjs`
   drives both endings through the API on fixed seeds and pins the decision to the
   settlement.
-- **The decision screen is one screen.** On the 390 x 844 baseline, S2 fits the
-  four routes with their prices, the claim, the whole selected card, the controls
-  that name a Kindling and `Commit route` in a single unscrolled viewport, and
-  the page never scrolls. The card the rail is showing is the card the footer
-  commits — the selection follows a settled swipe, and the rail is restored after
-  every render — so the screen and the command can never disagree.
+- **The decision screen is one screen, and it is not an odds sheet.** On the
+  390 x 844 baseline, S2 fits the world, the claim, all four routes with their
+  prices and their lanterns, the selected route's terms in one sentence, the
+  controls that name a Kindling and `Commit route` in a single unscrolled
+  viewport, and the page never scrolls in either axis. There is no rail and no
+  swipe, so the route on screen and the route the footer commits cannot disagree;
+  the exact survivor distribution, the numeric fields and the Two-Card Moment are
+  one tap away under `full odds ▸` (§3.2, §5.2.5).
 - **The proof screen recomputes the round on the device.** `client/src/derive.ts`
   is a second implementation of the engine's derivation — canonical encoding,
   HMAC sampler, tape digest, lane and entity resolution — written against the
@@ -365,7 +367,7 @@ does not exist should not be implied by silence.
 
 | Document | What's in it |
 | --- | --- |
-| [`docs/DESIGN.md`](docs/DESIGN.md) | Full product spec: loop, how an abandoned round closes, every decision and what it actually changes, the route card down to its break-even field, bet types and their stake limits, mobile portrait UX screen by screen, the first-run rehearsal and progressive disclosure with two measurable comprehension gates, speed-of-play floor, art direction (palette, materials, lighting, motion, type, references, five arena briefs), runtime with device classes, per-frame and first-load budgets, the bounded authored-clip library, sound direction, the signature viral moment, responsible-design requirements including the shared clip's advertising status, and an art production budget with headcount and schedule |
+| [`docs/DESIGN.md`](docs/DESIGN.md) | Full product spec: loop, how an abandoned round closes, every decision and what it actually changes, the route object down to its break-even field, bet types and their stake limits, mobile portrait UX screen by screen, the first-run rehearsal and progressive disclosure with two measurable comprehension gates, speed-of-play floor, art direction (palette, materials, lighting, motion, type, references, five arena briefs), runtime with device classes, per-frame and first-load budgets, the bounded authored-clip library, sound direction, the signature viral moment, responsible-design requirements including the shared clip's advertising status, and an art production budget with headcount and schedule |
 | [`docs/MATH.md`](docs/MATH.md) | The exact model: state space, correlated hazard model, complete paytable as fractions, which choices are genuine trades and which are volatility dials (second-order dominance, computed), where the claim turns, RTP justification, volatility profile, per-ticket and per-round max-win cap proofs, and the proof that no policy and no portfolio beats the target RTP |
 | [`docs/ENGINE.md`](docs/ENGINE.md) | The `staged-survival` Reveal Engine lifecycle module this game needs, its adapter surface as TypeScript, two-seed hazard derivation, commitment format and seed chains, conformance checks, RGS obligations, threat model |
 

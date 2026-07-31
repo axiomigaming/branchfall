@@ -46,7 +46,7 @@ export const COPY = {
   forkShape: 'is the wider spread. More of both endings, same average, same 95.5%.',
   lastLight: 'Same 95.5% as every bet here.',
   ghostNote: 'Who fell and where, on the branches you did not take. Never a money figure.',
-  outcomeBar: 'grows · falls, run goes on · nobody makes it',
+  shelterRemainder: 'Whoever stays out crosses on the Broad Bough.',
 } as const;
 
 export const RTP_LINE = (rtp: string) => `Returns ${rtp}, like every route.`;

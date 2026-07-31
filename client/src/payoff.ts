@@ -111,10 +111,19 @@ export function celebrates(returnMultiple: string | number): boolean {
  * §S4 fixes the *claim* roll at ~600 ms and §6.4 forbids a spin; this is the
  * terminal screen's own figure, which is a different object with a different job.
  * A count that is over before the player's eye lands on it is not a payoff, and a
- * count that runs for four seconds is a slot machine. 900 ms to 2100 ms.
+ * count that runs for four seconds is a slot machine. 800 ms to 1600 ms.
+ *
+ * The ceiling came down from 2100 ms because of what the region counter sees. A
+ * tabular roll changes four or five digits, and each digit is a separate island
+ * of changed pixels to `diff.mjs` — so a roll still running at the third sample
+ * of the beat reads as *nine independently moving regions* against the rubric's
+ * absolute never-exceed of about eight, on a frame whose total pixel change is
+ * one tenth of one percent. The count is one object and it should be measured as
+ * one, but the honest fix is not to argue with the instrument: it is to have the
+ * number finished, and the frame at rest, inside the celebration's own hold.
  */
 export function countMs(heat: number): number {
-  return Math.round(900 + Math.min(1, Math.max(0, heat)) * 1200);
+  return Math.round(800 + Math.min(1, Math.max(0, heat)) * 800);
 }
 
 /**

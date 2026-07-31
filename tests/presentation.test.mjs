@@ -59,8 +59,18 @@ describe('the payoff has a scale (DESIGN §6.4)', () => {
   });
 
   it('never runs away with itself: the count is bounded and nothing is kinetic', () => {
-    expect(countMs(payoff('1000').heat)).toBeLessThanOrEqual(2100);
-    expect(countMs(payoff('0').heat)).toBeGreaterThanOrEqual(900);
+    /*
+     * The ceiling came down in round 4, and the reason is the region counter.
+     *
+     * A tabular roll changes four or five digits and `diff.mjs` sees each digit
+     * as its own island, so a count still running at the third 550 ms sample of
+     * the beat reads as nine independently moving regions against the rubric's
+     * never-exceed of about eight — on a frame whose total change is 0.1%. The
+     * count is one object; the fix is to have it finished, and the frame at rest,
+     * inside the celebration's own hold rather than after it.
+     */
+    expect(countMs(payoff('1000').heat)).toBeLessThanOrEqual(1600);
+    expect(countMs(payoff('0').heat)).toBeGreaterThanOrEqual(800);
     /*
      * §6.4 permits size, colour, light and sound and forbids everything kinetic.
      *
@@ -406,5 +416,115 @@ describe('the display face (DESIGN §6.5)', () => {
 describe('the shell', () => {
   it('no longer calls the premium build a graybox in the browser tab', () => {
     expect(read('client/public/index.html')).toContain('<title>BRANCHFALL</title>');
+  });
+});
+
+/**
+ * Round 4's decision surface: four objects, one sentence, and no chart.
+ *
+ * The round-3 blind ranking could pick our decision screen out of four real
+ * products in a second and named the tell as register rather than polish — a
+ * stacked probability bar, a prose odds line, an RTP footnote and a link row,
+ * none of which appears on any commercial crash or instant game's decision
+ * surface. These guard the shape of what replaced it, because the two mistakes
+ * available here are both ones a later pass would make in good faith: putting
+ * the analytics back, and drawing the *wrong* figure on the object.
+ */
+describe('the route objects (DESIGN §3.2)', () => {
+  const widgets = read('client/src/widgets.ts');
+  const main = read('client/src/main.ts');
+  const css = read('client/public/styles.css');
+
+  it('carries the price and a picture, and no chart, on the resting surface', () => {
+    // The objects: name, price, lanterns. Nothing else on the face.
+    expect(widgets).toMatch(/export function routeStrip\(/u);
+    expect(widgets).toMatch(/function lampRow\(/u);
+    // And the analytics are gone from the module, not merely unused by a screen.
+    for (const dead of ['outcomeBar', 'outcomeCaption', 'outcomeSegments', 'routeCard']) {
+      expect(widgets, `${dead} should not survive round 4`).not.toContain(`function ${dead}`);
+    }
+    expect(css, 'the outcome bar leaves no styles behind').not.toContain('.outcome-bar');
+  });
+
+  /**
+   * The picture on the object is expected survivors and it may not be the
+   * break-even.
+   *
+   * NARROW's break-even is 2 of 5 against WIDE's 5 of 5, so a row of lit
+   * lanterns reading "how many have to come back" draws the highest-variance
+   * route in the game as the easiest bet on the screen. §10.3 forbids implying
+   * favourable odds; expected survivors runs the other way and is the honest
+   * shape, and it is the figure that makes `typical x price / squad` the same
+   * return on all four.
+   */
+  it('draws the typical crossing on the object, never the break-even', () => {
+    expect(main).toMatch(/typical: Number\(figures\.expectedSurvivors\.decimal\)/u);
+    expect(main).not.toMatch(/typical: [^\n]*breakEven/u);
+  });
+
+  /** §3.2 build requirement 1: both fields on the resting surface, in words. */
+  it('states the break-even and the falls-without-ending figure at rest', () => {
+    expect(widgets).toMatch(/export function routeLine\(/u);
+    expect(widgets).toContain('COPY.breakEven');
+    expect(widgets).toContain('figures.display.fallsNonZeroPct');
+    expect(widgets).toContain('RTP_LINE(options.rtp)');
+    // And the decision screen draws it, for the selected route, unconditionally.
+    expect(main).toMatch(/routeStrip\(objects, state\.route, pick\)/u);
+    expect(main).toMatch(/routeLine\(\{/u);
+  });
+
+  /** The tutorial teaches the object the paid round uses, not a second one. */
+  it('gives the rehearsal the same strip and the same sentence', () => {
+    const rehearsal = main.slice(main.indexOf('function rehearsalScreen'));
+    expect(rehearsal).toMatch(/routeStrip\(rehearsalObjects/u);
+    expect(rehearsal).toMatch(/routeLine\(\{/u);
+  });
+});
+
+/**
+ * §6.5's precision rule, which the round-3 review found broken twice on one
+ * screen: a claim at three places with no unit above a button reading the same
+ * quantity at two with one, and a return multiple printed raw at four.
+ */
+describe('one quantity has one format (DESIGN §6.5)', () => {
+  const main = read('client/src/main.ts');
+
+  it('renders every multiplier and every claim at two places', async () => {
+    const { multiplier, claimFigure } = await import('../client/src/api.ts');
+    expect(multiplier('1.190476')).toBe('1.19x');
+    expect(multiplier('4')).toBe('4.00x');
+    expect(multiplier('3.0560')).toBe('3.06x');
+    expect(multiplier('0.9095')).toBe('0.91x');
+    expect(claimFigure('9.550')).toBe('9.55');
+    expect(claimFigure('11.460')).toBe('11.46');
+    expect(claimFigure('12')).toBe('12.00');
+  });
+
+  it('never prints the server strings raw where a player reads them', () => {
+    // The two sites the review named, by the shape that made them wrong.
+    expect(main).not.toMatch(/\$\{settlement\?\.returnMultiple \?\? '0'\}x/u);
+    expect(main).not.toMatch(/text: frame\.claim\.display/u);
+    expect(main).not.toMatch(/credits\([^)]*, 3\)/u);
+  });
+});
+
+/**
+ * §6.1's warm economy on the one screen that must not borrow it.
+ *
+ * `focalmask` on the round-3 loss frame found the largest bright-and-saturated
+ * region on a total wipe was the gold `Back to the squad` — the most
+ * attention-grabbing object on the one screen where nothing came home, painted
+ * in the money colour.
+ */
+describe('a wipe borrows no gold (DESIGN §6.1, §S6)', () => {
+  it('gives the wipe screen a cool primary of the same weight', () => {
+    const main = read('client/src/main.ts');
+    const css = read('client/public/styles.css');
+    const wipe = main.slice(main.indexOf('function wipeScreen'), main.indexOf('function summaryScreen'));
+    expect(wipe).toMatch(/class: 'btn primary cool settle-in'/u);
+    expect(css).toContain('.btn.primary.cool');
+    // Same height as the warm primary: the temperature changed, not the target.
+    const cool = css.slice(css.indexOf('.btn.primary.cool {'), css.indexOf('.btn.primary.cool:active'));
+    expect(cool).not.toMatch(/min-height|font-size/u);
   });
 });

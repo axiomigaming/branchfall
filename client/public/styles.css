@@ -713,6 +713,42 @@ button {
   filter: saturate(0.3) brightness(0.75);
 }
 
+/*
+ * The same primary, cut from the cool half — the wipe screen's way out (§6.1).
+ *
+ * `focalmask` on the round-3 loss frame found the largest bright-and-saturated
+ * region on a total-wipe screen was the gold `Back to the squad`, 5.9% of the
+ * frame: the most attention-grabbing object on the one screen in the game where
+ * nothing came home was painted in the money colour. Warm gold is reserved
+ * (§6.1's economy) and this is the screen it must be reserved *from*.
+ *
+ * Everything else about the button is unchanged — the same 68 px height, the
+ * same face, specular, contact shadow, rim and press behaviour — because §S6's
+ * quiet is about temperature, not about making the exit harder to find.
+ */
+.btn.primary.cool {
+  border-color: #9fd8ff;
+  color: #04202f;
+  text-shadow: 0 1px 0 rgba(226, 245, 255, 0.55);
+  background:
+    linear-gradient(178deg, #bfe6ff 0%, #6cb6e2 46%, #3f8cbe 80%, #2a6c9c 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(240, 250, 255, 0.9),
+    inset 0 -2px 0 rgba(10, 58, 92, 0.55),
+    0 2px 0 #14496f,
+    0 8px 18px -6px rgba(60, 150, 210, 0.4),
+    0 14px 30px -14px rgba(3, 12, 26, 0.95);
+}
+
+.btn.primary.cool:active:not(:disabled) {
+  background: linear-gradient(178deg, #a6d3ee 0%, #5aa0cd 46%, #33769f 78%, #205876 100%);
+  box-shadow:
+    inset 0 2px 5px rgba(6, 40, 66, 0.5),
+    inset 0 -1px 0 rgba(10, 58, 92, 0.4),
+    0 0 0 #14496f,
+    0 3px 12px -8px rgba(60, 150, 210, 0.3);
+}
+
 .btn.quiet {
   border-color: transparent;
   background: none;
@@ -899,11 +935,21 @@ summary.link.tap {
  * takes 60 px back — but its floor is now the height at which a figure is a
  * character rather than a tick.
  */
+/*
+ * The world, on the decision screen — and it is the spring.
+ *
+ * The ceiling was 336 px because a 215 px route card sat under it. There is no
+ * card: the four routes are a 68 px strip and their terms are one line, so the
+ * height goes back to the thing the round is about. `RUBRIC` §8's first question
+ * is *"what is this object"*, and the answer is five figures carrying lanterns
+ * across a branch — at roughly 45% of the frame rather than 33%, which is the
+ * proportion the reference set gives its playfield.
+ */
 .viewport.compact {
   height: auto;
-  flex: 1 1 300px;
+  flex: 1 1 380px;
   min-height: 176px;
-  max-height: 336px;
+  max-height: 460px;
 }
 
 /*
@@ -1061,16 +1107,37 @@ summary.link.tap {
   z-index: 2;
   pointer-events: none;
   text-align: center;
-  padding: 7px 22px 9px;
+  /*
+   * The live claim, on a *lit* surface — criterion 12's gating failure, closed.
+   *
+   * `RUBRIC` §3's rule for the in-round state is that the brightest object in
+   * the frame is the money and the object carrying it. Three rounds running,
+   * `focal.mjs` found something else: round 3 measured *"a strip of lit ground
+   * and sky behind the walking squad"*, and after §6.3's key grade took the sky
+   * and the deck down it was still the lantern-lit patch of deck under the
+   * squad's feet, because the claim was set on a dark plate and a numeral is
+   * strokes rather than a surface.
+   *
+   * So the claim gets a surface. It is deliberately **cool** and not gold:
+   * §5.2.2's rule is that money that is running and money that is banked are
+   * never the same colour, and the whole point of §6.1's warm economy is that
+   * the gold plate at the bank has nowhere brighter to come from. This is a lit
+   * blue-cyan face at the top of the cool range with the warm numeral on it —
+   * the claim, live, on a plate — and the payoff's inversion (dark ink on gold)
+   * is still an inversion nothing else in the game performs.
+   */
+  padding: 11px 38px 13px;
+  min-width: 58%;
   border-radius: 14px;
-  border: 1px solid rgba(255, 196, 38, 0.46);
-  background: linear-gradient(178deg, rgba(26, 76, 126, 0.94) 0%, rgba(6, 24, 47, 0.96) 100%);
+  border: 1px solid rgba(255, 196, 38, 0.52);
+  background:
+    linear-gradient(178deg, #3aa3da 0%, #2685c4 56%, #17568a 100%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 226, 150, 0.4),
-    inset 0 -2px 0 rgba(3, 12, 26, 0.6),
+    inset 0 1px 0 rgba(214, 245, 255, 0.72),
+    inset 0 -2px 0 rgba(3, 12, 26, 0.5),
     0 2px 0 rgba(120, 74, 8, 0.5),
     0 12px 30px -14px rgba(3, 12, 26, 0.95),
-    0 0 40px -6px rgba(255, 176, 48, 0.28);
+    0 0 40px -6px rgba(255, 176, 48, 0.24);
   transition: opacity 600ms var(--curve);
 }
 
@@ -1090,8 +1157,12 @@ summary.link.tap {
   text-shadow: 0 2px 12px rgba(3, 12, 26, 0.95);
 }
 
-.hud-dock .claim-caption {
-  color: var(--fog-far);
+.hud-dock .claim-caption,
+.hud-dock .tiny {
+  /* Ink on a lit plate is dark, not pale: the face under it is the top of the
+   * cool range now, and `--fog-far` on it measures under 3:1. */
+  color: #062a41;
+  opacity: 0.86;
 }
 
 .hud-dock.dimmed {
@@ -1415,7 +1486,7 @@ summary.link.tap {
  * colour, because a warm mark on one of four money choices is a recommendation
  * whatever the copy beside it says.
  */
-.route-tabs {
+.route-strip {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
@@ -1434,26 +1505,22 @@ summary.link.tap {
   flex: none;
 }
 
-.route-tab {
-  padding: 2px 2px;
-}
-
 /*
- * Four prices, side by side, each one wearing its own rung of the ramp.
+ * The four routes, as four objects (§3.2).
  *
  * The band hue lives on the *multiple* and on a 3 px shelf under the tab, not on
  * the tab's whole body — all four segments keep identical weight, area and
  * luminance, which is §S2's rule. What differs between them is exactly what
- * differs about them in the game: the number.
+ * differs about them in the game: the price, and how many lanterns come home.
  */
 .route-tab {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
-  min-height: 46px;
-  padding: 4px 2px;
+  gap: 2px;
+  min-height: 68px;
+  padding: 6px 2px 7px;
   position: relative;
   /*
    * Four prices as four chips, which is what the reference set does with a
@@ -1475,9 +1542,9 @@ summary.link.tap {
    */
   background:
     linear-gradient(180deg,
-      color-mix(in srgb, var(--band) 62%, #234b5e) 0%,
-      color-mix(in srgb, var(--band) 52%, #143343) 58%,
-      color-mix(in srgb, var(--band) 44%, #0b222e) 100%);
+      color-mix(in srgb, var(--band) 58%, #16394a) 0%,
+      color-mix(in srgb, var(--band) 48%, #0d2733) 58%,
+      color-mix(in srgb, var(--band) 40%, #071a24) 100%);
   color: #cff0ff;
   border-top: 2px solid transparent;
   box-shadow: inset 0 1px 0 rgba(214, 240, 255, 0.22), inset 0 -3px 6px rgba(3, 12, 26, 0.4);
@@ -1524,9 +1591,9 @@ summary.link.tap {
 .route-tab[aria-selected="true"] {
   background:
     linear-gradient(180deg,
-      color-mix(in srgb, var(--band) 74%, #3065a0) 0%,
-      color-mix(in srgb, var(--band) 62%, #21465a) 58%,
-      color-mix(in srgb, var(--band) 52%, #102936) 100%);
+      color-mix(in srgb, var(--band) 70%, #245481) 0%,
+      color-mix(in srgb, var(--band) 58%, #183b4c) 58%,
+      color-mix(in srgb, var(--band) 48%, #0b202c) 100%);
   border-top-color: #fffdf2;
   color: #ffffff;
   /*
@@ -1555,6 +1622,166 @@ summary.link.tap {
   box-shadow: var(--plate-press);
 }
 
+/*
+ * Committing a route stamps it down (§6.4's terms: a fast settle, no bounce).
+ *
+ * The object drops into its shadow and comes back to rest — it never rises past
+ * where it started, because §6.4 rules out overshoot and because an object that
+ * springs up reads as a reward for choosing, which §10.3 forbids on a set of
+ * choices with identical return.
+ */
+.route-tab.stamped {
+  animation: stamp 260ms var(--curve);
+}
+
+@keyframes stamp {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  38% {
+    transform: translateY(3px) scale(0.99);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+/*
+ * `4.20 of 5`, drawn as lanterns (§3.2).
+ *
+ * `RUBRIC` criterion 11 asks for the payout scale printed on the outcome object,
+ * and the round-3 ranking's whole finding about this screen is that ours put it
+ * on a chart underneath instead. This is the picture: one lamp per runner, lit
+ * for as many as a typical crossing brings home, and the last one part-filled
+ * for the fraction — because 1.25 lanterns and 2 lanterns are not the same bet
+ * and a rounded row would say they were.
+ *
+ * A lamp is a *glass*, not a dot: a body with a bright core, a warm rim and a
+ * dark cap and base, at the size the strip has for it. Unlit it keeps the body
+ * and loses the flame, which is exactly the state change the game is about.
+ */
+.lamp-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 15px;
+  margin-top: 1px;
+}
+
+.lamp {
+  position: relative;
+  width: 9px;
+  height: 12px;
+  /* A lantern, not a cell: the glass is inset under a brass cap and stands on a
+   * brass foot, so the silhouette is the object in the world above rather than a
+   * rounded rectangle that happens to be gold. */
+  border-radius: 1px 1px 2px 2px;
+  border-top: 2px solid #6b4a1c;
+  border-bottom: 1px solid #6b4a1c;
+  overflow: hidden;
+  /* The dead glass: cool, and still a *volume* — a lit top, a body, a shadow. */
+  background: linear-gradient(178deg, #2a4d66 0%, #16334a 52%, #0b2233 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(190, 232, 255, 0.22),
+    inset 0 -2px 3px rgba(3, 12, 26, 0.6);
+}
+
+/* The flame, as a fill from the base — the partial lamp's own state. */
+.lamp .wick {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(178deg, var(--lamp) 0%, var(--lamp-core) 46%, var(--lamp) 100%);
+  box-shadow: 0 0 5px -1px var(--lamp);
+}
+
+.lamp.lit {
+  background: linear-gradient(178deg, var(--lamp) 0%, var(--lamp-core) 44%, #f0921a 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 250, 226, 0.75),
+    inset 0 -2px 3px rgba(126, 58, 6, 0.45),
+    0 0 7px -1px rgba(255, 163, 32, 0.72);
+}
+
+/*
+ * The selected route's terms, in words, once (§3.2).
+ *
+ * §3.2's build requirement 1 — the break-even and the chance the claim falls
+ * without ending the run, on the decision surface at rest — used to be a stacked
+ * probability bar, a caption legend, a footnote and a link row inside a card.
+ * The round-3 blind ranking named that stack as the single thing that identifies
+ * our frame next to four real products. It is one sentence now, about the route
+ * the player has actually chosen, and everything under it is one tap away.
+ */
+.route-line {
+  margin: 0;
+  padding: 5px var(--gutter) 5px;
+  font-size: var(--floor-secondary);
+  line-height: 1.32;
+  color: var(--fog-far);
+  flex: none;
+}
+
+.route-line .fiction {
+  color: var(--mist);
+  font-style: italic;
+}
+
+/* The two figures §3.2 puts on the face: brighter than the prose around them. */
+.route-line .money {
+  color: #cff0ff;
+  font-weight: 600;
+}
+
+.route-line .rtp {
+  color: #7fb6da;
+}
+
+.route-line .link {
+  margin-left: 5px;
+  white-space: nowrap;
+}
+
+/*
+ * §3.3's dial, in the thumb zone with every other decision.
+ *
+ * Both balances at once, neither defaulted, no recommendation and no warmer
+ * colour on one of two choices that return the same 95.5%. What separates the
+ * chosen one is a lift and an inner edge (§S2, §10.3). The *shape* of the
+ * difference — more of both endings — is one line underneath and a shared axis
+ * behind `full odds ▸`.
+ */
+.fork-pick {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.fork-chip {
+  flex: 1;
+  min-height: 34px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: var(--floor-numeral);
+  font-variant-numeric: tabular-nums;
+  color: #a8c9f6;
+  background: var(--plate);
+  box-shadow: var(--plate-edge), 0 2px 6px -4px rgba(3, 12, 26, 0.9);
+  transition: box-shadow var(--beat) var(--curve), color var(--beat) var(--curve);
+}
+
+.fork-chip.on {
+  color: #eaf7ff;
+  background: var(--plate-raised);
+  box-shadow: inset 0 0 0 1px rgba(203, 235, 255, 0.3), inset 0 1px 0 rgba(214, 240, 255, 0.28);
+}
+
+.fork-chip:active {
+  box-shadow: var(--plate-press);
+}
+
 /* The product's thesis, permanently on the route screen (§3). */
 .thesis {
   margin: 0;
@@ -1580,59 +1807,6 @@ summary.link.tap {
 }
 
 /*
- * The rail: one card per page, exactly the rail's width, so the scroll position
- * of the selected card is `index x clientWidth` and nothing has to be measured.
- * `syncPager()` in `main.ts` restores it after every render.
- */
-.card-pager {
-  display: flex;
-  overflow-x: auto;
-  overflow-y: hidden;
-  /*
-   * The rail holds its height and the band above it gives way, rather than the
-   * other way round: on the screen where money is committed the card is the
-   * thing that has to stay whole.
-   */
-  /*
-   * The rail is sized by the card, and the band above it takes what is left.
-   *
-   * It used to be the other way round — a fixed 296 px rail with the card
-   * stretched to fill it — which is why the chart absorbed the difference between
-   * a Wide card and a Split one and ended up at two heights. Now every card is as
-   * tall as its own contents at the shared chart height, and the world above is
-   * the element that grows.
-   */
-  min-height: 0;
-  /*
-   * The rail does not give way; the world does.
-   *
-   * Both were shrinkable, so on the one round that carries a Kindling picker as
-   * well as a card — SHELTER — they shrank together and the card's scroller ate
-   * the line under the outcome bar, which is where a narrow segment's percentage
-   * lives. The world reads at any height between its floor and its ceiling and
-   * the card does not, so the card is sized by its contents and the band takes
-   * what is left. This is the same argument the band's own rule makes, from the
-   * other side.
-   */
-  flex: 0 0 auto;
-  scroll-snap-type: x mandatory;
-  scrollbar-width: none;
-  overscroll-behavior-x: contain;
-}
-
-.card-pager::-webkit-scrollbar {
-  display: none;
-}
-
-.card-page {
-  flex: 0 0 100%;
-  scroll-snap-align: start;
-  scroll-snap-stop: always;
-  padding: 5px var(--gutter);
-  min-width: 0;
-}
-
-/*
  * The route card — *"the most important UI object in the game"* (§3.2).
  *
  * A cut stone plate: a cool body lightened at the top by the dust layer, sitting
@@ -1654,29 +1828,6 @@ summary.link.tap {
     border-color var(--beat) var(--curve),
     box-shadow var(--beat) var(--curve),
     transform var(--beat) var(--curve);
-}
-
-/*
- * Filling the rail is the *pager's* job, not the card's.
- *
- * §S7's round summary reuses `.card` for each arena in a vertical strip, and while
- * `height: 100%` lived on `.card` itself a one-arena round drew one card the height
- * of the screen with the money under it pushed off the bottom. The rail is the only
- * place a card is asked to fill its box.
- */
-/*
- * The card fills the rail, and the *body* is what scrolls.
- *
- * Scrolling the whole card meant its footer had to be sticky to stay on screen,
- * and a sticky footer is a box that content passes under — which measures as an
- * overlap however opaque it is. With the scroll one level in, the head and the
- * footer are fixed furniture and the rows move between them: the honest-return
- * line and the odds affordance are always on the card face, and nothing is ever
- * drawn under them.
- */
-.card-page .card {
-  height: 100%;
-  overflow: hidden;
 }
 
 /* The grain, at two scales — 10 cm ripple and 2 m sweep (§6.2). */
@@ -1738,42 +1889,6 @@ summary.link.tap {
   margin-top: 8px;
 }
 
-.card.selected {
-  border-color: color-mix(in srgb, var(--band, #ffd9a0) 62%, transparent);
-  box-shadow:
-    inset 0 1px 0 rgba(214, 240, 255, 0.3),
-    0 0 0 1px color-mix(in srgb, var(--band, #ffd9a0) 22%, transparent),
-    0 8px 20px -10px rgba(3, 12, 26, 0.95),
-    0 22px 40px -26px rgba(3, 12, 26, 1);
-}
-
-/*
- * Committing a card stamps it down (§6.4's terms: a fast settle, no bounce).
- *
- * The plate drops into its shadow and comes back to rest — it never rises past
- * where it started, because §6.4 rules out overshoot and because a card that
- * springs up reads as a reward for choosing, which §10.3 forbids on a set of
- * choices with identical return.
- */
-.card.stamped {
-  animation: stamp 260ms var(--curve);
-}
-
-@keyframes stamp {
-  0% {
-    transform: translateY(0) scale(1);
-    box-shadow: var(--plate-edge), var(--plate-lift);
-  }
-  38% {
-    transform: translateY(3px) scale(0.994);
-    box-shadow: var(--plate-press);
-  }
-  100% {
-    transform: translateY(0) scale(1);
-    box-shadow: var(--plate-edge), var(--plate-lift);
-  }
-}
-
 /*
  * Nothing in a card shrinks below its own content.
  *
@@ -1787,19 +1902,6 @@ summary.link.tap {
 .fields,
 .field,
 .compare-table {
-  flex: none;
-}
-
-.card-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 8px;
-  position: relative;
-}
-
-.card-price {
-  text-align: right;
   flex: none;
 }
 
@@ -1830,17 +1932,6 @@ summary.link.tap {
     inset 0 1px 0 color-mix(in srgb, var(--band, #ffd9a0) 34%, transparent),
     0 4px 14px -8px var(--band, #ffd9a0);
   text-shadow: 0 0 12px color-mix(in srgb, var(--band, #ffd9a0) 55%, transparent);
-}
-
-.card[data-band="1"] { --band: var(--band-1); }
-.card[data-band="2"] { --band: var(--band-2); }
-.card[data-band="3"] { --band: var(--band-3); }
-.card[data-band="4"] { --band: var(--band-4); }
-
-.head-note {
-  font-size: var(--floor-secondary);
-  line-height: 1.3;
-  color: var(--mist);
 }
 
 .fields {
@@ -1888,334 +1979,6 @@ summary.link.tap {
 .field.emphasis .label,
 .field.emphasis .value {
   color: var(--fossil);
-}
-
-.card-footer {
-  /*
-   * Pushed down by the body's own flex growth, not by an auto margin: an auto
-   * margin in a container that has started scrolling positions against the box
-   * rather than the content, and drew the footer over the chart caption.
-   *
-   * And pinned to the bottom of the card when the card scrolls. The two things
-   * on this line are the honest-return disclosure and the way to the full odds;
-   * §3.2 and §10.5 both make them card-face furniture, so they are the one part
-   * of a card that may not go under the fold. The body scrolls beneath it.
-   */
-  margin: 0 -12px -7px;
-  padding: 4px 12px 5px;
-  background: linear-gradient(180deg, #132841 0%, #0f2032 100%);
-  border-top: var(--hairline);
-  line-height: 1.25;
-  font-size: var(--floor-secondary);
-  color: var(--fog-far);
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 12px;
-}
-
-/* The two controls on the footer never wrap: `full odds ▸` broken across two
- * lines is a control that looks like a mistake. The disclosure line wraps. */
-.card-footer .row {
-  flex: none;
-  gap: 12px;
-  white-space: nowrap;
-}
-
-.card-footer .rtp {
-  min-width: 0;
-}
-
-/*
- * The scroll cue.
- *
- * SPLIT and SHELTER carry a chart, a comparison and their fields, and at a
- * readable chart height that is more than the rail can give them on a 390 x 844
- * screen. The card scrolls — which the layout rules above always claimed it
- * would — so it has to *look* scrollable: a short fade above the pinned footer,
- * drawn only where content passes under it.
- */
-.card-body {
-  overflow-y: auto;
-  scrollbar-width: none;
-  /* The same cue the full-screen panes carry: content fades into its own edge
-   * rather than being cut off at it — and the padding under the last row means a
-   * card that fits shows its last row whole rather than half-faded. */
-  padding-bottom: 6px;
-  mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 10px), transparent 100%);
-}
-
-.card-body::-webkit-scrollbar {
-  display: none;
-}
-
-/* ---------------------------------------------------------- the outcome bar */
-
-/*
- * What happens to the claim, as one lit object (`DESIGN.md` §3.2).
- *
- * Four mutually exclusive outcomes that sum to one, drawn as one divided track
- * with each share's percentage in ink on its own segment. It replaces a 104 px
- * survivor chart and a five-row percentage table that between them printed
- * `49.24%` twice, four rows apart, and drove the frame's hard-edge share to
- * 7.89% on their hairline rules alone.
- *
- * It is built the way §1 of the rubric says a surface is built and not the way a
- * chart is: a vertical gradient on every segment, an inner top highlight, a
- * bottom inner shadow, a contact shadow under the whole track. It is a bar of
- * *material*, so it adds lit surface (criterion 6) where the table subtracted it.
- *
- * The percentage is dark-on-light inside its own segment, which is the same
- * inversion the payout plate uses at the payoff and for the same reason: ink on a
- * lit surface reads as a value printed on an object rather than as a row in a
- * report.
- */
-.outcome-bar {
-  display: flex;
-  align-items: stretch;
-  /*
-   * The bar takes the card's spare height, which is what `.fields` used to do.
-   *
-   * All four pages of the rail are the height of the tallest — a Split, which
-   * carries two of these — so a Wide card has room over. It goes into the object
-   * rather than into a gap under it: a 52 px bar is a *surface* with room for a
-   * gradient and a specular, which is the whole difference between a bar and a
-   * rule.
-   */
-  flex: 1 1 auto;
-  min-height: 26px;
-  max-height: 54px;
-  margin: 4px 0 3px;
-  border-radius: 6px;
-  overflow: hidden;
-  /* Same reason as the route chips: the segments are separated by hue and by
-   * their own inner highlight, not by a rule between them. */
-  gap: 0;
-  background: rgba(3, 12, 26, 0.55);
-  box-shadow:
-    inset 0 1px 0 rgba(203, 235, 255, 0.16),
-    0 1px 0 rgba(203, 235, 255, 0.06),
-    0 5px 12px -8px rgba(3, 12, 26, 0.95);
-}
-
-.outcome-bar .seg {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 0;
-  position: relative;
-  overflow: hidden;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--seg-tint) 100%, white 16%) 0%,
-      var(--seg-tint) 44%, color-mix(in srgb, var(--seg-tint) 76%, #061c28) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -2px 4px rgba(3, 12, 26, 0.32);
-}
-
-/*
- * §6.1's money colours, which the player has already learned elsewhere.
- *
- * `--grows` is the family a rising claim is written in on every screen in the
- * game, `--falls` the family it falls in, `--extinguish` the colour of a light
- * that went out. The bar needs no legend because it is not a new vocabulary — it
- * is the one already running through the claim meter, the runner tags and the
- * resolve line. Rubric §2: *"colour maps to meaning, consistently and without a
- * legend."*
- */
-.outcome-bar .seg.grows { --seg-tint: #f5b03a; }
-.outcome-bar .seg.holds { --seg-tint: #306e9e; }
-.outcome-bar .seg.falls { --seg-tint: #1f96cb; }
-
-/*
- * The wipe segment is the one place on this card where light *goes out*.
- *
- * ## The finding
- *
- * *"The decision card's information design inverts meaning. The divided outcome
- * bar's largest and most prominent segment is 51.56% in white on saturated
- * purple — the probability of nobody making it — and that purple is the NARROW
- * route's own identity colour, the same purple as its 4.000x chip. So the
- * route's brand colour and the catastrophe colour are the same, and the biggest
- * number on the card reads as the good outcome."*
- *
- * ## Why the answer is not a different hue
- *
- * `--extinguish` violet is the colour of a light that has gone out, everywhere
- * in this product — the dead glass, the fallen figure's name, the zeroed pip.
- * Moving *that* would break a vocabulary the player has already learned. What
- * was wrong was the **value**: the segment was painted as a lit, saturated
- * surface with a white numeral on it, i.e. as one more bright band on a card
- * whose other bright bands are payouts. So it stays violet and stops being lit:
- * a near-black plum with a diagonal hatch through it and its figure in the
- * extinguish *text* tint. It is now the darkest thing on the card at every route
- * and every squad size, which is what it means, and it can never again be
- * mistaken for a payout band — payout bands are all bright by construction.
- *
- * The hatch is not decoration: it is the second channel §10.8 requires, so the
- * segment is distinguishable without relying on hue.
- */
-.outcome-bar .seg.wipe {
-  --seg-tint: #1d1030;
-  background-image:
-    repeating-linear-gradient(
-      -45deg,
-      rgba(183, 154, 224, 0.14) 0 3px,
-      rgba(183, 154, 224, 0) 3px 7px
-    ),
-    linear-gradient(180deg, #2a1745 0%, #1d1030 44%, #120a1e 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(183, 154, 224, 0.2),
-    inset 0 -2px 4px rgba(3, 12, 26, 0.5);
-}
-
-/*
- * The name on the segment, under its own percentage.
- *
- * Four to nine characters at 9 px, uppercase and tracked, on the segments wide
- * enough to hold ink. This is what removes the legend: the mapping between a
- * colour, a share of the track and a meaning is now printed at the place it
- * applies rather than in a sentence underneath that the eye has to re-order.
- */
-.seg-stack {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1px;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.seg-name {
-  font-family: var(--display);
-  /*
-   * At §6.5's secondary floor, not below it.
-   *
-   * The first cut of this set the name at 9 px, which is a caption drawn small
-   * enough to need the legend it was replacing — and `tests/type-floor.test.mjs`
-   * caught it. It is set at the floor instead, and the segments that are too
-   * narrow to hold a word at that size simply do not get one: `outcomeSegments`
-   * names a segment only above 22% of the track, and the caption underneath
-   * still carries the rest. Every figure appears exactly once, either way.
-   */
-  font-size: var(--floor-secondary);
-  line-height: 1;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  color: rgba(8, 31, 44, 0.78);
-}
-
-.outcome-bar .seg.wipe .seg-name,
-.outcome-bar .seg.falls .seg-name {
-  color: rgba(234, 247, 255, 0.72);
-}
-
-.outcome-bar .seg.wipe .seg-name {
-  color: rgba(214, 190, 245, 0.82);
-}
-
-.outcome-bar .seg-value {
-  font-size: var(--floor-numeral);
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  color: #081f2c;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.26);
-  white-space: nowrap;
-  overflow: hidden;
-  padding: 0 2px;
-}
-
-/* On the two dark segments the ink is light, because contrast decides, not rule. */
-.outcome-bar .seg.falls .seg-value {
-  color: #eaf7ff;
-  text-shadow: 0 1px 2px rgba(3, 12, 26, 0.75);
-}
-
-/* Not white: the figure for "nobody makes it" is written in the colour this
- * product writes every extinguished light in (§6.1's `--extinguish-text`). */
-.outcome-bar .seg.wipe .seg-value {
-  color: var(--extinguish-text);
-  text-shadow: 0 1px 2px rgba(3, 12, 26, 0.8);
-}
-
-/* §3.2's break-even, as a sentence rather than as one row among six. */
-.break-even {
-  font-size: var(--floor-body);
-  line-height: 1.3;
-  color: #cff0ff;
-  padding: 1px 0 0;
-}
-
-.break-even .label {
-  color: var(--fog-far);
-}
-
-.break-even .value {
-  font-size: var(--floor-numeral);
-  font-weight: 700;
-  color: var(--grows);
-}
-
-/*
- * §3.3's dial, as two partitions on one track.
- *
- * The row *is* the control: the numbers a balance owns are inside the surface you
- * tap to choose it, which is where §3.3's own wireframe puts them. Neither is
- * highlighted until the player picks one — no default, no recommendation — and
- * what separates the chosen one is a lift and an edge, never a warm colour on one
- * of two money choices.
- */
-.fork-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 2px 4px;
-  border-radius: 7px;
-  background: transparent;
-  transition: background var(--beat) var(--curve), box-shadow var(--beat) var(--curve);
-}
-
-.fork-row + .fork-row {
-  margin-top: 3px;
-}
-
-.fork-row .fork-name {
-  flex: none;
-  width: 46px;
-  text-align: left;
-  font-size: var(--floor-numeral);
-  color: #a8c9f6;
-}
-
-.fork-row .outcome-bar {
-  /*
-   * Springy across, fixed down.
-   *
-   * The row is a flex *row*, so `flex` here sizes the width and the height comes
-   * from the declaration. The base rule's springy height is what lets one bar
-   * take a Wide card's spare space; two of them doing it would make the fork the
-   * tallest page in the rail and stretch every other card to match.
-   */
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 32px;
-  min-height: 0;
-  max-height: none;
-  margin: 0;
-}
-
-.fork-row.on {
-  background: rgba(120, 195, 255, 0.12);
-  box-shadow: inset 0 0 0 1px rgba(203, 235, 255, 0.26);
-}
-
-.fork-row.on .fork-name {
-  color: #eaf7ff;
-}
-
-.fork-row:active {
-  background: rgba(3, 12, 26, 0.4);
 }
 
 /* ------------------------------------------------------- distribution bars */
@@ -2322,46 +2085,6 @@ summary.link.tap {
 
 .bars-block .bars {
   margin-bottom: 2px;
-}
-
-/*
- * The one child of a card that takes the spare height. Declared after the
- * `.card > *` floor above, so it wins on order rather than on `!important`.
- *
- * `min-height: min-content` and not `0`, and that is the SHELTER blocker: at `0`
- * the flex algorithm was free to shrink this box below the rows inside it, and
- * because the rows themselves refuse to shrink they simply painted outside it —
- * the round-2 review measured `Expected survivors 3.36` drawn through the
- * `Returns 95.5%` footer with an 11 px overlap, on the default state of a card,
- * with an odds figure and the honest-return line defacing each other. At
- * `min-content` the box stops at its contents and the card scrolls instead,
- * which is what the paragraph above always claimed happened.
- */
-.card-body {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  /* It is the scroller now, so it may shrink; its children may not. */
-  min-height: 0;
-}
-
-/*
- * The numeric block under the chart takes the card's spare height.
- *
- * With the chart fixed at `--chart-h` on every route, a Wide card has room left
- * over that a Split card does not. It goes to the rows rather than to a gap at
- * the bottom of the card: the fields spread out and the comparison table's own
- * rows share the extra, which is a table breathing rather than dead space under
- * one. Nothing moves between routes except how much air the rows have.
- */
-.fields {
-  flex: 1 1 auto;
-  justify-content: space-between;
-}
-
-.card-body .compare-table {
-  flex: 1 1 auto;
-  height: 100%;
 }
 
 .bar .axis {
@@ -3893,24 +3616,40 @@ summary.link.tap {
 }
 
 /*
- * Every word that explains the money, on one surface.
+ * Every word that explains the money, on one surface — and the surface is a
+ * board on the building, not a card over the picture.
  *
- * A dark translucent slate, hairline-lit along its top edge, sized to its copy
- * and centred under the plate. It is light-on-dark, which is the inverse of the
- * plate above it — so the two read as two different kinds of statement even
- * before either is read: *this is the money*, and *this is what happened*.
+ * The copy has to have a surface: the blocker it closes is written out at its
+ * call site in `main.ts`, and it is that a line of type crossing a lit window
+ * and a brown wall changes contrast twice inside one word. What the round-3
+ * review found was the *register* of the surface it got — *"a rounded card
+ * reading as a receipt composited onto the illustration rather than part of the
+ * world"*.
  *
- * The blocker it closes is written out at its call site in `main.ts`.
+ * So it is the same slate, cut from the same stock as the Lamp House: stained
+ * board rather than neutral dark glass, a brass hairline top and bottom the way
+ * every fitting on that building is trimmed, square corners because nothing in
+ * this world is a rounded rectangle, and a contact shadow that grounds it
+ * against the wall it is hanging on. It is still light-on-dark, which is the
+ * inverse of the plate above it, so the two still read as two different kinds of
+ * statement before either is read: *this is the money*, and *this is what
+ * happened*.
  */
 .settle-slate {
   max-width: 33ch;
   padding: 9px 16px 11px;
-  border-radius: 14px;
-  border: 1px solid rgba(140, 196, 236, 0.16);
-  background: linear-gradient(180deg, rgba(6, 24, 40, 0.9) 0%, rgba(3, 14, 26, 0.94) 100%);
+  border-radius: 3px;
+  border: 1px solid rgba(255, 196, 38, 0.3);
+  border-left-color: rgba(255, 196, 38, 0.12);
+  border-right-color: rgba(255, 196, 38, 0.12);
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 217, 160, 0.028) 0 1px, transparent 1px 13px),
+    linear-gradient(180deg, rgba(24, 20, 14, 0.9) 0%, rgba(12, 12, 12, 0.93) 52%, rgba(6, 10, 14, 0.95) 100%);
   box-shadow:
-    inset 0 1px 0 rgba(190, 228, 255, 0.16),
-    0 14px 32px -18px rgba(2, 10, 20, 0.9);
+    inset 0 1px 0 rgba(255, 217, 160, 0.18),
+    inset 0 -1px 0 rgba(3, 8, 14, 0.8),
+    0 2px 0 rgba(3, 8, 14, 0.55),
+    0 16px 30px -18px rgba(2, 8, 16, 0.95);
 }
 
 .settle-panel p {
@@ -4007,16 +3746,12 @@ summary.link.tap {
 
 /*
  * Short viewports (an iPhone SE is 667 pt, and a desktop window can be anything).
- * The rail's floor is what keeps a card whole on the baseline device; on a
- * shorter screen the card scrolls inside itself rather than pushing the commit
- * action off the bottom, because a primary action under the fold is the worse
- * failure by a distance.
+ * There is no card and no rail to shrink any more: the decision surface is the
+ * world, four route objects, one line and the action, so the only thing that
+ * gives is the world — down to a floor at which five figures with lanterns are
+ * still five figures with lanterns.
  */
 @media (max-height: 740px) {
-  .card-pager {
-    min-height: 132px;
-  }
-
   .viewport.compact {
     flex: 0 1 68px;
     min-height: 56px;
@@ -4033,15 +3768,9 @@ summary.link.tap {
 
 /*
  * Smaller again (a 360 x 640 Android, the floor of the device ladder in §6.8).
- * The rail keeps only enough height to show the card's head and the top of its
- * chart; everything else is reachable by scrolling inside the card, and the
- * commit action stays on screen.
+ * The world takes its floor and the commit action stays on screen.
  */
 @media (max-height: 660px) {
-  .card-pager {
-    min-height: 72px;
-  }
-
   .viewport.compact {
     flex: 0 1 56px;
     min-height: 48px;

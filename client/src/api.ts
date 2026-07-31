@@ -81,14 +81,22 @@ export function creditsSigned(value: string | bigint, places = 2): string {
 /**
  * A server-rendered decimal string, re-rendered at fewer places, half-up.
  *
- * One precision ladder, held everywhere: probabilities at two places,
- * multipliers at three. The round-2 review found the same quantity printed as
- * `49.24%` on a route card and `49.2393% likely` in the side-bet sheet, and a
- * multiplier as `1.190x` on a card and `1.93950933x` in a worked example. The
- * server publishes both a long decimal and the exact fraction; the *card's*
- * rendering is round-half-up (`server/money.ts` `rounded`), so this reproduces
- * that rule rather than truncating — a card and a sheet that disagree in the
- * last digit disagree about the odds.
+ * One precision ladder, held everywhere: **two places, for money, for
+ * multipliers and for probabilities alike.** The round-2 review found the same
+ * quantity printed as `49.24%` on a route card and `49.2393% likely` in the
+ * side-bet sheet; the round-3 review found the rest of it — a claim at
+ * `11.460`, three places and no unit, directly above a button reading `Bank
+ * 11.46 cr`, and a return multiple printed raw from the server at `3.0560x`
+ * beside route prices on the client's own three-place ladder. One quantity, two
+ * formats, one screen, twice. `RUBRIC` §5 is the standard and it is a single
+ * sentence: *"two decimal places, always, for money and multiplier alike."*
+ *
+ * The server publishes both a long decimal and the exact fraction; the
+ * *product's* rendering is round-half-up (`server/money.ts` `rounded`), so this
+ * reproduces that rule rather than truncating — a screen and a sheet that
+ * disagree in the last digit disagree about the odds. Nothing is lost by
+ * shortening it: the exact rational is one tap away under `full odds ▸`, where
+ * `1.190476...` is printed as the fraction it actually is.
  *
  * It is string arithmetic on digits, deliberately: `Number.parseFloat` on a
  * published probability is how a displayed figure stops being the published one.
@@ -111,9 +119,25 @@ export function pct(value: string): string {
   return `${places(value.replace('%', ''), 2)}%`;
 }
 
-/** `1.93950933` -> `1.940x`, the one multiplier format in the client. */
+/** `1.93950933` -> `1.94x`, the one multiplier format in the client. */
 export function multiplier(value: string): string {
-  return `${places(value.replace('x', ''), 3)}x`;
+  return `${places(value.replace('x', ''), 2)}x`;
+}
+
+/**
+ * A server-rendered credit string, re-rendered at the money precision.
+ *
+ * `server/rounds.ts` publishes the live claim at three places (`9.550`) because
+ * that is the precision the *engine* carries a claim at, and the client used to
+ * print it verbatim next to a two-place `Bank 9.55 cr`. It is the same money;
+ * it gets the same format. Truncating rather than rounding, and for the same
+ * reason `credits()` truncates: a displayed credit is never more than the
+ * credited one.
+ */
+export function claimFigure(display: string): string {
+  const match = /^(-?\d+)(?:\.(\d*))?$/u.exec(display.trim());
+  if (!match) return display;
+  return `${match[1]}.${(match[2] ?? '').padEnd(2, '0').slice(0, 2)}`;
 }
 
 /**

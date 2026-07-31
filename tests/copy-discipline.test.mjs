@@ -731,33 +731,46 @@ describe('first-run onboarding is specified, not assumed', () => {
   });
 
   /**
-   * The route card specified four fields and none of them was the break-even
-   * survivor count — the only number that says which way the claim moves. It is
-   * different on every card, and on WIDE the claim falls, non-zero, almost as
-   * often as it grows.
+   * The decision surface specified four fields and none of them was the
+   * break-even survivor count — the only number that says which way the claim
+   * moves. It is different on every route, and on WIDE the claim falls,
+   * non-zero, almost as often as it grows.
    */
-  it('puts the break-even survivor count on the card, not in a tooltip', () => {
-    const card = designDoc.slice(designDoc.indexOf('### 3.2 The route card'), designDoc.indexOf('### 3.3'));
-    expect(card).toContain('Your claim grows if');
-    expect(card).toContain('Chance of that');
-    expect(card).toMatch(flowed('Both fields are on the card face'));
+  it('puts the break-even survivor count on the decision surface, not in a tooltip', () => {
+    const route = designDoc.slice(designDoc.indexOf('### 3.2 The route object'), designDoc.indexOf('### 3.3'));
+    expect(route).toContain('Your claim grows if');
+    expect(route).toContain('Chance of that');
+    expect(route).toMatch(flowed('Both fields are on the decision surface at rest'));
     /*
-     * The break-even has to be *marked on the object*, and the object changed.
+     * The break-even has to be *readable at rest*, and the object it lives on
+     * has changed twice.
      *
-     * Round 2 of the visual pass replaced the survivor chart and its five-row
-     * table with a single divided outcome bar (§3.2), because the blind ranking
-     * identified the table as the reason the decision screen read as a financial
-     * dashboard at thumbnail size. What this guard is for did not change — the
-     * player must be able to see which side of the break-even the mass sits on
-     * before reading a digit — so it binds the sentence that now carries it, and
-     * the sentence that says where the chart went.
+     * Round 2 replaced the survivor chart and its five-row table with a single
+     * divided outcome bar; round 3's blind ranking identified that bar as the
+     * thing that still made the screen read as an odds sheet next to four real
+     * products, so round 4 moved the two fields into one sentence and put the
+     * price and the shape of the bet on the route objects themselves. What this
+     * guard is for did not change — the player must be able to see which way the
+     * claim moves before committing, without a tap — so it binds the sentence
+     * that now carries it, the picture that now carries the shape, and the
+     * sentence that says where the derivation went.
      */
-    expect(card).toMatch(flowed('The outcome bar is split at the break-even'));
-    expect(card).toMatch(flowed('behind `full odds ▸`'));
-    expect(card).toMatch(flowed('"All five make it" is never reused for it'));
-    // The card's own filled example must carry the two new fields as figures.
-    for (const name of ['narrowBreakEven5', 'narrowRises5', 'wideRises5', 'wideFallsNonZero5']) {
-      expect(card, `the card should bind ${name}`).toContain(`fig:${name}`);
+    expect(route).toMatch(flowed('The terms belong to the selected route and change with it'));
+    expect(route).toMatch(flowed('What the lanterns are'));
+    expect(route).toMatch(flowed('behind `full odds ▸`'));
+    expect(route).toMatch(flowed('"All five make it" is never reused for the break-even'));
+    /*
+     * And the picture may not be the break-even.
+     *
+     * A row of lit lanterns reading *"how many have to come back"* draws NARROW
+     * — 51.56% wipe — as the easiest bet on the screen, which is a picture that
+     * implies favourable odds. The document has to say so, because it is the
+     * kind of mistake a later pass makes twice.
+     */
+    expect(route).toMatch(flowed('Why the break-even is not what is drawn on the object'));
+    // The section's own filled example must carry the fields as figures.
+    for (const name of ['narrowBreakEven5', 'narrowRises5', 'wideRises5', 'wideFallsNonZero5', 'wideExpectedSurvivors5', 'narrowExpectedSurvivors5']) {
+      expect(route, `§3.2 should bind ${name}`).toContain(`fig:${name}`);
     }
     expect(IN_CLIENT_COPY).toContain('Your claim grows if [n] get back.');
   });
