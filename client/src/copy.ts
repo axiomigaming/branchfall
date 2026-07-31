@@ -46,6 +46,30 @@ export const COPY = {
   forkShape: 'is the wider spread. More of both endings, same average, same 95.5%.',
   lastLight: 'Same 95.5% as every bet here.',
   ghostNote: 'Who fell and where, on the branches you did not take. Never a money figure.',
+  outcomeBar: 'grows · falls, run goes on · nobody makes it',
 } as const;
 
 export const RTP_LINE = (rtp: string) => `Returns ${rtp}, like every route.`;
+
+/**
+ * The unit, attached to every money figure a player reads.
+ *
+ * The round-1 blind ranking found the one omission that failed two rubric
+ * criteria at once: `balance 500.00`, `BANKED 15.28`, `Bank 30.56` — every money
+ * figure in the product was a bare number, while every reference in the library
+ * writes `Bet 1.00 FUN`, `Balance 1,000.00 FUN`, `TOTAL WIN 1.03 FUN`. A bare
+ * decimal is a quantity; a decimal with a unit is *money*, and reading as money
+ * is the whole job of these figures.
+ *
+ * It is `cr` because the product's own words for the thing are already fixed —
+ * `server/main.ts` prints *"opening balance 500.00 credits"* on boot and §12
+ * writes the balance in credits — so this is the short form of a name the game
+ * already has, not a currency invented for the frame. It is presentation and
+ * only presentation: nothing downstream reads it, and no figure is computed from
+ * it. `MONEY` is the composer, so there is exactly one place that decides the
+ * spacing and one place to change if the unit ever does.
+ */
+export const UNIT = 'cr';
+
+/** A money figure with its unit attached — the only way money reaches a screen. */
+export const MONEY = (figure: string) => `${figure} ${UNIT}`;

@@ -212,18 +212,39 @@ enumerator publishes:
 │ ROUTE NAME          THE FICTION      │
 │ [multiplier]  per runner who clears  │
 │                                      │
-│ ▁▁▂▅▅▂  survivors, 5 runners         │  ← exact distribution bars
-│      ┊▲ claim grows from here        │  ← break-even marker on the axis
-│ your claim grows if   [ m ] get back │
-│ chance of that           [ % ]       │
-│ nobody makes it          [ % ]       │
-│ all five make it         [ % ]       │
-│ expected survivors       [ n ]       │
-│                                      │
+│ your claim grows if [ m ] of [ n ]   │
+│                          get back    │
+│ ███████ 49.24% ██████ 46.76% █ 4.00% │  ← the outcome bar: one divided
+│ grows · falls, run goes on · nobody     track, four exclusive shares,
+│                        makes it         each percentage in ink on its
+│                                         own segment
 │ Returns 95.5%, like every route.     │
-│ [ full odds ▸ ]                      │
+│ [ compare ]            [ full odds ▸ ]│
 └──────────────────────────────────────┘
 ```
+
+**Round 2 of the visual pass rebuilt this face, and the reason is measured.** The
+blind ranking of our decision screen against four real products placed it third
+of four and named the tell exactly: *"at thumbnail size our decision screen reads
+as a financial dashboard, because ~60% of its height is a survivor-distribution
+bar chart plus a five-row percentage table … while the game's nameable object —
+five lantern figures — is compressed into a letterbox strip 6% of frame height."*
+It also counted a duplication the card had been printing since v2 — `Chance of
+that 49.24%` and `All 5 make it 49.24%`, the same number four rows apart — and
+attributed the frame's hard-edge share, at 7.89% against a 2–9% reference band
+whose top end is a *failure* signature, to the table's hairline rules.
+
+So the face keeps the fields §3.2 argues for and changes their *form*. The four
+outcomes are mutually exclusive and sum to one; a partition drawn as a table asks
+the player to add four numbers to see its shape, and drawn as one divided track
+the shape **is** the picture. The exact survivor distribution, the six numeric
+fields and the per-outcome fractions did not leave the product — they are behind
+`full odds ▸`, one tap, where this section already puts the exact table and where
+§5.2.5's disclosure ladder says depth belongs.
+
+The height that bought goes to the world: the Kindlings are ~34% of the frame on
+the decision screen, large enough to be characters with names over them and a
+brass chip under each carrying that runner's share.
 
 Filled in for NARROW at five runners, from the generated tables:
 
@@ -264,17 +285,30 @@ number that stops that, and the v2 card did not carry it.
 
 Three build requirements follow:
 
-1. **Both fields are on the card face**, in the same weight as the others, on
-   every card, at every squad size — never behind `full odds ▸`.
-2. **The distribution bars mark the break-even.** A tick on the survivor axis at
-   the break-even count, with everything below it drawn in the falling family and
-   everything at or above it in the growing family (§6.1's money colours). A
-   player should be able to see which side of the line the mass sits on before
-   reading a digit.
+1. **Both fields are on the card face**, on every card, at every squad size —
+   never behind `full odds ▸`. The break-even is a sentence (*"your claim grows
+   if 5 of 5 get back"*) because it is the one field on the card that is not a
+   percentage, and reading it as one is how it got lost among six of them; the
+   two probabilities are segments of the outcome bar, each carrying its own
+   figure.
+2. **The outcome bar is split at the break-even.** Everything at or above it is
+   drawn in the growing family and everything below it in the falling family
+   (§6.1's money colours), so a player sees which side of the line the mass sits
+   on before reading a digit — which is what the round-1 tick mark on a second
+   chart was for, done as one object instead of two.
+   The bar is *built*, not drawn: a vertical gradient on every segment, a top
+   inner highlight, a bottom inner shadow and a contact shadow under the track,
+   with each percentage set **dark on light inside its own segment**. It adds lit
+   surface where the table subtracted it, and the ink inversion is the same one
+   the payout plate uses at the payoff.
+   A segment narrower than 13% of the track cannot hold a six-character
+   percentage, so its figure moves to the caption line underneath rather than
+   being clipped or rounded: **every figure appears exactly once, at one
+   precision, either on the bar or under it.**
 3. **"All five make it" is never reused for it.** On WIDE the two happen to
    coincide; on SPLIT and NARROW they do not, so a card that showed one field for
    both would mean two different things on two different cards — which is worse
-   than showing neither.
+   than showing neither. It is one of the fields behind `full odds ▸`.
 
 `SHELTER` gets the same two fields, computed on the group that actually runs: a
 shelter of `k` from `n` runs the remainder on the WIDE profile, and WIDE's
@@ -293,21 +327,31 @@ control: a divider the player drags across a row of Kindling silhouettes.
 │ SPLIT                    THE FORK    │
 │ [multiplier]  per runner who clears  │
 │                                      │
-│   ● ● ●  │  ● ●        ← drag        │
-│   broad limb  thin limb              │
-│                                      │
-│              3 + 2      4 + 1        │
-│  nobody makes it  [ % ]     [ % ]    │
-│  all five make it [ % ]     [ % ]    │
-│  four or five     [ % ]     [ % ]    │
-│  one alone comes  [ % ]     [ % ]    │
-│                                      │
-│  ▁▂▅█▅▂  │  ▂▂▃█▃▃    ← shared axis  │
-│                                      │
+│ your claim grows if [ m ] of [ n ]   │
+│                          get back    │
+│ 3 + 2  ████ 65.10% ███ 33.59% ▏1.30% │  ← two partitions,
+│ 4 + 1  █████ 69.44% ██ 28.04% ▏2.52% │    one 100% track,
+│ grows · falls, run goes on · nobody      the row is the control
+│                        makes it      │
 │ Same 95.5% either way. 4 + 1 is the  │
 │ wider spread: more of both endings.  │
 └──────────────────────────────────────┘
 ```
+
+**Why the comparison is two bars and not a table.** This section's own words for
+what the dial does are *"more of both endings, same average, same 95.5%"* — and
+two partitions stacked on one track say exactly that as a picture: `4 + 1`'s
+growing segment is visibly longer **and** its wipe segment is visibly longer, and
+the middle, the claim falling while the run continues, is what shrank to pay for
+both. The round-1 form was a paired bar chart plus a four-row table: two pictures
+and eight numbers for one comparison, on the screen the player sits on longest.
+
+The row *is* the control, which is where this section's wireframe already put the
+numbers: the figures a balance owns are inside the surface you tap to choose it.
+Neither is highlighted until the player picks one, there is no default, and what
+separates the chosen row is a lift and an inner edge — never a warmer colour on
+one of two choices that return the same 95.5%. The exact per-outcome table and
+the shared-axis survivor distribution are behind `full odds ▸`.
 
 Filled in at five runners, from the generated tables. Multiplier
 <!-- fig:splitMult -->1.333x<!-- /fig --> on both:
@@ -589,6 +633,17 @@ tutorial-only explanation. There is no onboarding widget that gets thrown away.
 - Five pips sit under the claim figure, one per runner, each labelled with its
   own value. Five shares of 0.955 read as five shares long before anybody reads
   the word "fifth".
+- **On the decision screen the shares are on the figures instead, and the pip row
+  is not drawn.** Round 2 of the visual pass gave S2's world a third of the frame
+  and hung a brass chip under each Kindling carrying that runner's value, which is
+  the same five numbers in the one place `RUBRIC` criterion 11 asks for them —
+  printed on the outcome object, the way a Plinko chip carries `×5.6` and a
+  Balloon Mania balloon carries `×16`. Printing them again in a row underneath is
+  the duplication the subtraction test names as noise. The teaching object is
+  unchanged in substance: the claim, and its shares, visible together, never
+  dismissed — what changed is that the shares are now attached to the people
+  carrying them. Every screen where the world is *not* carrying them draws the
+  pips.
 - On a resolve, the pips of fallen runners go dark **first**, held for 350 ms
   with the claim figure unchanged, and only then does the claim roll to its new
   value. Cause before effect, always in that order. A player watching this three
@@ -869,6 +924,16 @@ repository discharges.
 ### S2 — Arena brief and route choice *(the core screen)*
 - Viewport: the branch ahead in fog, arena name, arena number `2 / 5`. The squad
   is visible at the mouth of the branch, lanterns lit, breathing idle.
+  **The world is a third of the frame here, and the squad is its subject.** The
+  five Kindlings stand spread across the branch rather than filed at one end, each
+  a fifth of the band tall, with a name over it and a brass chip under it carrying
+  that runner's share. The round-1 build gave this band 100 px — 6% of frame
+  height — under a chart and a percentage table, and the blind ranking identified
+  the screen as the non-professional entry on exactly that proportion.
+- **The branch carries the selected route's price**, as a plate cut into the
+  stone in that route's band colour (§3.2's ramp). Tapping a route tab changes
+  the number on the world. This is `RUBRIC` criterion 11 for the object the
+  player is actually choosing between: the branch.
 - Decision surface: a horizontally paged stack of four route cards (§3.2), one
   per screen-width, with a page indicator. Wide first, then Split, Narrow,
   Shelter. Card order never changes and is never personalised. **How many cards
@@ -876,8 +941,14 @@ repository discharges.
   that are present never does.
 - A `compare` affordance on every card pins any two cards into the side-by-side
   view of §5.2.4. This is the permanent form of the Two-Card Moment.
-- The claim meter (§5.2.2) sits on the viewport seam: the claim figure with one
-  pip per runner beneath it, clustered by lane on a Split.
+- The claim meter (§5.2.2) sits on the viewport seam: the claim figure, the
+  stake beside it with its unit, and — on every screen except this one — one pip
+  per runner beneath it, clustered by lane on a Split. On S2 the shares are on the
+  figures (§5.2.2), so the seam carries the claim and the stake and nothing else.
+- **The stake is on this screen**, with its unit and two decimals, next to the
+  claim it bought. `RUBRIC` criterion 3: the round-1 build could not answer *"what
+  is at stake"* from this screen's pixels, because the bet amount appeared nowhere
+  on it.
 - The Split card carries the fork-balance control (§3.3) at four or five runners.
 - Shelter card expands to a Kindling picker: tap the ones to bring home. Live
   readout: *"Banks 1.91 now. 3 keep running."*
@@ -891,6 +962,16 @@ repository discharges.
   §5.2.5 rule 5. It is **hidden entirely**, not shown disabled, whenever the
   round's remaining side-bet allowance is below the 1.00 minimum (§4).
 - Footer: current claim, squad count, `Commit route` (primary, full width).
+- **The page indicator is a row of four colour-ramped chips**, one per route,
+  each carrying its own price and tinted by its rung of §3.2's payout ramp. This
+  is the reference set's own device — Plinko's payout chips run green through
+  yellow so *"the player learns the payout scale by looking, never by reading"* —
+  and it is a tint, not a highlight: the band mixes into a shared body at one
+  fixed strength, so all four chips hold identical area, luminance and weight.
+  Selection is a *lift* — a bright top rule, an inner ring, the light a raised
+  surface catches — because two routes can share a rung (WIDE and SHELTER are both
+  band 1 at five runners) and because a warmer selected state on one of four
+  choices with identical return would be a recommendation whatever the copy said.
 - **No countdown, no auto-select, no "recommended" badge, no highlighting of the
   higher-multiplier card.** All four cards have identical visual weight.
 
@@ -991,11 +1072,11 @@ deepest value in the frame is a blue-black rather than a black.
 
 | Token | Hex | Use |
 | --- | --- | --- |
-| `--void` | `#071A33` | the Understory below; the deepest value in frame, and not a black |
-| `--night` | `#0B2647` | night air, UI background |
-| `--fog-mid` | `#10538F` | mid-distance air, shadowed stone, lit panel body |
+| `--void` | `#072433` | the Understory below; the deepest value in frame, and not a black |
+| `--night` | `#0B3347` | night air, UI background |
+| `--fog-mid` | `#10678F` | mid-distance air, shadowed stone, lit panel body |
 | `--fog-far` | `#2E9BD8` | far sky glow; the value everything silhouettes against |
-| `--mist` | `#CBEBFF` | near mist, lantern-lit fog, lightest cool value, body type |
+| `--mist` | `#CBE1FF` | near mist, lantern-lit fog, lightest cool value, body type |
 | `--bark-deep` | `#3A1E0C` | wet fossil bark in shadow |
 | `--bark` | `#7A3F14` | fossil bark base |
 | `--bark-lit` | `#C97A28` | bark catching lantern light |
@@ -1156,8 +1237,33 @@ illuminate nothing (§6.7).
   are mounted only when the return is *strictly above* the stake. A 0.9095x bank
   is 46 pence lost and gets the figure stated plainly in the cool half of the
   frame with no light on it at all (§10.5, and `client/src/payoff.ts`).
+- **The tree going warm is a colour grade, and it is the scale.** *"The reward
+  for a big bank is that the tree is briefly warm"* is a quantity, and round 2 of
+  the visual pass made it one. On a win the whole world is repainted in the
+  lantern's own hue by a `color` composite — hue and chroma from the light, **
+  luminance from the frame** — so every rim, every fog plane and every silhouette
+  stays exactly where it was and the room simply has a fire in it. Under it a wide
+  soft bloom in the same hue is composited `overlay`, which on a dark frame is a
+  multiply: it raises luminance without touching the ratio between the channels,
+  which is what saturation is.
+  Both the grade's strength and the bloom's radius are `payoff.ts`'s `heat`, so
+  a 1.15x and a 3.06x are no longer the same picture. Measured idle-to-payoff at
+  390 x 844: **quiet** lifts mean luminance +25% and highlight area x2.2 and
+  reaches 66% saturated; **big** +47% and x3.9 at 76%; **huge** +70% and x7.6 at
+  75%. The round-1 build's hero measured +39% and x2.7 with saturated share
+  *falling* to 34%, and its 1.15x was within 16% of its 3.06x on every dimension.
+  Nothing here is kinetic, nothing decays or breathes: the grade arrives with the
+  plate on the same 380 ms and then holds. Build, peak, settle.
+- **Both terminal screens come to rest, and say so.** After its beat has landed
+  each of them tells the world to stop: the camera is level, any fall is over, the
+  dust is gone and the clock is stopped. The loss screen was measured in round 1
+  still moving fourteen seconds after it opened — 11–12 independently moving
+  regions against the rubric's ceiling of eight — while carrying a live primary
+  action. §S6 still gets its two full seconds of fog and wind and §9's descent
+  still plays every frame of itself; what changed is that there is now an *end* to
+  it, at 3.0 s, after which two consecutive frames are pixel-identical.
 - **No confetti, ever.** No coin fountains, no screen-shake on a win, no
-  fireworks. The reward for a big bank is that the tree is briefly warm.
+  fireworks.
 
 ### 6.5 Type direction
 
@@ -1175,6 +1281,17 @@ illuminate nothing (§6.7).
   all four shout equally.
 - **Minimum sizes:** 15 pt body, 13 pt secondary, 28 pt for the claim figure.
   Numbers never below 15 pt.
+- **The payout numeral, and its unit.** The terminal figure is 46 / 66 / 82 pt by
+  tier (§6.4) — well over `RUBRIC` criterion 17's floor of 4% of frame height at
+  every rung — set in tabular monospace, dark on the plate's gold, and it **always
+  carries its unit**. Every money figure a player reads does: `balance 500.00 cr`,
+  `stake 5.00 cr`, `banked 15.28 cr`. Round 1 shipped none of them, which failed
+  two criteria on one omission and is the difference between a quantity and money.
+  The unit is a step down in size and contrast from the figure it belongs to,
+  because it is a label on a number and not a number.
+  It sits on the *balance* and not on `net` in the session strip: `docs/ADR-001`
+  measures that strip's worst case at 2.5 px of slack, so the unit goes on once,
+  on the figure criterion 3 names.
 - **Budget:** two families, four cut files, ≤ 190 KB WOFF2 total, Latin subset at
   boot with the extended ranges lazy-loaded. Numerals are in the boot subset.
 

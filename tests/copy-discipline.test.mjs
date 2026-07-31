@@ -741,7 +741,19 @@ describe('first-run onboarding is specified, not assumed', () => {
     expect(card).toContain('Your claim grows if');
     expect(card).toContain('Chance of that');
     expect(card).toMatch(flowed('Both fields are on the card face'));
-    expect(card).toMatch(flowed('The distribution bars mark the break-even'));
+    /*
+     * The break-even has to be *marked on the object*, and the object changed.
+     *
+     * Round 2 of the visual pass replaced the survivor chart and its five-row
+     * table with a single divided outcome bar (§3.2), because the blind ranking
+     * identified the table as the reason the decision screen read as a financial
+     * dashboard at thumbnail size. What this guard is for did not change — the
+     * player must be able to see which side of the break-even the mass sits on
+     * before reading a digit — so it binds the sentence that now carries it, and
+     * the sentence that says where the chart went.
+     */
+    expect(card).toMatch(flowed('The outcome bar is split at the break-even'));
+    expect(card).toMatch(flowed('behind `full odds ▸`'));
     expect(card).toMatch(flowed('"All five make it" is never reused for it'));
     // The card's own filled example must carry the two new fields as figures.
     for (const name of ['narrowBreakEven5', 'narrowRises5', 'wideRises5', 'wideFallsNonZero5']) {

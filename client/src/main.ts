@@ -31,7 +31,7 @@ import {
 } from './api.js';
 import * as sound from './audio.js';
 import * as clip from './clip.js';
-import { COPY } from './copy.js';
+import { COPY, MONEY, UNIT } from './copy.js';
 import { rederive, type Rederivation } from './derive.js';
 import { el, frag, type Child } from './dom.js';
 import { CAUSE_HOLD, CLAIM_ROLL, countUp, sequence, setCalmPreference } from './motion.js';
@@ -55,6 +55,7 @@ import type {
   MenuEntry,
   RehearsalResult,
   Session,
+  SquadMember,
   VerifyCheck,
   WalletView,
 } from './types.js';
@@ -63,7 +64,9 @@ import {
   distributionBars,
   field,
   heroFigure,
+  oddsDetail,
   oddsTable,
+  payoutBand,
   routeCard,
   routeTabs,
 } from './widgets.js';
@@ -525,11 +528,22 @@ function sessionStrip(): HTMLElement {
      * 2.5 px of 358 spare as built, and 3.9 px short if the word comes up with it.
      */
     el('span', { class: 'clock' }, 'session ', el('span', { class: 'num', text: `${minutes}m` })),
+    /*
+     * The balance, with its unit (`RUBRIC` criterion 3).
+     *
+     * Only the balance carries it, and that is a measurement rather than a
+     * preference: `docs/ADR-001-the-numeral-floor.md` measures this strip's worst
+     * case — `session 120m` beside four-figure money — at 2.5 px of 358 spare, so
+     * the unit goes on once. It goes on the *balance* because that is the figure
+     * criterion 3 names and the one a player reads as an amount of money; `net`
+     * beside it is a difference of the same money and reads as one.
+     */
     el(
       'span',
       {},
       'balance ',
       el('span', { class: 'money', text: wallet ? wallet.balanceDisplay : '—' }),
+      el('span', { class: 'unit', text: UNIT }),
     ),
     el(
       'span',
@@ -631,8 +645,20 @@ function viewport(options: {
    * across the re-render that turns it from running into lost. Passing the array
    * index here instead of the squad slot is how a fall stops playing.
    */
-  readonly runners: readonly { slot: number; name: string; status: string; lane: number }[];
+  readonly runners: readonly {
+    slot: number;
+    name: string;
+    status: string;
+    lane: number;
+    /** What this runner is carrying, for the chip under the figure (§5.2.2). */
+    value?: string;
+  }[];
   readonly lanes: number;
+  /** The selected route's multiple, painted onto the branch (criterion 11). */
+  readonly priceLabel?: string | null;
+  readonly priceBand?: 1 | 2 | 3 | 4 | null;
+  /** The beat is over: the world comes to rest and holds (`stage.ts`). */
+  readonly resting?: boolean;
   readonly progress?: number;
   readonly collapsed?: readonly boolean[];
   readonly compact?: boolean;
@@ -667,7 +693,11 @@ function viewport(options: {
       status:
         runner.status === 'lost' ? 'lost' : runner.status === 'home' ? 'home' : 'running',
       lane: runner.lane,
+      value: runner.value ?? null,
     })) as readonly StageRunner[],
+    price: options.priceLabel ?? null,
+    priceBand: options.priceBand ?? null,
+    resting: options.resting ?? false,
     collapsed: options.collapsed ?? [],
     progress: options.progress ?? 0.08,
     mode: options.mode ?? 'brief',
@@ -909,7 +939,7 @@ function stakeScreen(): HTMLElement {
       ),
       el('p', {
         class: 'note',
-        text: `Buying this run debits ${credits(stake, 2)} and opens a claim of ${credits(claim, 3)} — that's the ${config.money.rtpPct} return, charged once, now. It is not charged again no matter how far you go.`,
+        text: `Buying this run debits ${MONEY(credits(stake, 2))} and opens a claim of ${MONEY(credits(claim, 3))} — that's the ${config.money.rtpPct} return, charged once, now. It is not charged again no matter how far you go.`,
       }),
       el('p', { class: 'note', text: COPY.buyWarning }),
       collapsible('If you leave mid-round', el('p', { class: 'note', text: COPY.expiry })),
@@ -961,8 +991,8 @@ function stakeScreen(): HTMLElement {
       el(
         'div',
         { class: 'status' },
-        el('span', { text: `stake ${credits(stake, 2)}` }),
-        el('span', { text: `claim opens at ${credits(claim, 3)}` }),
+        el('span', { text: `stake ${MONEY(credits(stake, 2))}` }),
+        el('span', { text: `claim opens at ${MONEY(credits(claim, 3))}` }),
       ),
       state.session?.stakingBlock
         ? el('p', { class: 'note', text: state.session.stakingBlock.message })
@@ -1347,7 +1377,29 @@ function routeScreen(): HTMLElement {
         name: runner.name,
         status: runner.status,
         lane: laneSizes && index >= (laneSizes[0] as number) ? 1 : 0,
+        /*
+         * What this Kindling is carrying, printed on it (rubric criterion 11).
+         *
+         * *"Plinko prints ×0.5…×5.6 on colour-ramped chips, Balloon Mania prints
+         * ×16 on the balloon's face."* This is the same move with the same
+         * intent: the share is a brass chip hanging under the figure that owns
+         * it, so the payout scale is on the object and the pip row underneath is
+         * no longer needed to say it.
+         */
+        value: credits(runner.valueMicro, 3),
       })),
+      /*
+       * The price of the branch, on the branch (rubric criterion 11).
+       *
+       * The selected route's multiple is painted into the stone the Kindlings are
+       * standing on, in that route's own band colour — the same colour the tab and
+       * the card head wear. Tapping a tab changes the number on the world, which
+       * is the crash-family reading of this screen: five lanterns each worth
+       * something, on a branch that pays a multiple.
+       */
+      priceLabel: selectedEntry ? selectedFigures?.display.multiplier ?? null : null,
+      priceBand: selectedFigures ? payoutBand(selectedFigures.display.multiplier) : null,
+      names: true,
       progress: 0.02,
     }),
     claimMeter({
@@ -1356,6 +1408,17 @@ function routeScreen(): HTMLElement {
       squad: frame.squad,
       laneSizes,
       bankedNote: bankedNote(frame),
+      stake: credits(frame.stakeMicro, 2),
+      /*
+       * The shares are on the figures now, so they are not printed again here.
+       *
+       * §5.2.2 asks for the claim *and* its shares as one teaching object; on this
+       * screen the world is large enough to carry them, and a brass chip under a
+       * Kindling is a better home for a runner's value than a pip in a row —
+       * rubric criterion 11 wants the payout scale on the object, and the object
+       * is the Kindling.
+       */
+      pips: false,
     }),
     routeTabs(tabs, state.route, pick),
     el(
@@ -1408,13 +1471,27 @@ function routeScreen(): HTMLElement {
   );
 }
 
+/**
+ * The multiple of the route this round is being run on, if it is knowable.
+ *
+ * Read off the menu the server published for the arena the squad is in, by the
+ * route the player committed. It is a *label*: nothing downstream of it can reach
+ * money, and a round whose menu no longer carries the committed route simply
+ * draws no price rather than guessing at one.
+ */
+function selectedMultiplier(frame: Frame): string | null {
+  const entry = frame.menu.find((candidate) => candidate.route === state.route);
+  if (!entry) return null;
+  return figuresFor(entry, state.laneSplit, Math.max(1, state.shelter.length)).display.multiplier;
+}
+
 function commitLabel(): string {
   if (state.route === 'SHELTER')
     return state.shelter.length === 0 ? 'Choose who comes home' : 'Open the Lamp House';
   return 'Commit route';
 }
 
-function orderedRunners(frame: Frame): { slot: number; name: string; status: string }[] {
+function orderedRunners(frame: Frame): SquadMember[] {
   const running = frame.squad.filter((member) => member.status === 'running');
   if (state.laneOrder) {
     const byName = new Map(running.map((member) => [member.name, member]));
@@ -1490,7 +1567,20 @@ function renderCard(entry: MenuEntry, frame: Frame, config: Config): HTMLElement
               class: 'note',
               text: `Multiplier ${figures.multiplier.exact} = ${figures.display.multiplier}.`,
             }),
-            oddsTable(figures),
+            /*
+             * The depth the card face used to print at rest (§3.2, §5.2.5).
+             *
+             * The survivor distribution, the six fields and the exact fractions
+             * are all here, together, one tap from the decision — which is the
+             * disclosure ladder §5.2.5 draws and the reason none of this is lost
+             * by taking it off a screen the player sits on for a minute.
+             */
+            oddsDetail(
+              figures,
+              entry.route === 'SPLIT' && balances.length > 1
+                ? { balances, running, figuresOf: (balance: number) => entry.figures.find((candidate) => candidate.laneSplit === balance)?.figures as Figures, selected: state.laneSplit }
+                : null,
+            ),
             el('p', {
               class: 'tiny',
               text: 'These are the rows tools/enumerate.mjs publishes. The card and the enumerator are checked against each other on every build.',
@@ -1543,7 +1633,7 @@ function controlStrip(frame: Frame, entry: MenuEntry | null): Child {
       balances.length > 1
         ? el('p', {
             class: 'tiny',
-            text: `Tap a column on the card: ${balances[balances.length - 1]} + ${frame.live.length - (balances[balances.length - 1] as number)} is the wider spread, same 95.5%.`,
+            text: `Tap a row on the card: ${balances[balances.length - 1]} + ${frame.live.length - (balances[balances.length - 1] as number)} is the wider spread, same 95.5%.`,
           })
         : null,
     );
@@ -2188,13 +2278,36 @@ function runScreen(): HTMLElement {
         status: runner.status,
         lane: laneSizes && index >= (laneSizes[0] as number) ? 1 : 0,
       })),
+      /*
+       * The branch keeps its price while they are crossing it.
+       *
+       * The round-1 in-round frame placed third of three in the blind ranking,
+       * and the note was that *"the references make the climbing number the
+       * round"*. Ours cannot climb: the transcript is not revealed until
+       * `/resolve`, so nothing on this screen knows anything, and inventing a
+       * moving figure would be inventing information. What the frame *can* carry
+       * is the thing Plinko's in-flight frame carries and ours did not — the
+       * payout scale, on the object, while the object is in motion. The plate is
+       * ahead of the file on the stone they are walking along, static, and costs
+       * the effect budget nothing.
+       */
+      priceLabel: selectedMultiplier(frame),
+      priceBand: (() => {
+        const value = selectedMultiplier(frame);
+        return value === null ? null : payoutBand(value);
+      })(),
       progress,
       overlay: frag(
         // §9: *"There is no HUD except the claim, dimmed to 40%."*
         el(
           'div',
           { class: `hud-dock${lastLamp ? ' dimmed' : ''}` },
-          el('div', { class: 'claim-figure money', text: frame.claim.display }),
+          el(
+            'div',
+            { class: 'claim-row' },
+            el('div', { class: 'claim-figure money', text: frame.claim.display }),
+            el('span', { class: 'unit', text: UNIT }),
+          ),
           el('div', {
             class: 'tiny',
             text: `${frame.live.length} ${frame.live.length === 1 ? 'still out' : 'running'}`,
@@ -2320,6 +2433,17 @@ function resolveScreen(): HTMLElement {
       mode: 'resolve',
       collapsed: step === 0 ? [] : arena.lanes.map((lane) => lane.collapsed),
       runners: sceneRunners,
+      /*
+       * And this screen holds still too, once its own beat has finished.
+       *
+       * S4 is a decision surface — `Bank` or `Run` — so the rule that governs it
+       * is the one that governs S2: a premium instant game is completely still
+       * while it waits for you. Measured at rest before this, it carried five
+       * small drifting regions from the figures' idle sway; the pips going dark,
+       * the claim rolling and the arithmetic arriving all happen at steps 1 and 2
+       * and are untouched.
+       */
+      resting: step >= 3,
       progress: step === 0 ? 0.62 : 0.94,
     }),
     claimMeter({
@@ -2394,7 +2518,7 @@ function resolveScreen(): HTMLElement {
           finished
             ? el('button', {
                 class: 'btn primary',
-                text: `Bring them home — ${credits(frame.bankAmountMicro, 2)}`,
+                text: `Bring them home — ${MONEY(credits(frame.bankAmountMicro, 2))}`,
                 onClick: () => finishRound(),
               })
             : el(
@@ -2402,7 +2526,7 @@ function resolveScreen(): HTMLElement {
                 { class: 'btn-row' },
                 el('button', {
                   class: 'btn',
-                  text: `Bank ${credits(frame.bankAmountMicro, 2)}`,
+                  text: `Bank ${MONEY(credits(frame.bankAmountMicro, 2))}`,
                   onClick: () => bankRound(),
                 }),
                 el('button', {
@@ -2712,7 +2836,33 @@ function bankedScreen(): HTMLElement {
         lane: 0,
       })),
       progress: 0.62,
-      heat: scale.heat,
+      /*
+       * The frame's warmth is earned twice: by winning, and then by how much.
+       *
+       * `won` is `celebrates(returnMultiple)` — strictly above stake — and it is
+       * the gate, not the tier. A 0.9095x bank returns 4.54 on a 5.00 stake; that
+       * is 46 pence lost, and §10.5 and the house blocker list both forbid it
+       * being dressed as anything else. The first cut of the warm grade read
+       * `scale.heat` directly, which is non-zero for *any* return, and put a gold
+       * frame behind a losing round. It is gated here, at the one place the stage
+       * is told, so nothing downstream can re-decide it.
+       *
+       * The second gate is the beat: while it is `held` — §9's opening seconds,
+       * the door and the file of lanterns — the world is the world. The grade
+       * lands on the same step as the plate and the wash, so *build, peak, settle*
+       * is one event rather than three, and then the frame holds still.
+       */
+      heat: won && step > 0 ? scale.heat : 0,
+      /*
+       * And the win screen holds too, once its own beat has landed.
+       *
+       * The round-1 judge measured this screen at 0.00% from 900 ms and called it
+       * exemplary, which it was — but it was exemplary by accident: nothing on it
+       * happened to be moving. Saying so explicitly is what makes it a property of
+       * the screen rather than of the scene it happens to be showing, and it is
+       * the same sentence the loss screen now carries.
+       */
+      resting: step >= 3,
       /*
        * The words sit *over* the world, not in a panel under it.
        *
@@ -2756,7 +2906,7 @@ function bankedScreen(): HTMLElement {
                   step >= 2
                     ? el('div', {
                         class: 'hero-note settle-in',
-                        text: `that's ${settlement?.returnMultiple ?? '0'}x the ${credits(staked, 2)} you staked`,
+                        text: `that's ${settlement?.returnMultiple ?? '0'}x the ${MONEY(credits(staked, 2))} you staked`,
                       })
                     : null,
               }),
@@ -3023,7 +3173,24 @@ function wipeScreen(): HTMLElement {
    * whole screen, which is what the sentence says.
    */
   const held = sinceLoss < 2000;
-  if (sinceLoss < 2200) window.setTimeout(() => state.view === 'wipe' && render(), 2300 - sinceLoss);
+  /*
+   * When the loss screen stops moving, and why it has to.
+   *
+   * §S6 buys two full seconds of fog and wind, and §9's descent runs inside them.
+   * After that the screen has said everything it is going to say and carries a
+   * live primary action — and the round-1 judge measured it still moving fourteen
+   * seconds later, 11–12 independent regions against the rubric's ceiling of
+   * eight, while the player was being asked to act against it. So the world is
+   * told to rest a beat after the words arrive: the camera is level, the fall is
+   * over, the dust is gone, and the frame holds. This is not a shortened beat —
+   * every frame of the descent still plays — it is an ending to it.
+   */
+  const resting = sinceLoss >= 3000;
+  if (sinceLoss < 3100)
+    window.setTimeout(
+      () => state.view === 'wipe' && render(),
+      Math.max(120, (sinceLoss < 2200 ? 2300 : 3100) - sinceLoss),
+    );
   return el(
     'div',
     { class: `screen fade-in settled${held ? ' held' : ''}` },
@@ -3036,6 +3203,7 @@ function wipeScreen(): HTMLElement {
       arena: arena?.index ?? frame.arena.index,
       mode: 'quiet',
       full: true,
+      resting,
       collapsed: arena?.lanes.map((lane) => lane.collapsed) ?? [],
       runners: (arena?.lanes ?? []).flatMap((lane, laneIndex) =>
         lane.entities.map((entity) => ({
