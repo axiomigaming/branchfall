@@ -78,6 +78,34 @@ export function payoff(returnMultiple: string | number): Payoff {
 }
 
 /**
+ * Whether this return is allowed to be celebrated at all.
+ *
+ * ## The rule, and why it is a predicate rather than a taste call
+ *
+ * §10.5 forbids dressing a sub-stake return as a win *at any size*, and the
+ * house responsible-design list names the same thing as a blocker: "losses
+ * dressed as wins (celebratory treatment on a net-losing outcome, including
+ * partial returns below stake)". The round-3 build kept that rule by never
+ * building a celebration at all — the payoff was a caption, so there was nothing
+ * to withhold. Once the payoff is an *object* — a lit gold plate at the centre of
+ * the frame with a wash of light behind it — the rule needs a switch, because a
+ * plate is celebratory whatever number is printed on it.
+ *
+ * So: strictly above stake, and nothing else. `0.9095x` banked 4.54 against a
+ * 5.00 stake; that is 46 pence lost, and it gets the plain statement of what came
+ * back, in the cool half of the palette, with no plate, no bloom and no light.
+ * `1.0000x` is not a win either — the money came back and nothing was won — and
+ * it is treated the same way.
+ *
+ * `tier` still scales *within* the celebrated range and is untouched: it is the
+ * question "how big is this win", which is only asked once this has answered yes.
+ */
+export function celebrates(returnMultiple: string | number): boolean {
+  const raw = typeof returnMultiple === 'number' ? returnMultiple : Number.parseFloat(returnMultiple);
+  return Number.isFinite(raw) && raw > 1;
+}
+
+/**
  * How long the hero figure counts for.
  *
  * §S4 fixes the *claim* roll at ~600 ms and §6.4 forbids a spin; this is the

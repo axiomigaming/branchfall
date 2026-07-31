@@ -559,8 +559,59 @@ function checksum(bytes) {
   return sum >>> 0;
 }
 
+/**
+ * A contour's signed area, from its point list read as a polygon.
+ *
+ * The off-curve points are included. That is deliberate and it is enough: a
+ * quadratic segment never crosses the chord of its own control polygon, so the
+ * polygon's orientation is the curve's orientation, and orientation is the only
+ * thing being asked for here.
+ */
+function signedArea(contour) {
+  let total = 0;
+  for (let index = 0; index < contour.length; index += 1) {
+    const a = contour[index];
+    const b = contour[(index + 1) % contour.length];
+    total += a.x * b.y - b.x * a.y;
+  }
+  return total / 2;
+}
+
+/**
+ * Every contour wound the same way: clockwise, in this y-up space.
+ *
+ * ## The bug this closes
+ *
+ * The file's premise is that a letter is *"a stem and two half-rings"* and that
+ * TrueType's non-zero winding unions them. Non-zero winding only unions shapes
+ * that agree about which way round they go. `bar` and `slant` are clockwise;
+ * `ring` is clockwise or anticlockwise depending on whether the caller wrote its
+ * angles increasing or decreasing — `C` sweeps 58° -> 302° and `B`'s bowls sweep
+ * 90° -> -90°. So a bar laid across a ring of the opposite hand summed to a
+ * winding number of zero exactly where the two overlapped, and the renderer
+ * dutifully punched a hole there.
+ *
+ * Measured on the specimen before this: a wedge bitten out of `B`, `C`, `G`, `P`,
+ * `R`, `S`, `U`, `a`, `b`, `c`, `d`, `e`, `g`, `p`, `q`, `s`, `u`, `2`, `3`, `5`,
+ * `6`, `8`, `9` and `0` — every letter in the face built from a bar meeting a
+ * bowl. `O` and `o` were clean, because a full ring with nothing laid across it
+ * has nothing to cancel against. That is the signature of a winding fault rather
+ * than a geometry one, and it is why the shapes were otherwise correct.
+ *
+ * Normalising here rather than at each call site means the invariant cannot be
+ * broken again by a new glyph written with its angles the other way round.
+ * `ring` carries its counter inside its own contour, and normalising on *total*
+ * signed area keeps that intact: the outer loop dominates the sum, so forcing the
+ * total clockwise puts the outer edge clockwise and leaves the inner edge running
+ * against it, which is exactly the annulus that was intended.
+ */
+function orient(contours) {
+  return contours.map((contour) => (signedArea(contour) > 0 ? [...contour].reverse() : contour));
+}
+
 /** One glyph's `glyf` entry: simple, with repeat-free flags. */
-function glyphData(contours) {
+function glyphData(rawContours) {
+  const contours = orient(rawContours);
   if (contours.length === 0) return { bytes: [], box: [0, 0, 0, 0] };
   const writer = new Writer();
   const ends = [];

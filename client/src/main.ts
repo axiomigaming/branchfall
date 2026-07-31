@@ -35,7 +35,7 @@ import { COPY } from './copy.js';
 import { rederive, type Rederivation } from './derive.js';
 import { el, frag, type Child } from './dom.js';
 import { CAUSE_HOLD, CLAIM_ROLL, countUp, sequence, setCalmPreference } from './motion.js';
-import { bloom, countMs, payoff, type Payoff } from './payoff.js';
+import { bloom, celebrates, countMs, payoff, type Payoff } from './payoff.js';
 import {
   DOOR_BEAT,
   doorClosedMs,
@@ -461,6 +461,25 @@ function toast(message: string, bad = false): void {
   }, 4200);
 }
 
+/**
+ * A notice belongs to the screen it was raised on, and does not follow the player.
+ *
+ * The measured case: `The server's half of this round is sealed` is raised when
+ * the round is bought and lives for 4.2 s, which is long enough to still be on
+ * screen — and still sliding — while five figures start across the branch. The
+ * in-round frame diff found it as the *largest* moving region in the crossing:
+ * 403 cells spanning the full width against 371 for the squad itself, so the
+ * shot the round is about was the second-loudest thing in its own frame.
+ *
+ * The rubric's rule is one dominant motion per beat, and the beat's subject wins.
+ * So a screen transition takes its notices with it. Nothing about the message is
+ * lost: it is a statement about a seal the player can re-read on the proof screen
+ * at any time, and the round it describes has already started.
+ */
+function clearToast(): void {
+  if (state.toast) state.toast = null;
+}
+
 async function guard(work: () => Promise<void>): Promise<void> {
   if (state.busy) return;
   state.busy = true;
@@ -748,7 +767,7 @@ function squadScreen(): HTMLElement {
         el(
           'div',
           { class: 'row' },
-          el('span', { class: 'pip' }, el('span', { class: 'dot' })),
+          el('span', { class: 'pip', 'data-kin': String(index % 5) }, el('span', { class: 'dot' })),
           el('input', {
             class: 'runner-name',
             value: name,
@@ -757,7 +776,7 @@ function squadScreen(): HTMLElement {
             style:
               // 44 pt, like every other control (§10.8): a rename field a thumb
               // misses is the first control a player ever touches.
-              'flex:1;background:transparent;border:0;border-bottom:1px solid rgba(138,152,160,.25);color:inherit;font-size:16px;padding:12px 0;min-height:44px',
+              'flex:1;background:transparent;border:0;border-bottom:1px solid rgba(120,195,255,.3);color:inherit;font-size:16px;padding:12px 0;min-height:44px',
             onChange: (event: Event) => {
               const next = [...names];
               next[index] = (event.target as HTMLInputElement).value;
@@ -1931,6 +1950,7 @@ async function commitRoute(): Promise<void> {
     adopt(payload);
     state.runStartedAt = Date.now();
     state.view = 'run';
+    clearToast();
     render();
     window.setTimeout(() => void resolveArena(), Math.min(payload.replayMs ?? 9000, 9000));
   });
@@ -2641,9 +2661,29 @@ function bankedScreen(): HTMLElement {
   const lost = frame.squad.filter((member) => member.status === 'lost');
   // How big it was, once, for the type, the light and the count to share.
   const scale = settledPayoff();
+  /*
+   * Whether the screen is allowed to celebrate (`payoff.ts`).
+   *
+   * Strictly above stake. A 0.9095x bank is 46 pence lost and it gets the plain
+   * statement, not the plate — §10.5, and the responsible-design blocker on
+   * dressing a partial return as a win. Everything below reads this one flag, so
+   * the plate, the wash, the bloom and the ink colour cannot disagree about it.
+   */
+  const won = celebrates(settlement?.returnMultiple ?? '0');
   return el(
     'div',
-    { class: `screen fade-in settled${step === 0 ? ' held' : ''}` },
+    {
+      /*
+       * `paid` is the frame being lit by its own event.
+       *
+       * The rubric measures a celebration as a *global* change and not only a
+       * local one — mean luminance up by half again, highlight area doubled — and
+       * that cannot come from an object at the centre alone, however bright. The
+       * class carries a warm wash across the whole screen, scaled by the tier, so
+       * the payoff lights the world the way the reference set's payoffs do.
+       */
+      class: `screen fade-in settled${won ? ` paid tier-${scale.tier}` : ' recovered'}${step === 0 ? ' held' : ''}`,
+    },
     viewport({
       // The world first, and the words behind it. Nothing is written over the
       // door until the door has been through its beat (§9).
@@ -2699,6 +2739,7 @@ function bankedScreen(): HTMLElement {
                * not.
                */
               heroFigure({
+                won,
                 label: finished ? 'brought home' : 'banked',
                 value: credits(total, 2),
                 from: rollOnce(),
@@ -2742,22 +2783,40 @@ function bankedScreen(): HTMLElement {
                 : null,
             ),
     }),
-    // The way out, last. A `Round summary` button under a door that has not
-    // opened yet is the beat played behind its own exit chrome (§9).
-    step >= 3
-      ? el(
-          'div',
-          { class: 'footer' },
-          el('button', {
-            class: 'btn primary settle-in',
-            text: 'Round summary ▸',
-            onClick: () => {
-              state.view = 'summary';
-              render();
-            },
-          }),
-        )
-      : null,
+    /*
+     * The way out, last — but its *space* is taken from the first frame.
+     *
+     * §9 is right that a `Round summary` button must not be drawn under a door
+     * that has not opened yet, and the round-3 build kept that by not mounting
+     * the footer until step 3. The cost of that was measured in the round-4 frame
+     * dump and it is worse than the thing it prevented: the stage went 813 px
+     * tall to 750 px in the middle of the beat, which is a layout shift under the
+     * one shot the game is built to deliver *and* a full backdrop rebuild — a
+     * 117 ms task on the main thread, mid-celebration, i.e. seven dropped frames
+     * at exactly the moment the frame rate matters most.
+     *
+     * So the footer is always in the layout and its contents are hidden until the
+     * beat is over (`.settled.held .footer` and `.footer.waiting`). Hidden, not
+     * absent: nothing is drawn, nothing can be tapped, and the scene above it
+     * never changes size. This is the §6.6 rule about layout not moving on a
+     * state change, applied to the screen that needed it most.
+     */
+    el(
+      'div',
+      { class: `footer${step >= 3 ? '' : ' waiting'}` },
+      el('button', {
+        class: 'btn primary settle-in',
+        text: 'Round summary ▸',
+        // `inert` and `visibility: hidden` both take it out of the tab order and
+        // out of the hit test, so a reserved box is never a reachable control.
+        ...(step >= 3 ? {} : { inert: 'true', 'aria-hidden': 'true', tabindex: '-1' }),
+        onClick: () => {
+          if (state.settleStep < 3) return;
+          state.view = 'summary';
+          render();
+        },
+      }),
+    ),
   );
 }
 
@@ -4259,6 +4318,7 @@ async function boot(): Promise<void> {
       // the `skip` control is the retry.
       state.view = 'run';
       state.runStartedAt = Date.now();
+      clearToast();
       void resolveArena();
     } else if (payload.frame.phase === 'FINISHED') {
       // Every arena has been run: the claim is decided and the only thing left is

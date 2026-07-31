@@ -53,24 +53,43 @@ import { calm, hash01, onCalmChange, onFrame, outCubic, stepped } from './motion
 
 /** §6.1, verbatim. Nothing in this file mixes a colour that is not from here. */
 const C = {
-  void: '#0e1114',
-  night: '#1a2026',
-  fogMid: '#38434b',
-  fogFar: '#8a98a0',
-  mist: '#d6dde0',
-  barkDeep: '#2b231c',
-  bark: '#4a3a2c',
-  barkLit: '#7a6248',
-  fossil: '#d8cfbb',
-  lampCore: '#ffe7be',
-  lamp: '#ffa53d',
-  ember: '#d2621c',
-  brass: '#c9a227',
-  extinguish: '#5a4e63',
+  void: '#071a33',
+  night: '#0b2647',
+  fogMid: '#10538f',
+  fogFar: '#2e9bd8',
+  mist: '#cbebff',
+  barkDeep: '#3a1e0c',
+  bark: '#7a3f14',
+  barkLit: '#c97a28',
+  fossil: '#ffd9a0',
+  lampCore: '#fff2c4',
+  lamp: '#ffa320',
+  ember: '#f2571b',
+  brass: '#ffc426',
+  extinguish: '#6a3fa8',
 } as const;
 
-/** The deep silhouette value the figures and the stone are cut out of. */
-const SILHOUETTE = '#12161a';
+/**
+ * The deep value the figures and the stone are cut out of.
+ *
+ * It is a *colour*, not a black. A silhouette painted at `#12161a` is the single
+ * biggest contributor to a frame that measures as dead, because the figures and
+ * the branch are the largest objects in it; painted as a saturated blue-black
+ * they read the same at a glance and stop the frame collapsing to grey.
+ */
+const SILHOUETTE = '#08182f';
+
+/**
+ * Five identity colours, one per Kindling, worn on the strap.
+ *
+ * §S0 offers cosmetics and promises they never change the odds, and this is the
+ * cheapest honest version of that: five figures who are tellable apart at
+ * thumbnail size, which the rubric's §8 asks for by name. They are the cool half
+ * of the palette plus one green, so the warm signature stays scarce and stays the
+ * lantern's alone, and none of them is `--alert` red — a runner is never coloured
+ * as a danger.
+ */
+const STRAPS = ['#3fd2a0', '#4fb4ff', '#b98bff', '#ff8fd0', '#7fe0ff'] as const;
 
 /**
  * How far below the broad limb the thin limb of a fork runs.
@@ -171,14 +190,14 @@ const THEMES: readonly Theme[] = [
   {
     // S0 — the low stone shelf in half-light. Not one of the five.
     name: 'shelf',
-    sky: ['#1a2027', '#232b33', '#2e383f'],
+    sky: ['#0a2a5c', '#15589e', '#3d9ad4'],
     fogTop: 0.8,
     fogDensity: 0.4,
     horizon: 0.44,
     deck: 0.7,
     thickness: 0.07,
-    stone: C.barkDeep,
-    stoneLit: C.bark,
+    stone: C.bark,
+    stoneLit: '#a9661d',
     motif: 'horizontal',
     wet: false,
     embers: false,
@@ -188,14 +207,14 @@ const THEMES: readonly Theme[] = [
   },
   {
     name: 'Lowbranch',
-    sky: ['#1b2027', '#222b32', C.fogMid],
+    sky: ['#08245a', '#1157a2', '#3fa3dc'],
     fogTop: 0.65,
     fogDensity: 0.9,
     horizon: 0.66,
     deck: 0.62,
     thickness: 0.1,
-    stone: C.barkDeep,
-    stoneLit: C.bark,
+    stone: C.bark,
+    stoneLit: '#b8701f',
     motif: 'horizontal',
     wet: true,
     embers: false,
@@ -205,13 +224,13 @@ const THEMES: readonly Theme[] = [
   },
   {
     name: 'The Grain',
-    sky: ['#1a2027', '#28323a', '#48555e'],
+    sky: ['#0b2456', '#155ea6', '#4fb0da'],
     fogTop: 0.71,
     fogDensity: 0.78,
     horizon: 0.6,
     deck: 0.63,
     thickness: 0.075,
-    stone: '#3b3a34',
+    stone: '#4a3a22',
     stoneLit: C.fossil,
     motif: 'ridges',
     wet: false,
@@ -222,13 +241,13 @@ const THEMES: readonly Theme[] = [
   },
   {
     name: 'Windrow',
-    sky: ['#1c232a', '#2c3841', '#55636c'],
+    sky: ['#0d2a5e', '#1e69ab', '#5cb8dd'],
     fogTop: 0.73,
     fogDensity: 0.66,
     horizon: 0.54,
     deck: 0.64,
     thickness: 0.065,
-    stone: '#3a3128',
+    stone: '#54331a',
     stoneLit: C.barkLit,
     motif: 'diagonals',
     wet: false,
@@ -238,15 +257,23 @@ const THEMES: readonly Theme[] = [
     rake: -0.105,
   },
   {
+    /*
+     * The Char keeps its heat, and gets it from the fire rather than from grey.
+     *
+     * §6.7 burned the fog out of this arena, so it is the one place the sky is
+     * allowed to run warm — a deep ember red under a violet vault, with the
+     * crack network as the only emissive. It is still the darkest of the five;
+     * it is no longer the *flattest*, which is what a `#0f1317` sky made it.
+     */
     name: 'The Char',
-    sky: ['#0f1317', '#1a2128', '#2b353d'],
+    sky: ['#2a0d3e', '#6b1a3f', '#c2451f'],
     fogTop: 0.88,
     fogDensity: 0.26,
     horizon: 0.34,
     deck: 0.6,
     thickness: 0.07,
-    stone: '#14171a',
-    stoneLit: '#2a2622',
+    stone: '#2c0f16',
+    stoneLit: '#71271b',
     motif: 'shattered',
     wet: false,
     embers: true,
@@ -255,14 +282,15 @@ const THEMES: readonly Theme[] = [
     rake: 0,
   },
   {
+    /* The top of the tree, in the first light: the only arena that is not night. */
     name: 'Crown',
-    sky: ['#3b4a57', '#54646f', '#7c8a92'],
+    sky: ['#0f4d94', '#3aa3d2', '#8ddced'],
     fogTop: 0.84,
     fogDensity: 0.44,
     horizon: 0.3,
     deck: 0.66,
     thickness: 0.042,
-    stone: '#6d6a5f',
+    stone: '#8a6a34',
     stoneLit: C.fossil,
     motif: 'converging',
     wet: false,
@@ -351,6 +379,33 @@ interface Body {
 }
 
 /* -------------------------------------------------------------- the director */
+
+/**
+ * The two boughs the gallery stands on, and how many stand on each.
+ *
+ * One definition, read by the backdrop pass that draws them and by the emissive
+ * pass that lifts their lanterns on a payoff. Two copies of these numbers is two
+ * chances for the lights to sit somewhere the figures are not.
+ */
+function galleryTiers(
+  theme: Theme,
+  h: number,
+): readonly { where: number; size: number; count: number; near: boolean }[] {
+  /*
+   * Small, high and dim, in that order of importance.
+   *
+   * The first cut put nine figures at 2.6% of frame height and seven at 3.4%,
+   * near enough to the deck that they crowded the runners' name tags and dark
+   * enough against the sky that they read as the *subject*. They are scenery: the
+   * frame has exactly one subject and it is the five lights on the branch. So
+   * they moved up and back, lost a third of their size, and lost most of their
+   * contrast with the sky (`paintGallery`'s alphas).
+   */
+  return [
+    { where: theme.deck - 0.5, size: Math.max(4, h * 0.017), count: 8, near: false },
+    { where: theme.deck - 0.37, size: Math.max(5, h * 0.023), count: 6, near: true },
+  ];
+}
 
 const DPR_CAP = 2;
 
@@ -851,7 +906,16 @@ class Stage {
        * than a place on the branch, and the queue order is what makes them go in
        * one at a time instead of arriving as a group.
        */
-      const target = scene.mode === 'door' ? DOOR_U : 0.09 + spread * 0.4 + scene.progress * 0.44;
+      /*
+       * Both ends of that file stay inside the frame.
+       *
+       * At `0.09 + spread * 0.4 + progress * 0.44` the trailing runner's lantern
+       * arm was cropped by the left edge on the first frame of the crossing and
+       * the point runner ran to 0.93 at the end of it. A figure half out of frame
+       * is an artifact whatever it is doing, so the file starts a little further
+       * in and travels a little less far: 0.12 to 0.92, lantern to lantern.
+       */
+      const target = scene.mode === 'door' ? DOOR_U : 0.12 + spread * 0.4 + scene.progress * 0.4;
 
       if (!body) {
         /*
@@ -1156,10 +1220,37 @@ class Stage {
 
   /* ------------------------------------------------------------------ draw */
 
+  /**
+   * Whether the world is *waiting*, and must therefore hold completely still.
+   *
+   * ## The rule
+   *
+   * The strongest single finding in the reference set is that a premium instant
+   * game animates **nothing** while the player is deciding: two consecutive idle
+   * frames of the best-scoring reference are pixel-identical. Measured on the
+   * round-4 build, our decision screen changed 0.03% of the frame across five
+   * separate moving regions — five lanterns breathing. That is a very small
+   * amount of motion and it is still five things competing with a four-way money
+   * decision, and it spends budget the payoff needs.
+   *
+   * So on the shelf and on the arena brief — the two screens where nothing is
+   * happening and the player is reading — the stage freezes: no gait, no sway, no
+   * lantern swing, no fog drift, no dust. The frame is not *paused*; it is a
+   * still, and it is the state it would have settled into anyway.
+   *
+   * `run`, `resolve`, `door`, `crown` and `quiet` are all moments where something
+   * is happening to somebody, and they animate.
+   */
+  private still(): boolean {
+    return this.scene.mode === 'brief' || this.scene.mode === 'shelf';
+  }
+
   private draw(delta: number): void {
     const ctx = this.ctx;
     if (!ctx || this.width === 0) return;
-    this.time += delta;
+    // The clock stops while the world waits, so *everything* that reads it stops
+    // with it: embers, wind ribbons, the fog planes and the figures' own phases.
+    if (!this.still()) this.time += delta;
 
     // Cameras and decays, all first-order so a dropped frame cannot overshoot.
     const settle = (from: number, to: number, rate: number) =>
@@ -1201,6 +1292,8 @@ class Stage {
     // The house stands on the branch, so it is drawn with the branch: behind the
     // figures walking toward it, in front of the fog they came out of.
     this.paintLampHouse(ctx);
+    // The gallery lifts with the payoff's own bloom, and is silent without it.
+    this.paintGalleryLight(ctx);
     this.flushLight(ctx);
     this.paintFigures(ctx, delta);
     this.paintFog(ctx, 1);
@@ -1255,25 +1348,181 @@ class Stage {
      * of a lit volume, which is the read the material brief asks for.
      */
     const wall = ctx.createLinearGradient(0, h * (theme.deck - 0.46), 0, h * (theme.deck + 0.1));
-    wall.addColorStop(0, 'rgba(138,152,160,0)');
-    wall.addColorStop(0.6, `rgba(138,152,160,${(0.34 * theme.horizon).toFixed(3)})`);
-    wall.addColorStop(1, `rgba(138,152,160,${(0.58 * theme.horizon).toFixed(3)})`);
+    wall.addColorStop(0, 'rgba(46,155,216,0)');
+    wall.addColorStop(0.6, `rgba(46,155,216,${(0.34 * theme.horizon).toFixed(3)})`);
+    wall.addColorStop(1, `rgba(46,155,216,${(0.58 * theme.horizon).toFixed(3)})`);
     ctx.fillStyle = wall;
     ctx.fillRect(0, h * (theme.deck - 0.46), w, h * 0.56);
 
     if (theme.crownLamp) this.paintCrownLamp(ctx, w, h);
     else if (h >= 200) this.paintCanopy(ctx, w, h);
+    if (h >= 200) this.paintGallery(ctx, w, h, theme);
     this.paintDeck(ctx, w, h, theme);
 
     // The void below: the deepest value in frame, under everything (§6.1).
     const below = ctx.createLinearGradient(0, h * theme.fogTop, 0, h);
-    below.addColorStop(0, 'rgba(14,17,20,0)');
-    below.addColorStop(1, theme.embers ? 'rgba(14,17,20,0.95)' : 'rgba(14,17,20,0.55)');
+    below.addColorStop(0, 'rgba(4,14,30,0)');
+    below.addColorStop(1, theme.embers ? 'rgba(4,14,30,0.95)' : 'rgba(4,14,30,0.55)');
     ctx.fillStyle = below;
     ctx.fillRect(0, h * theme.fogTop, w, h * (1 - theme.fogTop));
 
     if (h >= 200) this.paintNearLimb(ctx, w, h);
     return canvas;
+  }
+
+  /**
+   * The gallery: the boughs above, and the Understory watching from them.
+   *
+   * ## Why the frame needs it
+   *
+   * Three reviews in a row measured the same fault in the run frame — the top
+   * half is a gradient with nothing in it — and each previous answer put more
+   * *fog* there, which is more of the same nothing. What the frame was missing is
+   * not texture, it is **an audience**: a crossing is an event, and an event that
+   * nobody is watching reads as an empty room. Two shallow boughs sweep across
+   * the upper third and a scattering of small figures stand on them with their
+   * own lanterns, at the scale distance puts them.
+   *
+   * ## What it costs, and why it never animates
+   *
+   * It is painted once into the cached backdrop and blitted with it, so a
+   * gallery of thirty figures costs the same per frame as an empty sky: nothing.
+   * And it is **still**. The rubric's strongest single finding is that the best
+   * reference in the set animates *literally nothing* while the player is
+   * deciding — two consecutive idle frames pixel-identical — so a crowd that
+   * waved would spend the entire effect budget on the one state that is supposed
+   * to have none. The gallery moves in exactly one way, and it is not motion: its
+   * lanterns are drawn into the emissive pass at an intensity that follows the
+   * `bloom` the payoff already sets, so when the Lamp House door opens the whole
+   * tree lifts with it. That is a state change the player needs to perceive,
+   * which is the only thing that buys an effect a place in this build.
+   *
+   * They are silhouettes with a lantern each and no faces, at 6-11% of a running
+   * figure's height. Nothing about them is a named character and nothing about
+   * them reacts to a *particular* runner, because they are scenery.
+   */
+  private paintGallery(
+    ctx: CanvasRenderingContext2D,
+    w: number,
+    h: number,
+    theme: Theme,
+  ): void {
+    ctx.save();
+    for (const { where, size, count, near } of galleryTiers(theme, h)) {
+      const y = h * where;
+      if (y < h * 0.04) continue;
+
+      // The bough they stand on: a shallow arc, the value of the far trunks.
+      const thickness = size * (near ? 0.75 : 0.6);
+      ctx.fillStyle = near ? 'rgba(9,34,64,0.46)' : 'rgba(11,42,78,0.3)';
+      ctx.beginPath();
+      ctx.moveTo(-w * 0.06, y + thickness * 0.4);
+      ctx.quadraticCurveTo(w * 0.5, y - h * 0.018, w * 1.06, y + thickness * 0.9);
+      ctx.lineTo(w * 1.06, y + thickness * 2.4);
+      ctx.quadraticCurveTo(w * 0.5, y - h * 0.018 + thickness * 1.9, -w * 0.06, y + thickness * 2.2);
+      ctx.closePath();
+      ctx.fill();
+
+      for (let index = 0; index < count; index += 1) {
+        const seed = (near ? 37 : 0) + index * 5.3;
+        const x = w * (0.03 + (index + hash01(seed) * 0.7) / count) * 1.02;
+        // The bough's own arc, so a figure stands *on* it and not beside it.
+        const t = x / w;
+        const stand = y + thickness * 0.4 + (t - 0.5) * (t - 0.5) * h * 0.072 - h * 0.018 * (1 - (2 * t - 1) ** 2);
+        const tall = size * (0.82 + hash01(seed + 1) * 0.36);
+        const body = tall * 0.34;
+
+        ctx.fillStyle = near ? 'rgba(8,30,58,0.62)' : 'rgba(10,38,72,0.42)';
+        // A head, a body and two legs: enough for a person at this distance and
+        // nothing that could be mistaken for one of the five.
+        ctx.beginPath();
+        ctx.ellipse(x, stand - tall * 0.86, body * 0.42, body * 0.46, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(x - body * 0.42, stand);
+        ctx.lineTo(x - body * 0.34, stand - tall * 0.68);
+        ctx.quadraticCurveTo(x, stand - tall * 0.78, x + body * 0.34, stand - tall * 0.68);
+        ctx.lineTo(x + body * 0.42, stand);
+        ctx.closePath();
+        ctx.fill();
+        /*
+         * An arm, out over the drop, with the lantern on the end of it.
+         *
+         * Without it the figures read as bollards: a head on a post is a shape,
+         * and §8 of the rubric is that recognition needs a silhouette with
+         * volume. One tapered stroke is the difference between scenery and a
+         * fence, and it costs one path per figure, once, in the cached backdrop.
+         */
+        const side = hash01(seed + 2) > 0.5 ? 1 : -1;
+        ctx.lineWidth = Math.max(1, body * 0.2);
+        ctx.strokeStyle = near ? 'rgba(8,30,58,0.62)' : 'rgba(10,38,72,0.42)';
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(x + side * body * 0.28, stand - tall * 0.6);
+        ctx.quadraticCurveTo(
+          x + side * body * 0.66,
+          stand - tall * 0.58,
+          x + side * body * 0.72,
+          stand - tall * 0.5,
+        );
+        ctx.stroke();
+
+        /*
+         * Their lanterns, held out over the drop.
+         *
+         * Painted into the *backdrop* at a low, fixed value — this is the light
+         * they have while the player is deciding, and it does not change. The
+         * emissive pass adds to it on a payoff and takes the addition away again
+         * (`paintGalleryLight`), which is one state and not an idle animation.
+         */
+        const lx = x + side * body * 0.72;
+        const ly = stand - tall * 0.5;
+        const pip = Math.max(1, tall * 0.13);
+        ctx.fillStyle = near ? 'rgba(255,163,32,0.6)' : 'rgba(255,163,32,0.38)';
+        ctx.beginPath();
+        ctx.arc(lx, ly, pip, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = near ? 'rgba(255,242,196,0.7)' : 'rgba(255,242,196,0.42)';
+        ctx.beginPath();
+        ctx.arc(lx, ly, pip * 0.46, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  /**
+   * The gallery lifting when the round pays.
+   *
+   * One additive pass over the same lantern positions, at an alpha the payoff's
+   * own `bloom` decides. At `bloom === 0` — every idle frame, every in-round
+   * frame — it draws nothing at all and costs one comparison.
+   */
+  private paintGalleryLight(ctx: CanvasRenderingContext2D): void {
+    if (this.bloom <= 0.02) return;
+    const theme = this.theme();
+    const w = this.width;
+    const h = this.height;
+    if (h < 200) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const { where, size, count, near } of galleryTiers(theme, h)) {
+      const y = h * where;
+      if (y < h * 0.04) continue;
+      const thickness = size * (near ? 0.75 : 0.6);
+      for (let index = 0; index < count; index += 1) {
+        const seed = (near ? 37 : 0) + index * 5.3;
+        const x = w * (0.03 + (index + hash01(seed) * 0.7) / count) * 1.02;
+        const t = x / w;
+        const stand = y + thickness * 0.4 + (t - 0.5) * (t - 0.5) * h * 0.072 - h * 0.018 * (1 - (2 * t - 1) ** 2);
+        const tall = size * (0.82 + hash01(seed + 1) * 0.36);
+        const body = tall * 0.34;
+        const lx = x + body * (hash01(seed + 2) > 0.5 ? 0.72 : -0.72);
+        const ly = stand - tall * 0.5;
+        this.light('warm', lx, ly, tall * 2.6, 0.5 * this.bloom);
+      }
+    }
+    ctx.restore();
   }
 
   /**
@@ -1308,15 +1557,16 @@ class Stage {
     mass.closePath();
     // A soft top edge, because a near object at this distance has no hard one.
     const body = ctx.createLinearGradient(0, top - h * 0.06, 0, h);
-    body.addColorStop(0, 'rgba(10,13,16,0)');
-    body.addColorStop(0.3, 'rgba(10,13,16,0.86)');
-    body.addColorStop(1, 'rgba(6,8,10,0.99)');
+    body.addColorStop(0, 'rgba(4,16,36,0)');
+    body.addColorStop(0.22, 'rgba(4,16,36,0.72)');
+    body.addColorStop(0.55, 'rgba(3,12,28,0.96)');
+    body.addColorStop(1, 'rgba(2,8,20,1)');
     ctx.fillStyle = body;
     ctx.fill(mass);
 
     // Dead strands hanging off it, and two stubs rising from it. They break the
     // silhouette's line, which is what stops a foreground reading as a bar.
-    ctx.strokeStyle = 'rgba(8,10,13,0.8)';
+    ctx.strokeStyle = 'rgba(2,9,22,0.8)';
     ctx.lineCap = 'round';
     for (let index = 0; index < 5; index += 1) {
       const seed = index * 6.1 + 2;
@@ -1360,8 +1610,8 @@ class Stage {
      * read as a fall is the things going *up* past the camera.
      */
     const gradient = ctx.createLinearGradient(0, top, 0, top + depth);
-    gradient.addColorStop(0, `rgba(56,67,75,${(0.34 * theme.fogDensity).toFixed(3)})`);
-    gradient.addColorStop(0.42, 'rgba(30,37,44,0.92)');
+    gradient.addColorStop(0, `rgba(16,83,143,${(0.34 * theme.fogDensity).toFixed(3)})`);
+    gradient.addColorStop(0.42, 'rgba(12,44,80,0.92)');
     gradient.addColorStop(1, '#111820');
     ctx.fillStyle = gradient;
     this.fill(ctx, 0, top, this.width, depth);
@@ -1380,10 +1630,10 @@ class Stage {
       // Ends that fade rather than stop: a hard-edged rectangle in fog is a bar.
       const trunk = ctx.createLinearGradient(0, y0, 0, y0 + span);
       const alpha = 0.16 + hash01(seed + 9) * 0.2;
-      trunk.addColorStop(0, 'rgba(12,16,20,0)');
-      trunk.addColorStop(0.3, `rgba(12,16,20,${alpha.toFixed(3)})`);
-      trunk.addColorStop(0.7, `rgba(12,16,20,${alpha.toFixed(3)})`);
-      trunk.addColorStop(1, 'rgba(12,16,20,0)');
+      trunk.addColorStop(0, 'rgba(4,14,30,0)');
+      trunk.addColorStop(0.3, `rgba(4,14,30,${alpha.toFixed(3)})`);
+      trunk.addColorStop(0.7, `rgba(4,14,30,${alpha.toFixed(3)})`);
+      trunk.addColorStop(1, 'rgba(4,14,30,0)');
       ctx.fillStyle = trunk;
       this.fill(ctx, x, y0, width, span);
     }
@@ -1413,7 +1663,7 @@ class Stage {
   private paintFarTree(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     for (let layer = 0; layer < 2; layer += 1) {
       const alpha = layer === 0 ? 0.2 : 0.1;
-      ctx.fillStyle = `rgba(18,23,28,${alpha})`;
+      ctx.fillStyle = `rgba(7,26,50,${alpha})`;
       for (let index = 0; index < 2; index += 1) {
         const seed = layer * 23 + index * 7;
         const x = w * (0.12 + hash01(seed) * 0.76);
@@ -1466,7 +1716,7 @@ class Stage {
       const thickness = h * (0.13 + hash01(seed) * 0.05);
       const reach = w * (0.5 + hash01(seed + 1) * 0.26);
       const drop = h * (0.1 + hash01(seed + 2) * 0.06);
-      ctx.fillStyle = `rgba(18,23,28,${alpha})`;
+      ctx.fillStyle = `rgba(7,26,50,${alpha})`;
       ctx.beginPath();
       ctx.moveTo(edge, -h * 0.05);
       ctx.quadraticCurveTo(edge + inward * reach * 0.55, drop * 0.55, edge + inward * reach, drop);
@@ -1494,7 +1744,7 @@ class Stage {
         const sx = edge + inward * reach * along;
         const length = h * (0.06 + hash01(seed + strand * 5.7) * 0.16);
         const sway = (hash01(seed + strand) - 0.5) * w * 0.08;
-        ctx.strokeStyle = `rgba(18,23,28,${(alpha * 0.66).toFixed(3)})`;
+        ctx.strokeStyle = `rgba(7,26,50,${(alpha * 0.66).toFixed(3)})`;
         ctx.lineWidth = Math.max(1, h * (0.004 + hash01(seed + strand * 7.3) * 0.006));
         ctx.beginPath();
         ctx.moveTo(sx, drop * along + thickness * 0.5);
@@ -1520,9 +1770,9 @@ class Stage {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     const glow = ctx.createRadialGradient(x, y, 0, x, y, h * 0.34);
-    glow.addColorStop(0, 'rgba(255,231,190,0.5)');
-    glow.addColorStop(0.25, 'rgba(255,165,61,0.16)');
-    glow.addColorStop(1, 'rgba(255,165,61,0)');
+    glow.addColorStop(0, 'rgba(255,242,196,0.5)');
+    glow.addColorStop(0.25, 'rgba(255,163,32,0.16)');
+    glow.addColorStop(1, 'rgba(255,163,32,0)');
     ctx.fillStyle = glow;
     ctx.fillRect(x - h * 0.34, y - h * 0.34, h * 0.68, h * 0.68);
     ctx.restore();
@@ -1603,7 +1853,7 @@ class Stage {
     ctx.save();
 
     // The mass sits on the stone, so it gets the same contact decal as a figure.
-    ctx.fillStyle = 'rgba(14,17,20,0.5)';
+    ctx.fillStyle = 'rgba(4,14,30,0.5)';
     ctx.beginPath();
     ctx.ellipse(x, ground + 1, W * 0.62, H * 0.026, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -1637,16 +1887,21 @@ class Stage {
      * one: it is architecture, and it is the thing they are walking into.
      */
     const stone = ctx.createLinearGradient(0, top, 0, ground);
-    stone.addColorStop(0, '#2b333b');
-    stone.addColorStop(0.5, '#1d242b');
-    stone.addColorStop(1, '#10151a');
+    /*
+     * The Lamp House is petrified wood with a fire inside it, so its walls take
+     * that fire. Painted at `#2b333b` they were a grey shed in a blue frame: the
+     * largest object on the payoff screen, and the deadest surface in the game.
+     */
+    stone.addColorStop(0, '#7d4a1e');
+    stone.addColorStop(0.5, '#4a2a12');
+    stone.addColorStop(1, '#24130a');
     ctx.fillStyle = stone;
     ctx.fill(body);
 
     ctx.save();
     ctx.clip(body);
     // Courses, at the 2 m scale.
-    ctx.strokeStyle = 'rgba(216,207,187,0.09)';
+    ctx.strokeStyle = 'rgba(255,217,160,0.09)';
     ctx.lineWidth = 1;
     for (let course = 1; course < 9; course += 1) {
       const y = top + (H * course) / 9 + hash01(course * 3.7) * 2;
@@ -1656,7 +1911,7 @@ class Stage {
       ctx.stroke();
     }
     // Fractures, at the 10 cm scale: short, angular, never parallel.
-    ctx.strokeStyle = 'rgba(14,17,20,0.5)';
+    ctx.strokeStyle = 'rgba(4,14,30,0.5)';
     for (let crack = 0; crack < 7; crack += 1) {
       const cx = x - W * 0.5 + hash01(crack * 5.1) * W;
       const cy = top + hash01(crack * 2.3 + 1) * H;
@@ -1667,14 +1922,14 @@ class Stage {
     }
     // The dust layer, lightening the upward-facing hood toward `--fossil` (§6.2).
     const dust = ctx.createLinearGradient(0, top, 0, top + H * 0.3);
-    dust.addColorStop(0, 'rgba(216,207,187,0.16)');
-    dust.addColorStop(1, 'rgba(216,207,187,0)');
+    dust.addColorStop(0, 'rgba(255,217,160,0.16)');
+    dust.addColorStop(1, 'rgba(255,217,160,0)');
     ctx.fillStyle = dust;
     ctx.fillRect(x - W * 0.5, top, W, H * 0.3);
     ctx.restore();
 
     // The cool rim off the sky key, on the left edge only (§6.3: one key light).
-    ctx.strokeStyle = 'rgba(138,152,160,0.34)';
+    ctx.strokeStyle = 'rgba(46,155,216,0.34)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(x - W * 0.5, ground);
@@ -1705,8 +1960,8 @@ class Stage {
       ctx.save();
       ctx.clip(arch);
       const glow = ctx.createLinearGradient(0, ground, 0, doorTop);
-      glow.addColorStop(0, `rgba(255,165,61,${(0.5 * gape).toFixed(3)})`);
-      glow.addColorStop(1, `rgba(255,231,190,${(0.28 * gape).toFixed(3)})`);
+      glow.addColorStop(0, `rgba(255,163,32,${(0.5 * gape).toFixed(3)})`);
+      glow.addColorStop(1, `rgba(255,242,196,${(0.28 * gape).toFixed(3)})`);
       ctx.fillStyle = glow;
       ctx.fillRect(doorLeft, doorTop, doorW, doorH);
       ctx.restore();
@@ -1716,8 +1971,8 @@ class Stage {
       ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = 0.5 * gape;
       const spill = ctx.createLinearGradient(x, ground, x - W * 1.1, ground);
-      spill.addColorStop(0, 'rgba(255,165,61,0.42)');
-      spill.addColorStop(1, 'rgba(255,165,61,0)');
+      spill.addColorStop(0, 'rgba(255,163,32,0.42)');
+      spill.addColorStop(1, 'rgba(255,163,32,0)');
       ctx.fillStyle = spill;
       ctx.beginPath();
       ctx.moveTo(doorLeft, ground - 1);
@@ -1755,8 +2010,8 @@ class Stage {
       const lit = Math.max(0, Math.min(1, (t - closedAt - DOOR_BEAT.closeMs / 1000) / 0.5));
       if (lit > 0) {
         const inner = ctx.createLinearGradient(0, grilleTop, 0, grilleTop + grilleH);
-        inner.addColorStop(0, `rgba(255,231,190,${(0.85 * lit).toFixed(3)})`);
-        inner.addColorStop(1, `rgba(255,165,61,${(0.55 * lit).toFixed(3)})`);
+        inner.addColorStop(0, `rgba(255,242,196,${(0.85 * lit).toFixed(3)})`);
+        inner.addColorStop(1, `rgba(255,163,32,${(0.55 * lit).toFixed(3)})`);
         ctx.fillStyle = inner;
         ctx.fillRect(doorLeft + doorW * 0.12, grilleTop, doorW * 0.76, grilleH);
       }
@@ -1771,7 +2026,7 @@ class Stage {
       }
       // Two brass bands across the leaf, and the ring.
       ctx.lineWidth = Math.max(1, doorW * 0.06);
-      ctx.strokeStyle = 'rgba(201,162,39,0.72)';
+      ctx.strokeStyle = 'rgba(255,196,38,0.72)';
       for (const level of [0.52, 0.82] as const) {
         ctx.beginPath();
         ctx.moveTo(doorLeft, doorTop + doorH * level);
@@ -1830,7 +2085,7 @@ class Stage {
     ctx.stroke();
     // The jambs, so the brass frames the opening rather than crossing it.
     ctx.lineWidth = Math.max(1, H * 0.012);
-    ctx.strokeStyle = 'rgba(201,162,39,0.62)';
+    ctx.strokeStyle = 'rgba(255,196,38,0.62)';
     for (const side of [-1, 1] as const) {
       const jx = x + side * (doorW / 2 + doorW * 0.06);
       ctx.beginPath();
@@ -1848,7 +2103,7 @@ class Stage {
     // The yoke it hangs from, then the bell: a shouldered cone with a lip and a
     // clapper, which is what makes it a bell and not a lampshade.
     const R = H * 0.05;
-    ctx.strokeStyle = 'rgba(201,162,39,0.8)';
+    ctx.strokeStyle = 'rgba(255,196,38,0.8)';
     ctx.lineWidth = Math.max(1, H * 0.008);
     ctx.beginPath();
     ctx.moveTo(-R * 0.8, -R * 0.7);
@@ -1865,9 +2120,9 @@ class Stage {
     ctx.quadraticCurveTo(R * 0.78, -R * 0.28, R * 0.9, R);
     ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = 'rgba(255,231,190,0.55)';
+    ctx.fillStyle = 'rgba(255,242,196,0.55)';
     ctx.fillRect(-R * 0.9, R, R * 1.8, Math.max(1, R * 0.16));
-    ctx.fillStyle = 'rgba(201,162,39,0.9)';
+    ctx.fillStyle = 'rgba(255,196,38,0.9)';
     ctx.beginPath();
     ctx.arc(0, R * 1.28, Math.max(1, R * 0.16), 0, Math.PI * 2);
     ctx.fill();
@@ -1894,15 +2149,39 @@ class Stage {
       if (life <= 0) continue;
       const spread = (index - (lamps - 1) / 2) * step;
       const dy = top - H * (0.16 + (index % 2) * 0.1);
+      /*
+       * Inside its own margin, radius included.
+       *
+       * Clamping the *centre* to 6-94% of the width left the outermost lights
+       * clipped by the frame edge once they became discs with a falloff rather
+       * than 3 px dots. The margin is the widest a light can be, so no part of one
+       * is ever outside the picture.
+       */
+      const reach = Math.max(1.8, H * 0.031) * 2.1;
       const dot = {
-        x: Math.min(this.width * 0.94, Math.max(this.width * 0.06, x + spread)),
+        x: Math.min(this.width - reach - 4, Math.max(reach + 4, x + spread)),
         y: dy,
       };
       this.light('brass', dot.x, dot.y, H * (0.26 + heat * 0.26), (0.42 + heat * 0.3) * life);
-      ctx.fillStyle = C.lampCore;
+      /*
+       * A saved light is a *lantern*, not a dot.
+       *
+       * Flat `--lamp-core` discs read as white specks with a grey halo — the
+       * round-4 frame dump has five of them over the gallery looking like dirt on
+       * the lens. Each one is the light a Kindling carried in, so it is drawn the
+       * way every other lantern in this game is drawn: an ember falloff, a lamp
+       * body, a near-white core. Three stops, the same three the glass uses.
+       */
+      const pip = Math.max(1.8, H * (0.019 + heat * 0.012));
+      const glass = ctx.createRadialGradient(dot.x, dot.y, 0, dot.x, dot.y, pip * 2.1);
+      glass.addColorStop(0, C.lampCore);
+      glass.addColorStop(0.34, C.lamp);
+      glass.addColorStop(0.72, 'rgba(242,87,27,0.62)');
+      glass.addColorStop(1, 'rgba(242,87,27,0)');
+      ctx.fillStyle = glass;
       ctx.globalAlpha = life;
       ctx.beginPath();
-      ctx.arc(dot.x, dot.y, Math.max(1.4, H * (0.015 + heat * 0.01)), 0, Math.PI * 2);
+      ctx.arc(dot.x, dot.y, pip * 2.1, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha = 1;
     }
@@ -1962,7 +2241,8 @@ class Stage {
        */
       const body = ctx.createLinearGradient(0, surfaceTop - thickness, 0, surfaceTop + thickness * 2.4);
       body.addColorStop(0, theme.stoneLit);
-      body.addColorStop(0.3, theme.stone);
+      body.addColorStop(0.16, theme.stoneLit);
+      body.addColorStop(0.44, theme.stone);
       body.addColorStop(1, C.void);
       ctx.fillStyle = body;
       ctx.fillRect(from, surfaceTop - thickness * 1.4, to - from, bottom - surfaceTop + thickness * 2);
@@ -1971,7 +2251,7 @@ class Stage {
       ctx.lineWidth = 1;
       for (let line = 0; line < 9; line += 1) {
         const depth = (line / 9) * thickness * 1.9 + 1;
-        ctx.strokeStyle = `rgba(216,207,187,${0.1 - line * 0.009})`;
+        ctx.strokeStyle = `rgba(255,222,168,${0.17 - line * 0.015})`;
         ctx.beginPath();
         for (let index = 0; index <= 32; index += 1) {
           const x = from + ((to - from) * index) / 32;
@@ -1985,7 +2265,7 @@ class Stage {
 
       // A hairline fracture network, in the cavity of the stone. Near-vertical:
       // §6.2 asks for a fracture network, and a shallow diagonal reads as hatching.
-      ctx.strokeStyle = 'rgba(14,17,20,0.6)';
+      ctx.strokeStyle = 'rgba(4,14,30,0.6)';
       for (let crack = 0; crack < 9; crack += 1) {
         const x = from + hash01(crack * 4.1 + lane) * (to - from);
         const y = this.deckY(x / w, lane);
@@ -2003,8 +2283,10 @@ class Stage {
        * sitting on it — and this line is the one that tells the player where the
        * walking surface is.
        */
-      ctx.strokeStyle = theme.wet ? 'rgba(214,221,224,0.3)' : 'rgba(216,207,187,0.4)';
-      ctx.lineWidth = 1.4;
+      // The line that tells the player where the walking surface is (§6.2's dust
+      // layer). It is the brightest edge on the stone, so it is drawn like one.
+      ctx.strokeStyle = theme.wet ? 'rgba(190,240,255,0.62)' : 'rgba(255,226,170,0.7)';
+      ctx.lineWidth = 1.8;
       ctx.beginPath();
       for (let index = 0; index <= 56; index += 1) {
         const x = from + ((to - from) * index) / 56;
@@ -2018,7 +2300,7 @@ class Stage {
         // The Char's crack network, carrying `--ember` (§6.7's declared exception:
         // it is heat, it casts no shadow, and it illuminates nothing).
         ctx.globalCompositeOperation = 'lighter';
-        ctx.strokeStyle = 'rgba(210,98,28,0.7)';
+        ctx.strokeStyle = 'rgba(242,87,27,0.7)';
         ctx.lineWidth = 1.2;
         for (let crack = 0; crack < 12; crack += 1) {
           const x = from + hash01(crack * 2.9) * (to - from);
@@ -2041,9 +2323,9 @@ class Stage {
           const width = 18 + hash01(pool) * 34;
           const y = this.deckY(x / w, lane);
           const gradient = ctx.createLinearGradient(x, y, x + width, y + 2);
-          gradient.addColorStop(0, 'rgba(138,152,160,0)');
-          gradient.addColorStop(0.5, 'rgba(138,152,160,0.22)');
-          gradient.addColorStop(1, 'rgba(138,152,160,0)');
+          gradient.addColorStop(0, 'rgba(46,155,216,0)');
+          gradient.addColorStop(0.5, 'rgba(46,155,216,0.22)');
+          gradient.addColorStop(1, 'rgba(46,155,216,0)');
           ctx.fillStyle = gradient;
           ctx.fillRect(x, y - 1, width, 2.5);
         }
@@ -2081,7 +2363,7 @@ class Stage {
   private paintRidges(ctx: CanvasRenderingContext2D, w: number, h: number, theme: Theme): void {
     const top = theme.deck * h;
     ctx.save();
-    ctx.strokeStyle = 'rgba(216,207,187,0.09)';
+    ctx.strokeStyle = 'rgba(255,217,160,0.09)';
     for (let ridge = 0; ridge < 7; ridge += 1) {
       const spread = (ridge - 3) / 3;
       ctx.lineWidth = 1;
@@ -2096,7 +2378,7 @@ class Stage {
   /** §6.7 arena 3: petrified vine-cables, the only vertical elements, and they hum. */
   private paintCables(ctx: CanvasRenderingContext2D, w: number, h: number, theme: Theme): void {
     ctx.save();
-    ctx.strokeStyle = 'rgba(18,22,26,0.75)';
+    ctx.strokeStyle = 'rgba(7,24,46,0.75)';
     for (let cable = 0; cable < 3; cable += 1) {
       const x = w * (0.2 + cable * 0.31);
       ctx.lineWidth = 2 + cable * 0.6;
@@ -2157,10 +2439,10 @@ class Stage {
        * point of this layer is that there is no floor.
        */
       const sea = ctx.createLinearGradient(0, top - h * 0.05, 0, h);
-      sea.addColorStop(0, 'rgba(138,152,160,0)');
-      sea.addColorStop(0.16, `rgba(176,188,195,${(0.34 * theme.fogDensity).toFixed(3)})`);
-      sea.addColorStop(0.42, `rgba(126,140,149,${(0.34 * theme.fogDensity).toFixed(3)})`);
-      sea.addColorStop(1, `rgba(24,29,34,${(0.72 * theme.fogDensity).toFixed(3)})`);
+      sea.addColorStop(0, 'rgba(46,155,216,0)');
+      sea.addColorStop(0.16, `rgba(120,205,244,${(0.34 * theme.fogDensity).toFixed(3)})`);
+      sea.addColorStop(0.42, `rgba(38,132,190,${(0.34 * theme.fogDensity).toFixed(3)})`);
+      sea.addColorStop(1, `rgba(9,32,60,${(0.72 * theme.fogDensity).toFixed(3)})`);
       ctx.fillStyle = sea;
       this.fill(ctx, 0, top - h * 0.05, w, h - top + h * 0.05);
     }
@@ -2175,7 +2457,7 @@ class Stage {
     // §6.8's tier, in the one currency a canvas has: composited planes.
     const bands = all.slice(0, Math.max(1, budget().planes - 1));
 
-    const drift = calm() ? 0 : this.time;
+    const drift = calm() || this.still() ? 0 : this.time;
     for (const [speed, alpha, scale] of bands) {
       const bandHeight = h * 0.5 * scale;
       const y = top - bandHeight * 0.55;
@@ -2216,7 +2498,7 @@ class Stage {
       const rise = calm() ? span * hash01(seed + 3) : ((this.time * speed + hash01(seed + 1) * span) % span);
       const x = hash01(seed + 2) * this.width + Math.sin(this.time * 0.7 + index) * 4;
       const alpha = (1 - rise / span) * 0.55;
-      ctx.fillStyle = `rgba(210,98,28,${alpha})`;
+      ctx.fillStyle = `rgba(242,87,27,${alpha})`;
       ctx.beginPath();
       ctx.arc(x, top - rise, 1.2, 0, Math.PI * 2);
       ctx.fill();
@@ -2233,7 +2515,7 @@ class Stage {
       mote.y += mote.vy * delta;
       mote.vy += 22 * delta;
       if (mote.life <= 0) continue;
-      ctx.fillStyle = `rgba(216,207,187,${Math.max(0, mote.life) * 0.3})`;
+      ctx.fillStyle = `rgba(255,217,160,${Math.max(0, mote.life) * 0.3})`;
       ctx.beginPath();
       ctx.arc(mote.x, mote.y, 1.3, 0, Math.PI * 2);
       ctx.fill();
@@ -2249,8 +2531,9 @@ class Stage {
     const bodies = [...this.bodies.values()].sort((a, b) => a.lane - b.lane || a.u - b.u);
     const doorTime = this.houseTime();
 
+    const frozen = this.still();
     for (const body of bodies) {
-      body.phase += delta;
+      if (!frozen) body.phase += delta;
       if (body.pose === 'fall') {
         body.fell += delta;
         /*
@@ -2336,10 +2619,10 @@ class Stage {
     // object colour (2.12:1) the round-1 build painted it in.
     const ink =
       body.pose === 'home'
-        ? `rgba(201,162,39,${fading})`
+        ? `rgba(255,196,38,${fading})`
         : body.light < 0.5
-          ? `rgba(156,143,174,${fading})`
-          : `rgba(138,152,160,${fading})`;
+          ? `rgba(183,154,224,${fading})`
+          : `rgba(46,155,216,${fading})`;
     /*
      * Two rows, and a leader line down to the figure it belongs to.
      *
@@ -2373,7 +2656,7 @@ class Stage {
     ctx.stroke();
     ctx.globalAlpha = 1;
     ctx.fillStyle = ink;
-    ctx.shadowColor = 'rgba(14,17,20,0.95)';
+    ctx.shadowColor = 'rgba(4,14,30,0.95)';
     ctx.shadowBlur = 4;
     ctx.fillText(body.name, x, top);
     ctx.restore();
@@ -2445,15 +2728,35 @@ class Stage {
      * — three values close enough to stay a silhouette and far enough apart to
      * describe a shape.
      */
-    const CLOAK = '#0c0f12';
-    const LIMB = '#141920';
-    const TORSO = '#1c222a';
+    /*
+     * ...and they are *colours*, not greys.
+     *
+     * The three values were `#0c0f12`, `#141920` and `#1c222a`: neutral, and near
+     * black. Five figures are the largest saturated-surface opportunity in the
+     * frame and they were spending it on nothing, which is a good part of why the
+     * round-3 build measured 0.3% saturated pixels. These sit at the same three
+     * luminances in the blue-black the whole world is cut out of, so the
+     * silhouette read is unchanged and the frame stops going grey where the
+     * subject is.
+     *
+     * The strap is the exception, and it is deliberate: a per-Kindling identity
+     * colour, so five figures read as five *people* at thumbnail size rather than
+     * as five instances of one asset. §6.2's emissive budget is untouched — every
+     * lantern still burns the one signature warm — because this is a woven band
+     * catching light, not a light. §S0's promise that cosmetics never change the
+     * odds holds because nothing here is reachable from anything that decides
+     * money: it is a colour picked by slot index inside the renderer.
+     */
+    const CLOAK = '#07131f';
+    const LIMB = '#0c1c30';
+    const TORSO = '#123048';
+    const STRAP = STRAPS[body.slot % STRAPS.length] as string;
 
     ctx.save();
 
     // A baked contact-shadow decal under the figure, not a shadow map (§6.3).
     if (!falling) {
-      ctx.fillStyle = 'rgba(14,17,20,0.45)';
+      ctx.fillStyle = 'rgba(4,14,30,0.45)';
       ctx.beginPath();
       ctx.ellipse(x, y + 1, H * 0.16, H * 0.028, 0, 0, Math.PI * 2);
       ctx.fill();
@@ -2519,7 +2822,7 @@ class Stage {
     ctx.fill();
 
     // The weave, at two scales: visible at 30 cm and invisible at 30 m (§6.6).
-    ctx.strokeStyle = 'rgba(216,207,187,0.11)';
+    ctx.strokeStyle = 'rgba(255,217,160,0.11)';
     ctx.lineWidth = 1;
     for (let band = 0; band < 4; band += 1) {
       const level = shoulder + (hip - shoulder) * (0.16 + band * 0.24);
@@ -2530,7 +2833,7 @@ class Stage {
     }
 
     // An aged leather strap at the waist, with its wax specular (§6.2).
-    ctx.strokeStyle = 'rgba(122,98,72,0.6)';
+    ctx.strokeStyle = 'rgba(201,122,40,0.6)';
     ctx.lineWidth = Math.max(1, H * 0.022);
     ctx.beginPath();
     ctx.moveTo(-H * 0.09, hip - H * 0.05);
@@ -2542,6 +2845,20 @@ class Stage {
      * Travelling it flattens back; on Windrow's exposed ledge that is the cloth §6.7
      * says the fog ribbons press against them.
      */
+    /*
+     * The strap, over the shoulder and across the bundled torso.
+     *
+     * One band, one colour, the same one every round for a given slot. At
+     * thumbnail size it is the first thing that separates one figure from the
+     * next — before the name tag, which needs reading.
+     */
+    ctx.strokeStyle = STRAP;
+    ctx.lineWidth = Math.max(1.2, H * 0.035);
+    ctx.beginPath();
+    ctx.moveTo(flip * -H * 0.1, shoulder + H * 0.05);
+    ctx.lineTo(flip * H * 0.09, hip - H * 0.02);
+    ctx.stroke();
+
     const flutter = travelling ? H * 0.1 : sway * H * 0.014;
     ctx.fillStyle = CLOAK;
     ctx.beginPath();
@@ -2588,7 +2905,7 @@ class Stage {
     ctx.moveTo(-halfShoulder, shoulder + H * 0.01);
     ctx.lineTo(halfShoulder, shoulder);
     ctx.stroke();
-    ctx.fillStyle = 'rgba(122,98,72,0.5)';
+    ctx.fillStyle = 'rgba(201,122,40,0.5)';
     for (const side of [-1, 1] as const) {
       ctx.beginPath();
       ctx.arc(side * halfShoulder, shoulder + (side < 0 ? H * 0.01 : 0), Math.max(0.8, H * 0.017), 0, Math.PI * 2);
@@ -2605,7 +2922,7 @@ class Stage {
     ctx.beginPath();
     ctx.ellipse(sway * H * 0.008 + (travelling ? -H * 0.012 : 0), headY, H * 0.055, H * 0.062, sway * 0.05, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = 'rgba(122,98,72,0.55)';
+    ctx.strokeStyle = 'rgba(201,122,40,0.55)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(-H * 0.05, headY + H * 0.008);
@@ -2617,7 +2934,7 @@ class Stage {
      * silhouettes, not to illuminate it — so it is one edge, on the side the key
      * comes from, and it stops there.
      */
-    ctx.strokeStyle = 'rgba(138,152,160,0.4)';
+    ctx.strokeStyle = 'rgba(46,155,216,0.4)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(-H * 0.112, shoulder + H * 0.03);
@@ -2661,7 +2978,7 @@ class Stage {
     const core = warm > 0.02 ? mix(C.lampCore, C.extinguish, cold) : C.extinguish;
 
     if (body.pose === 'fall') {
-      ctx.strokeStyle = 'rgba(122,98,72,0.7)';
+      ctx.strokeStyle = 'rgba(201,122,40,0.7)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(0, cy - size * 0.4);
@@ -2704,7 +3021,7 @@ class Stage {
      * vertical bars and a cap, which is also what makes the object read as *set
      * into* the torso rather than painted on it.
      */
-    ctx.strokeStyle = body.pose === 'home' ? C.brass : 'rgba(201,162,39,0.72)';
+    ctx.strokeStyle = body.pose === 'home' ? C.brass : 'rgba(255,196,38,0.72)';
     ctx.lineWidth = 1;
     for (const side of [-1, 1] as const) {
       ctx.beginPath();
@@ -2719,7 +3036,7 @@ class Stage {
 
     // The fresnel rim: a bright arc on the lit edge, which is the whole trick.
     if (warm > 0.02) {
-      ctx.strokeStyle = `rgba(255,231,190,${0.55 * warm})`;
+      ctx.strokeStyle = `rgba(255,242,196,${0.55 * warm})`;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.arc(cx, cy, size * 0.4, Math.PI * 0.95, Math.PI * 1.8);
@@ -2779,8 +3096,8 @@ class Stage {
         this.height * 0.46,
         radius,
       );
-      gradient.addColorStop(0, 'rgba(14,17,20,0)');
-      gradient.addColorStop(1, 'rgba(14,17,20,0.5)');
+      gradient.addColorStop(0, 'rgba(4,14,30,0)');
+      gradient.addColorStop(1, 'rgba(4,14,30,0.5)');
       local.fillStyle = gradient;
       local.fillRect(0, 0, this.width, this.height);
       this.vignette = canvas;
@@ -2848,8 +3165,8 @@ class Stage {
         this.height * 0.5,
         this.width * (0.3 + this.spot * 0.9),
       );
-      gradient.addColorStop(0, 'rgba(14,17,20,0)');
-      gradient.addColorStop(1, `rgba(14,17,20,${0.86 * strength})`);
+      gradient.addColorStop(0, 'rgba(4,14,30,0)');
+      gradient.addColorStop(1, `rgba(4,14,30,${0.86 * strength})`);
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, this.width, this.height);
     }
@@ -2873,10 +3190,10 @@ class Stage {
     ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
-    ctx.shadowColor = 'rgba(14,17,20,0.9)';
+    ctx.shadowColor = 'rgba(4,14,30,0.9)';
     ctx.shadowBlur = 3;
     lines.forEach((line, index) => {
-      ctx.fillStyle = index === 0 ? 'rgba(216,207,187,0.85)' : 'rgba(214,221,224,0.62)';
+      ctx.fillStyle = index === 0 ? 'rgba(255,217,160,0.85)' : 'rgba(203,235,255,0.62)';
       ctx.fillText(line, 14, 124 + index * 14);
     });
     ctx.restore();
@@ -2906,7 +3223,17 @@ function fogTile(): HTMLCanvasElement {
     const x = hash01(blob * 1.7) * size;
     const y = hash01(blob * 3.1 + 5) * size;
     const r = 14 + hash01(blob * 5.3) * 46;
-    ctx.fillStyle = `rgba(214,221,224,${0.1 + hash01(blob * 7.1) * 0.16})`;
+    /*
+     * Cyan, not white.
+     *
+     * Three scrolling copies of a near-white tile is a milk wash over everything
+     * behind it: measured on the round-4 run frame it took the whole lower third
+     * of the picture to a desaturated grey-blue and pulled the frame's saturated
+     * share down with it. Fog scatters the light that is *in* the scene, and the
+     * light in this scene is a cold sky and warm lanterns — so the volume is
+     * tinted, and it is thinner.
+     */
+    ctx.fillStyle = `rgba(86,196,255,${0.07 + hash01(blob * 7.1) * 0.12})`;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
@@ -2955,14 +3282,14 @@ function glowSprite(kind: 'warm' | 'brass'): HTMLCanvasElement {
   const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
   const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
   if (kind === 'warm') {
-    gradient.addColorStop(0, 'rgba(255,231,190,0.95)');
-    gradient.addColorStop(0.14, 'rgba(255,165,61,0.5)');
-    gradient.addColorStop(0.45, 'rgba(210,98,28,0.14)');
-    gradient.addColorStop(1, 'rgba(210,98,28,0)');
+    gradient.addColorStop(0, 'rgba(255,242,196,0.95)');
+    gradient.addColorStop(0.14, 'rgba(255,163,32,0.5)');
+    gradient.addColorStop(0.45, 'rgba(242,87,27,0.14)');
+    gradient.addColorStop(1, 'rgba(242,87,27,0)');
   } else {
-    gradient.addColorStop(0, 'rgba(255,231,190,0.7)');
-    gradient.addColorStop(0.2, 'rgba(201,162,39,0.4)');
-    gradient.addColorStop(1, 'rgba(201,162,39,0)');
+    gradient.addColorStop(0, 'rgba(255,242,196,0.7)');
+    gradient.addColorStop(0.2, 'rgba(255,196,38,0.4)');
+    gradient.addColorStop(1, 'rgba(255,196,38,0)');
   }
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, size, size);

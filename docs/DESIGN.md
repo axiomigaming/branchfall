@@ -969,32 +969,73 @@ repository discharges.
 
 ### 6.1 Palette
 
-Ten percent of the frame is warm. Ninety percent is not. That ratio is the art
+The warm is scarce. The cool is **saturated**, and that is the whole art
 direction; everything else is detail.
+
+This replaces the ratio the first three rounds shipped under — *"ten percent of
+the frame is warm, ninety percent is not"* — which was right about the *warm* and
+silently wrong about the ninety. It was read, correctly, as licence to paint the
+other ninety per cent in greys, and the build measured accordingly: **0.3% of
+pixels above S > 0.6, 615 distinct colours, 9.8% of the frame carrying any lit
+surface at all.** For comparison, a premium published instant game measures 87.8%
+saturated and 2 956 colours on the same instrument, and the same game's
+*desaturated* skin — the one that reads as a wireframe of itself — still manages
+4.8% and 1 156. We were below the failure case.
+
+The value structure was never the problem. A lantern procession at dusk *is* 76-86%
+dark-band pixels; what makes that photograph rather than a wireframe is that the
+darks are **saturated and sit on gradients**, and that near-black is essentially
+absent from it. So every cool token below now sits at the luminance its grey
+predecessor had and carries S ≥ 0.78 in HSV, no surface is a flat fill, and the
+deepest value in the frame is a blue-black rather than a black.
 
 | Token | Hex | Use |
 | --- | --- | --- |
-| `--void` | `#0E1114` | the Understory below; the deepest value in frame |
-| `--night` | `#1A2026` | night air, UI background |
-| `--fog-mid` | `#38434B` | mid-distance fog, shadowed stone |
-| `--fog-far` | `#8A98A0` | far fog; the value everything silhouettes against |
-| `--mist` | `#D6DDE0` | near mist, lantern-lit fog, lightest cool value |
-| `--bark-deep` | `#2B231C` | wet fossil bark in shadow |
-| `--bark` | `#4A3A2C` | fossil bark base |
-| `--bark-lit` | `#7A6248` | bark catching lantern light |
-| `--fossil` | `#D8CFBB` | exposed petrified grain, bone-cream |
-| `--lamp-core` | `#FFE7BE` | lantern flame core, near-white |
-| `--lamp` | `#FFA53D` | lantern light, the game's signature colour |
-| `--ember` | `#D2621C` | lantern falloff, embers on The Char |
-| `--brass` | `#C9A227` | Lamp House, Crown Lamp, banked-money accents |
-| `--extinguish` | `#5A4E63` | a cold violet-grey: dead lantern glass, lost runners |
-| `--verify` | `#7FD4FF` | fairness/verification UI only. Never used in-world |
-| `--alert` | `#E0442F` | destructive confirmations only. **Never** used for Narrow |
+| `--void` | `#071A33` | the Understory below; the deepest value in frame, and not a black |
+| `--night` | `#0B2647` | night air, UI background |
+| `--fog-mid` | `#10538F` | mid-distance air, shadowed stone, lit panel body |
+| `--fog-far` | `#2E9BD8` | far sky glow; the value everything silhouettes against |
+| `--mist` | `#CBEBFF` | near mist, lantern-lit fog, lightest cool value, body type |
+| `--bark-deep` | `#3A1E0C` | wet fossil bark in shadow |
+| `--bark` | `#7A3F14` | fossil bark base |
+| `--bark-lit` | `#C97A28` | bark catching lantern light |
+| `--fossil` | `#FFD9A0` | exposed petrified grain, bone-cream |
+| `--lamp-core` | `#FFF2C4` | lantern flame core, near-white |
+| `--lamp` | `#FFA320` | lantern light, the game's signature colour |
+| `--ember` | `#F2571B` | lantern falloff, embers on The Char |
+| `--brass` | `#FFC426` | Lamp House, Crown Lamp, banked-money accents |
+| `--extinguish` | `#6A3FA8` | a cold violet: dead lantern glass, lost runners |
+| `--verify` | `#4FD8FF` | fairness/verification UI only. Never used in-world |
+| `--alert` | `#FF3B2F` | destructive confirmations only. **Never** used for Narrow |
+| `--band-1` | `#2FD07A` | the payout ramp's lowest rung, under 1.25x |
+| `--band-2` | `#26C0E8` | 1.25x to 2x |
+| `--band-3` | `#9D6BFF` | 2x to 5x |
+| `--band-4` | `#FF5FC4` | 5x and over |
+| `--kin-0` | `#3FD2A0` | Kindling identity, worn on the strap and the claim pip's rim |
+| `--kin-1` | `#4FB4FF` | " |
+| `--kin-2` | `#B98BFF` | " |
+| `--kin-3` | `#FF8FD0` | " |
+| `--kin-4` | `#7FE0FF` | " |
 
-Two hard rules. **Risk is never coloured as danger** — Narrow is not red, because
-colouring the high-variance choice as "bad" is editorialising a decision that has
-identical EV. And **`--verify` never appears in the game world**, because the
-proof UI must not feel like a reward animation.
+**The payout ramp** is how a player learns the scale by looking instead of by
+reading: a route's multiple, the shelf under its tab, and the distribution bars
+that pay it all wear the same rung. It is a *legend*, never a badge — all four
+routes return 95.5% and no segment gains weight, area or luminance over another.
+
+**The five Kindlings** carry one identity colour each, on a strap in the world and
+on the rim of that runner's pip in the claim meter. It is what makes five figures
+five people at thumbnail size instead of five instances of one asset. It is a
+cosmetic in §S0's sense and changes nothing about the odds; it never touches a
+flame, so §6.2's emissive budget is untouched.
+
+Three hard rules. **Risk is never coloured as danger** — Narrow is not red, and
+the ramp runs green → cyan → violet → magenta precisely so that magnitude can be
+encoded without passing through a warning; colouring the high-variance choice as
+"bad" is editorialising a decision that has identical EV. **`--verify` never
+appears in the game world**, because the proof UI must not feel like a reward
+animation. And **warm gold is the money colour and it is reserved**: the base
+state may not spend it on furniture, because the payoff has nowhere to go if it
+is already everywhere.
 
 ### 6.2 Materials
 
@@ -1039,6 +1080,17 @@ illuminate nothing (§6.7).
 
 - One cool key from above and behind: a sky dome at `--fog-far`, low intensity.
   Its job is to give the world silhouettes, not to illuminate it.
+- **The gallery.** Two shallow boughs cross the upper third of the frame with a
+  scattering of small figures standing on them, each holding a lantern, at 1.7-2.3%
+  of frame height. A crossing is an event, and an event nobody is watching reads
+  as an empty room — which is what three consecutive reviews measured in the top
+  half of the run frame and what more fog never fixed. They are scenery and are
+  drawn as such: no faces, no names, no reaction to any particular runner, painted
+  once into the cached backdrop so they cost nothing per frame, and **completely
+  still** while the player decides. They move in exactly one way and it is not
+  motion: their lanterns are drawn into the emissive pass at an intensity that
+  follows the payoff's own bloom, so when the Lamp House door opens the whole tree
+  lifts with it, and at bloom zero they draw nothing.
 - Each Kindling carries a warm point light: `--lamp`, 3.5 m radius,
   inverse-square, **unshadowed**. Contact is sold by a baked contact-shadow decal
   projected onto the branch under each figure, not by a shadow map.
@@ -1077,7 +1129,33 @@ illuminate nothing (§6.7).
   five-body beat and not a physics one — §6.9 bounds what that costs.
 - **UI motion.** Nothing bounces, nothing overshoots. 240 ms cubic-out on
   everything. Money counts up on a tabular roll — never a slot-machine spin,
-  never a rising pitch sweep. Celebration is light and sound, not kinetics.
+  never a rising pitch sweep.
+- **The base state is still.** On the shelf and on the arena brief — the two
+  screens where nothing is happening and the player is reading four prices —
+  the world does not move at all: no gait, no sway, no lantern swing, no fog
+  drift, no dust. Two consecutive frames of a decision screen are pixel-identical,
+  which is what the best-measuring published instant games do while they wait for
+  you, and what leaves the whole effect budget for the moment that needs it. In
+  round the budget is one dominant motion and its support: the crossing measures
+  3.5% of the frame changing with **82% of it in the one region the round is
+  about**, and no other element — including a notice raised on the screen before —
+  is permitted to move over it.
+- **The payoff builds an object, and then stops.** *"Celebration is light and
+  sound"* was written against confetti and it holds, but it was read as licence
+  for the payoff to be a caption, and a caption is not a payoff: every published
+  reference in the category grows a **new lit surface at the optical centre with
+  the figure inside it, dark-on-light**, inverting the light-on-dark the rest of
+  the game is set in. So a bank builds a plate. It is light — a gradient face, an
+  inner specular, a rim, a contact shadow and a wide warm bloom that lifts the
+  whole frame — and the one motion it is allowed is a **380 ms entrance that
+  scales up to its size and stops there**. It never passes its end state, so
+  §6.4's ban on overshoot is intact; the tier changes its size and its light and
+  nothing kinetic; and by 500 ms after it lands the screen is measured completely
+  still again. Build, peak, settle, calm.
+- **A payoff below stake is not a payoff.** The plate, the bloom and the warm wash
+  are mounted only when the return is *strictly above* the stake. A 0.9095x bank
+  is 46 pence lost and gets the figure stated plainly in the cool half of the
+  frame with no light on it at all (§10.5, and `client/src/payoff.ts`).
 - **No confetti, ever.** No coin fountains, no screen-shake on a win, no
   fireworks. The reward for a big bank is that the tree is briefly warm.
 

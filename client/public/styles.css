@@ -44,21 +44,28 @@
  */
 
 :root {
-  /* §6.1 — ten percent of the frame is warm; ninety percent is not. */
-  --void: #0e1114;
-  --night: #1a2026;
-  --fog-mid: #38434b;
-  --fog-far: #8a98a0;
-  --mist: #d6dde0;
-  --bark-deep: #2b231c;
-  --bark: #4a3a2c;
-  --bark-lit: #7a6248;
-  --fossil: #d8cfbb;
-  --lamp-core: #ffe7be;
-  --lamp: #ffa53d;
-  --ember: #d2621c;
-  --brass: #c9a227;
-  --extinguish: #5a4e63;
+  /*
+   * §6.1 — the warm is scarce; the cool is *saturated*, never grey.
+   *
+   * Every cool token below sits at the luminance its grey predecessor had and
+   * carries S >= 0.78 in HSV. That is the whole change: the value structure of
+   * a lantern procession at dusk was right, and painting it in greys is what
+   * made it measure as a wireframe of itself.
+   */
+  --void: #071a33;
+  --night: #0b2647;
+  --fog-mid: #10538f;
+  --fog-far: #2e9bd8;
+  --mist: #cbebff;
+  --bark-deep: #3a1e0c;
+  --bark: #7a3f14;
+  --bark-lit: #c97a28;
+  --fossil: #ffd9a0;
+  --lamp-core: #fff2c4;
+  --lamp: #ffa320;
+  --ember: #f2571b;
+  --brass: #ffc426;
+  --extinguish: #6a3fa8;
   /*
    * The same violet, as *text*.
    *
@@ -70,9 +77,40 @@
    * make it" and the `0.000` beside it are readable by everyone the rest of the
    * screen is readable by.
    */
-  --extinguish-text: #9c8fae;
-  --verify: #7fd4ff;
-  --alert: #e0442f;
+  --extinguish-text: #b79ae0;
+  --verify: #4fd8ff;
+  --alert: #ff3b2f;
+
+  /*
+   * §3.2's payout ramp, as colour.
+   *
+   * The rubric's criterion 11 is that a player learns the payout scale by
+   * looking rather than by reading, so the route multiple is banded and the band
+   * carries a hue. The ramp runs green -> cyan -> violet -> magenta with
+   * luminance held roughly level, which encodes *magnitude* without encoding
+   * *danger*: §6.1's first hard rule stands, NARROW is not red, and nothing on
+   * the high end of the ramp reads as a warning about a choice whose return is
+   * identical to every other choice on the screen.
+   */
+  /*
+   * The five Kindlings, as colours (`client/src/stage.ts`'s `STRAPS`).
+   *
+   * One list, worn in two places: the strap on the figure in the world, and the
+   * rim of that figure's pip in the claim meter. Five runners the player can tell
+   * apart at thumbnail size is the rubric's §8 asking for characters rather than
+   * instances, and it costs a ring and a band. `tests/presentation.test.mjs`
+   * holds the two copies to the same five values.
+   */
+  --kin-0: #3fd2a0;
+  --kin-1: #4fb4ff;
+  --kin-2: #b98bff;
+  --kin-3: #ff8fd0;
+  --kin-4: #7fe0ff;
+
+  --band-1: #2fd07a;
+  --band-2: #26c0e8;
+  --band-3: #9d6bff;
+  --band-4: #ff5fc4;
 
   /* Money families (§5.2.2): banked and running are never the same colour. */
   --money-running: var(--lamp-core);
@@ -83,19 +121,21 @@
   /*
    * §6.2's three materials, as surface recipes.
    *
-   * `--plate` is the stone every panel is cut from: a cool body that is lighter
+   * `--plate` is the stone every panel is cut from: a lit body that is brighter
    * at the top, which is the dust layer in the material brief and also what makes
-   * a flat rectangle read as a face catching a key from above.
+   * a flat rectangle read as a face catching a key from above. These are opaque
+   * rather than a wash over the backdrop, because a translucent grey over a dark
+   * ground is exactly how a panel loses both its saturation and its colour count.
    */
-  --plate: linear-gradient(178deg, rgba(56, 67, 75, 0.34) 0%, rgba(26, 32, 38, 0.5) 46%, rgba(14, 17, 20, 0.62) 100%);
-  --plate-raised: linear-gradient(178deg, rgba(70, 82, 91, 0.42) 0%, rgba(31, 38, 45, 0.58) 52%, rgba(14, 17, 20, 0.7) 100%);
+  --plate: linear-gradient(178deg, #17568f 0%, #0f3c6d 46%, #0a2b52 100%);
+  --plate-raised: linear-gradient(178deg, #1e6cae 0%, #14508a 52%, #0d3565 100%);
   /* The dust-lightened top edge, and the shadow the plate sits in. */
-  --plate-edge: inset 0 1px 0 rgba(216, 207, 187, 0.14);
-  --plate-lift: 0 1px 0 rgba(216, 207, 187, 0.05), 0 6px 14px -8px rgba(14, 17, 20, 0.9),
-    0 18px 34px -22px rgba(14, 17, 20, 0.95);
-  --plate-press: inset 0 1px 3px rgba(14, 17, 20, 0.85), inset 0 1px 0 rgba(216, 207, 187, 0.06);
+  --plate-edge: inset 0 1px 0 rgba(180, 226, 255, 0.28);
+  --plate-lift: 0 1px 0 rgba(180, 226, 255, 0.08), 0 6px 14px -8px rgba(3, 12, 26, 0.9),
+    0 18px 34px -22px rgba(3, 12, 26, 0.95);
+  --plate-press: inset 0 2px 5px rgba(3, 12, 26, 0.85), inset 0 1px 0 rgba(180, 226, 255, 0.1);
   /* Aged brass: a warm hairline with patina in the crevice. */
-  --brasswork: 1px solid rgba(201, 162, 39, 0.55);
+  --brasswork: 1px solid rgba(255, 196, 38, 0.62);
 
   /*
    * The display tier, and what it honestly is in a build with no font files.
@@ -151,7 +191,7 @@
 
   --gutter: 16px;
   --radius: 4px;
-  --hairline: 1px solid rgba(138, 152, 160, 0.18);
+  --hairline: 1px solid rgba(120, 195, 255, 0.22);
   /* §6.4: 240 ms cubic-out on everything. One token, so nothing drifts off it. */
   --beat: 240ms;
   --curve: cubic-bezier(0.2, 0.8, 0.3, 1);
@@ -180,13 +220,37 @@ body {
   height: 100dvh;
   max-width: 460px;
   margin: 0 auto;
-  background: var(--night);
+  /*
+   * Night air, as a volume rather than a fill.
+   *
+   * Two stops would be a wash; four stops with a warm bloom low in the frame is
+   * the room the panels sit in — the same trick the reference set uses to keep
+   * a "dark" frame at nought-point-nought per cent near-black while every pixel
+   * of it still measures saturated.
+   */
+  background:
+    /*
+     * The room's own material, at two scales (§6.2's petrified grain).
+     *
+     * The reference frames have no inert pixel in them: the "empty" plate behind
+     * a premium instant game carries a filigree, and the measured consequence is
+     * a distinct-colour count in the thousands where a flat UI collapses to a few
+     * hundred. These are the same two scales the card face uses — a 10 cm ripple
+     * and a 2 m sweep — laid across the whole room at an alpha that is felt and
+     * not seen, plus a cool counter-light from the upper left so the vertical ramp
+     * is not the only thing describing the volume.
+     */
+    repeating-linear-gradient(96deg, rgba(150, 220, 255, 0.028) 0 2px, rgba(4, 22, 48, 0.03) 2px 11px),
+    repeating-linear-gradient(6deg, rgba(255, 190, 120, 0.022) 0 34px, rgba(4, 22, 48, 0.02) 34px 96px),
+    radial-gradient(120% 48% at 12% -6%, rgba(96, 200, 255, 0.14) 0%, rgba(96, 200, 255, 0) 62%),
+    radial-gradient(140% 62% at 50% 104%, rgba(255, 140, 32, 0.16) 0%, rgba(255, 140, 32, 0) 68%),
+    linear-gradient(180deg, #0d3162 0%, #0a2549 34%, #071c39 68%, #051227 100%);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   position: relative;
   /* The frame the whole thing sits in, so a lobby iframe has an edge to it. */
-  box-shadow: inset 0 0 60px -20px rgba(14, 17, 20, 0.9);
+  box-shadow: inset 0 0 60px -20px rgba(3, 12, 26, 0.9);
 }
 
 /*
@@ -197,14 +261,27 @@ body {
  * static overlay at 2.5% is enough to stop every panel reading as flat digital
  * fill, and being static it costs one composite and never repaints.
  */
+/*
+ * A grain pass over the entire frame — real noise, not a scan line.
+ *
+ * The round-3 pass was a 1-in-3 horizontal rule, which is a *pattern*: it adds
+ * two values to the frame and reads as a CRT filter rather than as material. The
+ * reference set's "empty" areas are never empty — Plinko's background plate
+ * carries a filigree, and the measured consequence is a distinct-colour count of
+ * 2 400-7 400 where a flat UI collapses to a few hundred. This is fractal noise
+ * generated by the renderer from an inline SVG filter — nothing is downloaded,
+ * and nothing about it is animated — laid over the frame at 3.5%. It breaks
+ * every gradient band it crosses, which is most of the frame.
+ */
 #app::after {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
   z-index: 15;
-  opacity: 0.03;
-  background-image: repeating-linear-gradient(0deg, rgba(216, 207, 187, 0.6) 0 1px, transparent 1px 3px);
+  opacity: 0.06;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
 }
 
 /* ------------------------------------------------------------------ type */
@@ -312,9 +389,9 @@ h3 {
   gap: 4px;
   min-height: var(--strip-h);
   padding: 4px var(--gutter);
-  background: linear-gradient(180deg, #0b0e11 0%, var(--void) 100%);
+  background: linear-gradient(180deg, #0a2444 0%, #061a34 100%);
   border-bottom: var(--hairline);
-  box-shadow: 0 1px 0 rgba(216, 207, 187, 0.04);
+  box-shadow: 0 1px 0 rgba(180, 226, 255, 0.08);
   font-size: var(--floor-secondary);
   color: var(--fog-far);
   flex: none;
@@ -438,8 +515,8 @@ button {
   position: relative;
   min-height: 48px;
   padding: 12px 18px;
-  border: 1px solid rgba(138, 152, 160, 0.28);
-  border-radius: var(--radius);
+  border: 1px solid rgba(120, 195, 255, 0.34);
+  border-radius: 8px;
   background: var(--plate-raised);
   box-shadow: var(--plate-edge), var(--plate-lift);
   color: var(--mist);
@@ -452,12 +529,14 @@ button {
     transform var(--beat) var(--curve),
     box-shadow var(--beat) var(--curve),
     border-color var(--beat) var(--curve),
+    filter var(--beat) var(--curve),
     color var(--beat) var(--curve);
 }
 
 .btn:active:not(:disabled) {
-  transform: translateY(1px);
+  transform: translateY(2px);
   box-shadow: var(--plate-press);
+  filter: brightness(0.9) saturate(0.94);
   transition-duration: 0ms;
 }
 
@@ -465,25 +544,72 @@ button {
   opacity: 0.38;
   box-shadow: none;
   background: var(--plate);
+  filter: saturate(0.25);
   cursor: not-allowed;
 }
 
 /*
  * There is one primary style and it never marks a *choice* as the right one.
  * `Bank` and `Run the next branch` are rendered with identical weight (§S4), so
- * the brass rim below is only ever on an action that has no alternative on the
+ * the lit face below is only ever on an action that has no alternative on the
  * same screen — buy, commit, continue — and never on one of two.
+ *
+ * It is a *lit lantern glass*, not an outlined plate: the rubric's §3 says the
+ * brightest, most saturated object in an idle frame is the button that starts
+ * the round, and its §6 says that object is filled, gradient-faced, with an
+ * inner top highlight, a darker bottom inner edge, a contact shadow and a rim.
+ * A gold hairline on near-black was none of those things — it was the outline
+ * failure mode with a warm border, and it measured as one.
  */
 .btn.primary {
-  border: var(--brasswork);
-  color: var(--lamp-core);
+  border: 1px solid #ffdc7a;
+  color: #3a1c02;
+  text-shadow: 0 1px 0 rgba(255, 244, 210, 0.45);
   background:
-    radial-gradient(120% 180% at 50% 0%, rgba(255, 165, 61, 0.14) 0%, rgba(255, 165, 61, 0) 62%),
-    var(--plate-raised);
+    linear-gradient(178deg, #ffd977 0%, #ffab2c 46%, #f4841a 78%, #d95f10 100%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 231, 190, 0.16),
-    0 6px 16px -9px rgba(210, 98, 28, 0.5),
-    var(--plate-lift);
+    inset 0 1px 0 rgba(255, 250, 232, 0.9),
+    inset 0 -2px 0 rgba(150, 58, 4, 0.55),
+    0 2px 0 #a8460a,
+    0 8px 18px -6px rgba(255, 132, 26, 0.55),
+    0 14px 30px -14px rgba(3, 12, 26, 0.95);
+}
+
+/*
+ * The specular the press takes away.
+ *
+ * The measured Plinko press loses 22% of its highlight pixels: the white face
+ * drops its top specular, the element translates into its shadow and the rim
+ * darkens. This is that highlight, as its own layer, so the press can remove it
+ * in one property rather than restating the whole face.
+ */
+.btn.primary::after {
+  content: "";
+  position: absolute;
+  inset: 1px 1px auto;
+  height: 46%;
+  border-radius: 7px 7px 40% 40%;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 252, 240, 0.62) 0%, rgba(255, 252, 240, 0) 100%);
+  transition: opacity 90ms linear;
+}
+
+.btn.primary:active:not(:disabled) {
+  filter: none;
+  background: linear-gradient(178deg, #f2b842 0%, #e8951f 46%, #d9740f 78%, #bc5409 100%);
+  box-shadow:
+    inset 0 2px 5px rgba(120, 44, 2, 0.5),
+    inset 0 -1px 0 rgba(150, 58, 4, 0.4),
+    0 0 0 #a8460a,
+    0 3px 12px -8px rgba(255, 132, 26, 0.4);
+}
+
+.btn.primary:active:not(:disabled)::after {
+  opacity: 0;
+}
+
+.btn.primary:disabled {
+  filter: saturate(0.3) brightness(0.75);
 }
 
 .btn.quiet {
@@ -553,7 +679,7 @@ summary.link.tap {
  */
 .cycle {
   height: 2px;
-  background: rgba(138, 152, 160, 0.2);
+  background: rgba(46, 155, 216, 0.2);
   margin-top: 6px;
   overflow: hidden;
   border-radius: 1px;
@@ -562,7 +688,7 @@ summary.link.tap {
 .cycle > span {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, rgba(201, 162, 39, 0.4) 0%, var(--brass) 100%);
+  background: linear-gradient(90deg, rgba(255, 196, 38, 0.4) 0%, var(--brass) 100%);
   width: 0;
 }
 
@@ -676,11 +802,11 @@ summary.link.tap {
   font-size: var(--floor-body);
   font-weight: 700;
   color: var(--fossil);
-  text-shadow: 0 1px 6px rgba(14, 17, 20, 0.95);
+  text-shadow: 0 1px 6px rgba(3, 12, 26, 0.95);
 }
 
 .arena-label .fiction {
-  text-shadow: 0 1px 6px rgba(14, 17, 20, 0.95);
+  text-shadow: 0 1px 6px rgba(3, 12, 26, 0.95);
 }
 
 .viewport.compact .fiction {
@@ -717,7 +843,7 @@ summary.link.tap {
   font-size: var(--floor-secondary);
   white-space: nowrap;
   color: var(--fog-far);
-  text-shadow: 0 1px 4px rgba(14, 17, 20, 0.95);
+  text-shadow: 0 1px 4px rgba(3, 12, 26, 0.95);
   transition: opacity var(--beat) var(--curve), color var(--beat) var(--curve);
 }
 
@@ -736,17 +862,44 @@ summary.link.tap {
  * to 40% for the Last Lamp, which is the one place in the game where the HUD is
  * deliberately hard to read: the point of the shot is the figure, not the number.
  */
+/*
+ * The live number, as an object.
+ *
+ * In every reference the in-round state's brightest thing is the number the round
+ * is about, carried on something. Round 3 set this as loose type in the corner of
+ * a full-bleed frame at the 28 px claim floor — 2.4% of frame height, no surface
+ * under it, competing with a fog gradient for contrast. It is the money at risk
+ * while five figures walk over a drop, so it gets a plate to sit on, a warm rim
+ * to say which family it belongs to, and enough size to be read at arm's length.
+ *
+ * It stays bottom-left and under the thumb, and it stays *quiet*: one static
+ * surface, no pulse, no glow on the numeral. §9's Last Lamp still dims the whole
+ * dock to 40%, because in that one shot the figure is the point and the number
+ * is not.
+ */
 .hud-dock {
   position: absolute;
   left: var(--gutter);
   bottom: 12px;
   z-index: 2;
   pointer-events: none;
+  padding: 6px 16px 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 196, 38, 0.34);
+  background: linear-gradient(178deg, rgba(20, 62, 108, 0.88) 0%, rgba(6, 24, 47, 0.92) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 226, 150, 0.26),
+    0 10px 26px -14px rgba(3, 12, 26, 0.95);
   transition: opacity 600ms var(--curve);
 }
 
 .hud-dock .claim-figure {
-  text-shadow: 0 2px 12px rgba(14, 17, 20, 0.95);
+  font-size: 40px;
+  text-shadow: 0 2px 12px rgba(3, 12, 26, 0.95);
+}
+
+.hud-dock .claim-caption {
+  color: var(--fog-far);
 }
 
 .hud-dock.dimmed {
@@ -798,9 +951,9 @@ summary.link.tap {
 .claim-meter {
   position: relative;
   background:
-    radial-gradient(120% 220% at 50% 0%, rgba(255, 165, 61, 0.07) 0%, rgba(255, 165, 61, 0) 70%),
-    linear-gradient(180deg, #0c0f12 0%, var(--void) 100%);
-  border-top: 1px solid rgba(201, 162, 39, 0.22);
+    radial-gradient(120% 220% at 50% 0%, rgba(255, 163, 32, 0.16) 0%, rgba(255, 163, 32, 0) 70%),
+    linear-gradient(180deg, #10375f 0%, #081f3c 100%);
+  border-top: 1px solid rgba(255, 196, 38, 0.3);
   border-bottom: var(--hairline);
   padding: 3px var(--gutter) 4px;
   text-align: center;
@@ -831,7 +984,7 @@ summary.link.tap {
  * and because a number that moves is harder to read than one that does not.
  */
 .claim-figure.rolling {
-  text-shadow: 0 0 18px rgba(255, 165, 61, 0.45);
+  text-shadow: 0 0 18px rgba(255, 163, 32, 0.5);
   transition: text-shadow var(--beat) var(--curve);
 }
 
@@ -881,10 +1034,11 @@ summary.link.tap {
   height: 10px;
   border-radius: 50%;
   background:
-    radial-gradient(circle at 38% 32%, var(--lamp-core) 0%, var(--lamp) 46%, rgba(210, 98, 28, 0.9) 100%);
+    radial-gradient(circle at 38% 32%, var(--lamp-core) 0%, var(--lamp) 46%, rgba(242, 87, 27, 0.9) 100%);
   box-shadow:
-    inset 0 0 0 0.5px rgba(255, 231, 190, 0.85),
-    0 0 10px 3px rgba(255, 165, 61, 0.32);
+    inset 0 0 0 0.5px rgba(255, 242, 196, 0.85),
+    0 0 0 1.5px var(--kin, transparent),
+    0 0 10px 3px rgba(255, 163, 32, 0.32);
   flex: none;
   /* §5.2.2: on a resolve the fallen pips go dark first, held, cause before effect. */
   transition:
@@ -892,15 +1046,21 @@ summary.link.tap {
     box-shadow 220ms var(--curve);
 }
 
+.pip[data-kin="0"] { --kin: var(--kin-0); }
+.pip[data-kin="1"] { --kin: var(--kin-1); }
+.pip[data-kin="2"] { --kin: var(--kin-2); }
+.pip[data-kin="3"] { --kin: var(--kin-3); }
+.pip[data-kin="4"] { --kin: var(--kin-4); }
+
 /* §6.3: a dying light is a lighting event — it falls off with a blue shift. */
 .pip.lost .dot {
   background: radial-gradient(circle at 38% 32%, #6d6079 0%, var(--extinguish) 70%);
-  box-shadow: inset 0 0 0 0.5px rgba(90, 78, 99, 0.9);
+  box-shadow: inset 0 0 0 0.5px rgba(106, 63, 168, 0.9);
 }
 
 .pip.home .dot {
   background: radial-gradient(circle at 38% 32%, var(--lamp-core) 0%, var(--brass) 60%, #8d7118 100%);
-  box-shadow: inset 0 0 0 0.5px rgba(255, 231, 190, 0.6), 0 0 8px 2px rgba(201, 162, 39, 0.28);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 242, 196, 0.6), 0 0 8px 2px rgba(255, 196, 38, 0.28);
 }
 
 .pip .value {
@@ -927,13 +1087,13 @@ summary.link.tap {
 .lane-gap {
   width: 10px;
   align-self: stretch;
-  border-left: 1px dashed rgba(138, 152, 160, 0.35);
+  border-left: 1px dashed rgba(46, 155, 216, 0.35);
 }
 
 .banked-row {
   margin-top: 6px;
   padding-top: 6px;
-  border-top: 1px dashed rgba(201, 162, 39, 0.3);
+  border-top: 1px dashed rgba(255, 196, 38, 0.3);
   color: var(--money-banked);
   font-size: var(--floor-secondary);
 }
@@ -958,13 +1118,13 @@ summary.link.tap {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
-  scrollbar-color: rgba(138, 152, 160, 0.34) transparent;
+  scrollbar-color: rgba(46, 155, 216, 0.34) transparent;
   background:
-    linear-gradient(180deg, rgba(56, 67, 75, 0.1) 0%, rgba(26, 32, 38, 0) 90px) local,
-    linear-gradient(180deg, var(--night) 0%, rgba(26, 32, 38, 0) 100%) 0 0 / 100% 18px no-repeat local,
-    linear-gradient(0deg, var(--night) 0%, rgba(26, 32, 38, 0) 100%) 0 100% / 100% 20px no-repeat local,
-    linear-gradient(180deg, rgba(14, 17, 20, 0.5) 0%, rgba(14, 17, 20, 0) 100%) 0 0 / 100% 16px no-repeat scroll,
-    linear-gradient(0deg, rgba(14, 17, 20, 0.72) 0%, rgba(14, 17, 20, 0) 100%) 0 100% / 100% 22px no-repeat scroll;
+    linear-gradient(180deg, rgba(16, 83, 143, 0.1) 0%, rgba(11, 38, 71, 0) 90px) local,
+    linear-gradient(180deg, var(--night) 0%, rgba(11, 38, 71, 0) 100%) 0 0 / 100% 18px no-repeat local,
+    linear-gradient(0deg, var(--night) 0%, rgba(11, 38, 71, 0) 100%) 0 100% / 100% 20px no-repeat local,
+    linear-gradient(180deg, rgba(3, 12, 26, 0.5) 0%, rgba(3, 12, 26, 0) 100%) 0 0 / 100% 16px no-repeat scroll,
+    linear-gradient(0deg, rgba(3, 12, 26, 0.72) 0%, rgba(3, 12, 26, 0) 100%) 0 100% / 100% 22px no-repeat scroll;
   /*
    * And the content itself fades into the bottom edge.
    *
@@ -974,7 +1134,7 @@ summary.link.tap {
    * page, continuing under the footer. The padding below means that when the pane
    * is scrolled to its end, the last line sits above the fade rather than in it.
    */
-  mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 44px), transparent 100%);
+  mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 62px), transparent 100%);
 }
 
 .surface > .pad {
@@ -991,18 +1151,41 @@ summary.link.tap {
  * something under the fold, sitting on the seam between the pane and the footer,
  * out of the flow so it costs the pane nothing.
  */
+/*
+ * ...and it sits *under* the last line, not across it.
+ *
+ * At -62% the pill's own body straddled the last readable row of the pane, so
+ * the frame dump caught "The server sealed its half of..." running behind a
+ * rounded blue capsule — one string cut in half by a control, which reads as a
+ * rendering fault whatever it means. It now hangs off the footer's top edge with
+ * its whole body below the pane's text, and the pane's fade is deepened to match
+ * so the row above it has already gone before the pill starts.
+ */
+/*
+ * The seam the pill sits in, reserved by the footer that owns it.
+ *
+ * The pill hangs off the footer's top edge, and a footer whose first child is a
+ * line of copy has that line exactly where the pill is. Fourteen pixels of top
+ * padding — added only while the mark is shown — is the seam it needs, and it is
+ * *padding* rather than a margin on the copy so nothing moves when the pane
+ * scrolls to its end and the mark goes away.
+ */
+.screen.has-more .footer {
+  padding-top: 20px;
+}
+
 .screen.has-more .footer::before {
   content: "▾ more";
   position: absolute;
   left: 50%;
   top: 0;
-  transform: translate(-50%, -62%);
+  transform: translate(-50%, -50%);
   z-index: 17;
   padding: 3px 10px;
-  border: 1px solid rgba(138, 152, 160, 0.28);
+  border: 1px solid rgba(46, 155, 216, 0.28);
   border-radius: 999px;
-  background: linear-gradient(180deg, #232b33 0%, #161b21 100%);
-  box-shadow: 0 6px 14px -8px rgba(14, 17, 20, 1);
+  background: linear-gradient(180deg, #1c5691 0%, #0c2c53 100%);
+  box-shadow: 0 6px 14px -8px rgba(3, 12, 26, 1);
   font-size: var(--floor-secondary);
   color: var(--fog-far);
   pointer-events: none;
@@ -1024,7 +1207,7 @@ summary.link.tap {
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
   gap: 1px;
-  background: rgba(138, 152, 160, 0.14);
+  background: rgba(120, 195, 255, 0.16);
   border-bottom: var(--hairline);
   flex: none;
 }
@@ -1033,26 +1216,42 @@ summary.link.tap {
   padding: 2px 2px;
 }
 
+/*
+ * Four prices, side by side, each one wearing its own rung of the ramp.
+ *
+ * The band hue lives on the *multiple* and on a 3 px shelf under the tab, not on
+ * the tab's whole body — all four segments keep identical weight, area and
+ * luminance, which is §S2's rule. What differs between them is exactly what
+ * differs about them in the game: the number.
+ */
 .route-tab {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 1px;
-  min-height: 44px;
+  min-height: 46px;
   padding: 4px 2px;
-  background: linear-gradient(180deg, rgba(56, 67, 75, 0.2) 0%, var(--night) 100%);
-  /*
-   * An unselected tab is still a price the player is comparing.
-   *
-   * At `--fog-far` on this plate the four route names and their multipliers
-   * measured 4.46:1 — under AA by four hundredths, on the one row whose whole job
-   * is comparison. This is the same hue lifted clear of the line.
-   */
-  color: #a4b0b7;
+  position: relative;
+  background: linear-gradient(180deg, #14406f 0%, #0b2848 100%);
+  color: #a8d4f6;
   border-top: 2px solid transparent;
   transition: background var(--beat) var(--curve), color var(--beat) var(--curve);
 }
+
+.route-tab::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 3px;
+  background: var(--band);
+  opacity: 0.55;
+}
+
+.route-tab[data-band="1"] { --band: var(--band-1); }
+.route-tab[data-band="2"] { --band: var(--band-2); }
+.route-tab[data-band="3"] { --band: var(--band-3); }
+.route-tab[data-band="4"] { --band: var(--band-4); }
 
 .route-tab .route-name {
   font-size: var(--floor-secondary);
@@ -1061,21 +1260,23 @@ summary.link.tap {
 
 .route-tab .money {
   font-size: var(--floor-numeral);
-  color: #a4b0b7;
+  color: var(--band);
+  text-shadow: 0 0 10px color-mix(in srgb, var(--band) 45%, transparent);
 }
 
 .route-tab[aria-selected="true"] {
-  background: linear-gradient(180deg, rgba(216, 207, 187, 0.12) 0%, rgba(216, 207, 187, 0.03) 100%);
-  border-top-color: var(--fossil);
-  color: var(--fossil);
+  background: linear-gradient(180deg, #2a6ba8 0%, #143f70 100%);
+  border-top-color: var(--band);
+  color: #eaf7ff;
 }
 
-.route-tab[aria-selected="true"] .money {
-  color: var(--fossil);
+.route-tab[aria-selected="true"]::after {
+  opacity: 1;
+  box-shadow: 0 -4px 12px -2px var(--band);
 }
 
 .route-tab:active {
-  background: rgba(14, 17, 20, 0.6);
+  background: linear-gradient(180deg, #0d2c50 0%, #081f3c 100%);
 }
 
 /* The product's thesis, permanently on the route screen (§3). */
@@ -1154,8 +1355,8 @@ summary.link.tap {
  */
 .card {
   position: relative;
-  border: 1px solid rgba(138, 152, 160, 0.2);
-  border-radius: 6px;
+  border: 1px solid rgba(120, 195, 255, 0.24);
+  border-radius: 10px;
   background: var(--plate);
   box-shadow: var(--plate-edge), var(--plate-lift);
   padding: 7px 12px;
@@ -1196,12 +1397,13 @@ summary.link.tap {
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: 6px;
+  border-radius: 10px;
   pointer-events: none;
-  opacity: 0.5;
+  opacity: 0.55;
   background-image:
-    repeating-linear-gradient(94deg, rgba(216, 207, 187, 0.035) 0 1px, transparent 1px 7px),
-    linear-gradient(178deg, rgba(216, 207, 187, 0.05) 0%, transparent 40%);
+    repeating-linear-gradient(94deg, rgba(190, 232, 255, 0.05) 0 1px, transparent 1px 7px),
+    radial-gradient(120% 70% at 50% -6%, rgba(140, 214, 255, 0.16) 0%, rgba(140, 214, 255, 0) 62%),
+    linear-gradient(178deg, rgba(190, 232, 255, 0.07) 0%, transparent 40%);
 }
 
 /*
@@ -1250,11 +1452,12 @@ summary.link.tap {
 }
 
 .card.selected {
-  border-color: rgba(216, 207, 187, 0.55);
+  border-color: color-mix(in srgb, var(--band, #ffd9a0) 62%, transparent);
   box-shadow:
-    inset 0 1px 0 rgba(216, 207, 187, 0.2),
-    0 8px 20px -10px rgba(14, 17, 20, 0.95),
-    0 22px 40px -26px rgba(14, 17, 20, 1);
+    inset 0 1px 0 rgba(214, 240, 255, 0.3),
+    0 0 0 1px color-mix(in srgb, var(--band, #ffd9a0) 22%, transparent),
+    0 8px 20px -10px rgba(3, 12, 26, 0.95),
+    0 22px 40px -26px rgba(3, 12, 26, 1);
 }
 
 /*
@@ -1313,13 +1516,39 @@ summary.link.tap {
   flex: none;
 }
 
+/*
+ * The price, wearing its rung of the ramp.
+ *
+ * The chip behind it is what makes the multiple an *object* rather than a
+ * coloured string — filled, rimmed, sitting on the card face — which is the same
+ * move the references make when they print a multiplier onto a chip or a
+ * balloon instead of setting it beside one.
+ */
 .multiplier {
   font-family: var(--mono);
   font-size: 21px;
-  color: var(--fossil);
+  color: var(--band, var(--fossil));
   line-height: 1.1;
   letter-spacing: -0.02em;
+  display: inline-block;
+  padding: 2px 9px 3px;
+  border-radius: 7px;
+  background: linear-gradient(
+    178deg,
+    color-mix(in srgb, var(--band, #ffd9a0) 26%, transparent) 0%,
+    color-mix(in srgb, var(--band, #ffd9a0) 8%, transparent) 100%
+  );
+  border: 1px solid color-mix(in srgb, var(--band, #ffd9a0) 46%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--band, #ffd9a0) 34%, transparent),
+    0 4px 14px -8px var(--band, #ffd9a0);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--band, #ffd9a0) 55%, transparent);
 }
+
+.card[data-band="1"] { --band: var(--band-1); }
+.card[data-band="2"] { --band: var(--band-2); }
+.card[data-band="3"] { --band: var(--band-3); }
+.card[data-band="4"] { --band: var(--band-4); }
 
 .head-note {
   font-size: var(--floor-secondary);
@@ -1363,8 +1592,8 @@ summary.link.tap {
  * and not whether the card is good.
  */
 .field.emphasis {
-  border-top: 1px solid rgba(216, 207, 187, 0.12);
-  border-bottom: 1px solid rgba(216, 207, 187, 0.12);
+  border-top: 1px solid rgba(190, 232, 255, 0.12);
+  border-bottom: 1px solid rgba(190, 232, 255, 0.12);
   padding: 3px 0;
   margin: 2px 0;
 }
@@ -1387,7 +1616,7 @@ summary.link.tap {
    */
   margin: 0 -12px -7px;
   padding: 4px 12px 5px;
-  background: #171d23;
+  background: linear-gradient(180deg, #0a2b52 0%, #072041 100%);
   border-top: var(--hairline);
   line-height: 1.25;
   font-size: var(--floor-secondary);
@@ -1470,7 +1699,7 @@ summary.link.tap {
   /* The ghost outline of the other balance is positioned against this. */
   position: relative;
   /* The trough the bar sits in, so an empty outcome is still a place. */
-  background: linear-gradient(180deg, rgba(14, 17, 20, 0) 0%, rgba(14, 17, 20, 0.45) 100%);
+  background: linear-gradient(180deg, rgba(3, 12, 26, 0) 0%, rgba(3, 12, 26, 0.45) 100%);
   border-radius: 2px 2px 0 0;
 }
 
@@ -1486,21 +1715,41 @@ summary.link.tap {
 .bar .fill {
   width: 100%;
   min-height: 5px;
-  background: linear-gradient(180deg, var(--falls) 0%, rgba(138, 152, 160, 0.55) 100%);
+  background: linear-gradient(180deg, var(--falls) 0%, rgba(46, 155, 216, 0.55) 100%);
   border-radius: 2px 2px 0 0;
-  box-shadow: inset 0 1px 0 rgba(214, 221, 224, 0.35);
+  box-shadow: inset 0 1px 0 rgba(203, 235, 255, 0.35);
 }
 
+/*
+ * The outcomes where the claim grows, in the card's own band colour.
+ *
+ * Two things this fixes at once. It says what the bar *means* in the language the
+ * rest of the screen already uses — the multiple on the card head, the shelf
+ * under the route tab and the bars that pay it are one colour — so the payout
+ * scale is on the object rather than in a legend (rubric criterion 11). And it
+ * takes a pale cream column off the decision screen: at `--fossil` this was the
+ * highest-luminance region in the idle frame, competing with the commit button
+ * for the one thing criterion 12 allows to be brightest. A band colour sits below
+ * the button in luminance and above the losing bars in saturation, which is
+ * exactly the hierarchy the frame wants.
+ */
 .bar.grows .fill {
-  background: linear-gradient(180deg, var(--grows) 0%, rgba(216, 207, 187, 0.5) 100%);
+  background: linear-gradient(
+    180deg,
+    var(--band, #ffd9a0) 0%,
+    color-mix(in srgb, var(--band, #ffd9a0) 45%, transparent) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 0 12px -2px color-mix(in srgb, var(--band, #ffd9a0) 55%, transparent);
 }
 
 .bar.holds .fill {
-  background: linear-gradient(180deg, var(--bark-lit) 0%, rgba(122, 98, 72, 0.5) 100%);
+  background: linear-gradient(180deg, var(--bark-lit) 0%, rgba(201, 122, 40, 0.5) 100%);
 }
 
 .bar.wipe .fill {
-  background: linear-gradient(180deg, var(--extinguish) 0%, rgba(90, 78, 99, 0.5) 100%);
+  background: linear-gradient(180deg, var(--extinguish) 0%, rgba(106, 63, 168, 0.5) 100%);
 }
 
 /*
@@ -1635,8 +1884,8 @@ summary.link.tap {
   right: -1px;
   height: 2px;
   border-radius: 1px;
-  background: rgba(216, 207, 187, 0.85);
-  box-shadow: 0 0 0 1px rgba(14, 17, 20, 0.6);
+  background: rgba(190, 232, 255, 0.85);
+  box-shadow: 0 0 0 1px rgba(3, 12, 26, 0.6);
   pointer-events: none;
 }
 
@@ -1664,12 +1913,12 @@ summary.link.tap {
 }
 
 .bars-legend .key.filled i {
-  background: linear-gradient(180deg, var(--fossil) 0%, rgba(216, 207, 187, 0.45) 100%);
+  background: linear-gradient(180deg, var(--fossil) 0%, rgba(190, 232, 255, 0.45) 100%);
 }
 
 .bars-legend .key.ghost i {
   height: 2px;
-  background: rgba(216, 207, 187, 0.85);
+  background: rgba(190, 232, 255, 0.85);
 }
 
 .bars-legend .key .money {
@@ -1727,12 +1976,12 @@ summary.link.tap {
   height: 10px;
   flex: none;
   border-radius: 1px;
-  background: linear-gradient(180deg, var(--fossil) 0%, rgba(216, 207, 187, 0.45) 100%);
+  background: linear-gradient(180deg, var(--fossil) 0%, rgba(190, 232, 255, 0.45) 100%);
 }
 
 .balance-head.ghost i {
   height: 2px;
-  background: rgba(216, 207, 187, 0.85);
+  background: rgba(190, 232, 255, 0.85);
 }
 
 .balance-head[aria-pressed="true"] {
@@ -1747,7 +1996,7 @@ summary.link.tap {
 .compare-table td {
   padding: 0 2px;
   text-align: right;
-  border-bottom: 1px solid rgba(138, 152, 160, 0.1);
+  border-bottom: 1px solid rgba(46, 155, 216, 0.1);
   font-weight: 400;
   /* Tight rows, so five of them and a chart fit on one card face. */
   line-height: 1.08;
@@ -1799,7 +2048,7 @@ summary.link.tap {
   flex: none;
   padding: 4px var(--gutter) 2px;
   border-top: var(--hairline);
-  background: linear-gradient(180deg, rgba(14, 17, 20, 0.72) 0%, rgba(14, 17, 20, 0.4) 100%);
+  background: linear-gradient(180deg, rgba(3, 12, 26, 0.72) 0%, rgba(3, 12, 26, 0.4) 100%);
 }
 
 .control-strip p {
@@ -1815,7 +2064,7 @@ summary.link.tap {
 }
 
 .balance-tab {
-  border: 1px solid rgba(138, 152, 160, 0.24);
+  border: 1px solid rgba(46, 155, 216, 0.24);
   border-radius: var(--radius);
   background: var(--plate);
   box-shadow: var(--plate-edge);
@@ -1838,7 +2087,7 @@ summary.link.tap {
 
 /* No colour hierarchy, no recommended mark, no default (§3.3 requirement 2). */
 .balance-tab[aria-pressed="true"] {
-  border-color: rgba(216, 207, 187, 0.6);
+  border-color: rgba(190, 232, 255, 0.6);
   color: var(--fossil);
 }
 
@@ -1856,7 +2105,7 @@ summary.link.tap {
   align-items: center;
   justify-content: center;
   gap: 3px;
-  border: 1px solid rgba(138, 152, 160, 0.22);
+  border: 1px solid rgba(46, 155, 216, 0.22);
   border-radius: var(--radius);
   background: var(--plate);
   box-shadow: var(--plate-edge);
@@ -1889,8 +2138,8 @@ summary.link.tap {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: radial-gradient(circle at 38% 32%, var(--lamp-core) 0%, var(--lamp) 55%, rgba(210, 98, 28, 0.9) 100%);
-  box-shadow: 0 0 6px 1px rgba(255, 165, 61, 0.3);
+  background: radial-gradient(circle at 38% 32%, var(--lamp-core) 0%, var(--lamp) 55%, rgba(242, 87, 27, 0.9) 100%);
+  box-shadow: 0 0 6px 1px rgba(255, 163, 32, 0.3);
   flex: none;
 }
 
@@ -1903,18 +2152,18 @@ summary.link.tap {
 }
 
 .limb-chip[aria-pressed="true"] {
-  border-color: rgba(201, 162, 39, 0.7);
+  border-color: rgba(255, 196, 38, 0.7);
   color: var(--lamp-core);
 }
 
 .limb-chip[aria-pressed="true"] .dot {
   background: radial-gradient(circle at 38% 32%, var(--lamp-core) 0%, var(--brass) 60%, #8d7118 100%);
-  box-shadow: 0 0 8px 2px rgba(201, 162, 39, 0.32);
+  box-shadow: 0 0 8px 2px rgba(255, 196, 38, 0.32);
 }
 
 .limb-divider {
   width: 0;
-  border-left: 1px dashed rgba(138, 152, 160, 0.5);
+  border-left: 1px dashed rgba(46, 155, 216, 0.5);
   margin: 0 3px;
   flex: none;
 }
@@ -1944,7 +2193,7 @@ summary.link.tap {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  border: 1px solid rgba(138, 152, 160, 0.24);
+  border: 1px solid rgba(46, 155, 216, 0.24);
   border-radius: 999px;
   background: var(--plate);
   box-shadow: var(--plate-edge);
@@ -1970,7 +2219,7 @@ summary.link.tap {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: radial-gradient(circle at 38% 32%, var(--lamp-core) 0%, var(--lamp) 55%, rgba(210, 98, 28, 0.9) 100%);
+  background: radial-gradient(circle at 38% 32%, var(--lamp-core) 0%, var(--lamp) 55%, rgba(242, 87, 27, 0.9) 100%);
 }
 
 /*
@@ -1994,7 +2243,7 @@ summary.link.tap {
 }
 
 .chip[aria-pressed="true"] {
-  border-color: rgba(201, 162, 39, 0.7);
+  border-color: rgba(255, 196, 38, 0.7);
   color: var(--lamp-core);
 }
 
@@ -2013,7 +2262,7 @@ summary.link.tap {
   gap: 10px;
   min-height: 44px;
   padding: 6px 12px;
-  border: 1px solid rgba(138, 152, 160, 0.22);
+  border: 1px solid rgba(46, 155, 216, 0.22);
   border-radius: var(--radius);
   background: var(--plate);
   box-shadow: var(--plate-edge);
@@ -2029,7 +2278,7 @@ summary.link.tap {
 
 .sidebet-row {
   padding: 10px 0;
-  border-bottom: 1px solid rgba(138, 152, 160, 0.12);
+  border-bottom: 1px solid rgba(46, 155, 216, 0.12);
 }
 
 .stepper-row {
@@ -2044,7 +2293,7 @@ summary.link.tap {
 .stepper {
   display: inline-flex;
   align-items: center;
-  border: 1px solid rgba(138, 152, 160, 0.24);
+  border: 1px solid rgba(46, 155, 216, 0.24);
   border-radius: var(--radius);
   background: var(--plate);
   box-shadow: var(--plate-edge);
@@ -2061,7 +2310,7 @@ summary.link.tap {
 }
 
 .stepper button:active {
-  background: rgba(14, 17, 20, 0.7);
+  background: rgba(3, 12, 26, 0.7);
   transition-duration: 0ms;
 }
 
@@ -2078,8 +2327,8 @@ summary.link.tap {
 .footer {
   position: relative;
   flex: none;
-  background: linear-gradient(180deg, var(--night) 0%, #131820 100%);
-  box-shadow: 0 -14px 18px -12px rgba(14, 17, 20, 0.9);
+  background: linear-gradient(180deg, #0d2e56 0%, #071c37 100%);
+  box-shadow: 0 -14px 18px -12px rgba(3, 12, 26, 0.9);
   padding: 6px var(--gutter) calc(7px + env(safe-area-inset-bottom));
   border-top: var(--hairline);
   z-index: 16;
@@ -2125,7 +2374,7 @@ summary.link.tap {
 .sheet-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(14, 17, 20, 0.84);
+  background: rgba(3, 12, 26, 0.84);
   backdrop-filter: blur(2px);
   display: flex;
   align-items: flex-end;
@@ -2140,9 +2389,9 @@ summary.link.tap {
   max-height: 86dvh;
   overflow-y: auto;
   background: linear-gradient(180deg, #202830 0%, var(--night) 120px);
-  border-top: 1px solid rgba(216, 207, 187, 0.22);
+  border-top: 1px solid rgba(190, 232, 255, 0.22);
   border-radius: 10px 10px 0 0;
-  box-shadow: 0 -20px 50px -20px rgba(14, 17, 20, 1);
+  box-shadow: 0 -20px 50px -20px rgba(3, 12, 26, 1);
   padding: 16px var(--gutter) calc(24px + env(safe-area-inset-bottom));
   animation: rise 300ms var(--curve);
 }
@@ -2210,7 +2459,7 @@ summary.link.tap {
 .odds-table th,
 .odds-table td {
   padding: 5px 4px;
-  border-bottom: 1px solid rgba(138, 152, 160, 0.12);
+  border-bottom: 1px solid rgba(46, 155, 216, 0.12);
   text-align: right;
 }
 
@@ -2246,10 +2495,10 @@ summary.link.tap {
  */
 .verify {
   --mist: #dff2ff;
-  --plate: linear-gradient(178deg, rgba(30, 58, 78, 0.4) 0%, rgba(11, 22, 32, 0.6) 100%);
-  --plate-raised: linear-gradient(178deg, rgba(38, 70, 92, 0.45) 0%, rgba(11, 22, 32, 0.7) 100%);
-  --plate-edge: inset 0 1px 0 rgba(127, 212, 255, 0.14);
-  background: #0b1620;
+  --plate: linear-gradient(178deg, rgba(15, 61, 110, 0.4) 0%, rgba(6, 26, 51, 0.6) 100%);
+  --plate-raised: linear-gradient(178deg, rgba(20, 80, 138, 0.45) 0%, rgba(6, 26, 51, 0.7) 100%);
+  --plate-edge: inset 0 1px 0 rgba(79, 216, 255, 0.14);
+  background: linear-gradient(180deg, #062a3e 0%, #03151f 100%);
   color: #dff2ff;
 }
 
@@ -2263,7 +2512,7 @@ summary.link.tap {
   grid-template-columns: 22px 1fr;
   gap: 8px;
   padding: 8px 0;
-  border-bottom: 1px solid rgba(127, 212, 255, 0.15);
+  border-bottom: 1px solid rgba(79, 216, 255, 0.15);
   align-items: start;
 }
 
@@ -2294,18 +2543,18 @@ summary.link.tap {
 .hash {
   font-family: var(--mono);
   font-size: var(--floor-secondary);
-  color: #86a7bd;
+  color: #7ec2e8;
   word-break: normal;
   overflow-wrap: anywhere;
 }
 
 .verify .btn {
-  border-color: rgba(127, 212, 255, 0.5);
+  border-color: rgba(79, 216, 255, 0.5);
   color: var(--verify);
 }
 
 .provenance {
-  border: 1px solid rgba(127, 212, 255, 0.25);
+  border: 1px solid rgba(79, 216, 255, 0.25);
   border-radius: var(--radius);
   padding: 10px;
   margin: 10px 0;
@@ -2337,9 +2586,9 @@ summary.link.tap {
  */
 .badge {
   display: inline-block;
-  border: 1px solid rgba(138, 152, 160, 0.3);
+  border: 1px solid rgba(46, 155, 216, 0.3);
   border-radius: 999px;
-  background: rgba(14, 17, 20, 0.55);
+  background: rgba(3, 12, 26, 0.55);
   padding: 2px 9px;
   font-size: var(--floor-numeral);
   letter-spacing: 0.06em;
@@ -2379,7 +2628,7 @@ summary.link.tap {
  * prose, and it arrives *after* the pips have gone dark and the claim has rolled.
  */
 .arithmetic {
-  border: 1px solid rgba(216, 207, 187, 0.16);
+  border: 1px solid rgba(190, 232, 255, 0.16);
   border-radius: var(--radius);
   background: var(--plate);
   box-shadow: var(--plate-edge);
@@ -2409,9 +2658,9 @@ summary.link.tap {
   top: var(--strip-h);
   transform: translateX(-50%);
   width: min(460px, 100%);
-  background: linear-gradient(180deg, #232b33 0%, #161b21 100%);
-  border-bottom: 1px solid rgba(201, 162, 39, 0.34);
-  box-shadow: 0 12px 24px -16px rgba(14, 17, 20, 1);
+  background: linear-gradient(180deg, #1c5691 0%, #0c2c53 100%);
+  border-bottom: 1px solid rgba(255, 196, 38, 0.34);
+  box-shadow: 0 12px 24px -16px rgba(3, 12, 26, 1);
   padding: 9px var(--gutter) 10px;
   font-size: var(--floor-secondary);
   line-height: 1.35;
@@ -2420,13 +2669,21 @@ summary.link.tap {
   animation: notice-in var(--beat) var(--curve);
 }
 
+/*
+ * It slides in. It does not fade in.
+ *
+ * A fading opaque panel is a *translucent* panel for the length of the fade, and
+ * this one arrives over the arena title on a full-bleed stage: the round-4 frame
+ * dump caught "LOWBRANCH" reading through "The server's half of this round is
+ * sealed", which is two strings occupying the same pixels. Animating position
+ * only means the panel is opaque in every frame it is visible in, and it comes
+ * from behind the session strip so it is never over anything on the way in.
+ */
 @keyframes notice-in {
   from {
-    opacity: 0;
-    transform: translate(-50%, -8px);
+    transform: translate(-50%, -100%);
   }
   to {
-    opacity: 1;
     transform: translate(-50%, 0);
   }
 }
@@ -2447,7 +2704,7 @@ summary.link.tap {
 .reality-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(14, 17, 20, 0.95);
+  background: rgba(3, 12, 26, 0.95);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2459,10 +2716,10 @@ summary.link.tap {
 .reality {
   width: 100%;
   max-width: 420px;
-  border: 1px solid rgba(138, 152, 160, 0.3);
+  border: 1px solid rgba(46, 155, 216, 0.3);
   border-radius: 8px;
   background: linear-gradient(180deg, #212932 0%, var(--night) 100%);
-  box-shadow: 0 24px 60px -24px rgba(14, 17, 20, 1);
+  box-shadow: 0 24px 60px -24px rgba(3, 12, 26, 1);
   padding: 20px var(--gutter);
 }
 
@@ -2568,6 +2825,50 @@ summary.link.tap {
   margin-bottom: 2px;
 }
 
+/*
+ * The payout plate: the object the win *is*.
+ *
+ * Warm money read is a surface, not a colour on a string. This is a brass-rimmed
+ * plate of lit glass — a gradient face, an inner top specular, a darker bottom
+ * inner edge, a contact shadow and a wide outer bloom — with the figure printed
+ * *inside* it, dark-on-light, inverting the light-on-dark the rest of the game is
+ * set in. That inversion is what announces the moment before a single digit is
+ * read, and it is the one thing the round-3 build's bottom-docked caption could
+ * not do at any size.
+ *
+ * It is light, and it is still not kinetics: §6.4's prohibitions all survive.
+ * Nothing bounces past its end state, nothing shakes, there is no confetti and no
+ * coin fountain. The plate arrives, holds, and the screen goes calm again.
+ */
+.hero.won {
+  position: relative;
+  padding: 16px 26px 18px;
+  border-radius: 18px;
+  border: 1px solid #ffe9a4;
+  background:
+    radial-gradient(120% 96% at 50% 8%, #fff6d8 0%, #ffd469 34%, #f7ad24 68%, #dd8410 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 253, 244, 0.92),
+    inset 0 -3px 0 rgba(150, 72, 4, 0.4),
+    0 3px 0 #a85e08,
+    0 16px 40px -12px rgba(255, 168, 40, 0.75),
+    0 0 90px 10px rgba(255, 150, 30, 0.34),
+    0 30px 60px -28px rgba(3, 12, 26, 0.95);
+  animation: plate-in 380ms var(--curve) both;
+}
+
+/*
+ * A hairline rule under the label, which is how the references separate the two.
+ * The label is small and above; the amount is large and below; the unit is
+ * attached to the amount and never floats free of it.
+ */
+.hero.won .hero-label {
+  color: #6b3a02;
+  border-bottom: 1px solid rgba(107, 58, 2, 0.28);
+  padding-bottom: 3px;
+  margin-bottom: 4px;
+}
+
 .hero-figure {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums lining-nums;
@@ -2576,40 +2877,105 @@ summary.link.tap {
   line-height: 1.05;
   letter-spacing: -0.02em;
   color: var(--brass);
-  /* The frame going briefly warm, on the figure itself (§6.4's one reward). */
-  text-shadow: 0 0 28px rgba(201, 162, 39, 0.4);
+  /*
+   * No light on a figure that did not win.
+   *
+   * §6.4's *"the reward for a big bank is that the tree is briefly warm"* is a
+   * reward, and a 0.81x recovery has not earned one. The glow moved onto the
+   * plate, which only a win mounts; what a recovery gets is the figure, stated in
+   * the banked-money colour, with nothing added to it.
+   */
+  text-shadow: none;
+}
+
+/* Inside the plate the figure is ink on brass, not brass on night. */
+.hero.won .hero-figure {
+  color: #3a1c02;
+  text-shadow: 0 1px 0 rgba(255, 250, 226, 0.6);
 }
 
 /*
  * The two rare tiers (`client/src/payoff.ts`).
  *
  * §6.4 permits size, colour and light and forbids everything kinetic, so this is
- * the whole escalation: the figure is set larger and the frame around it carries
+ * the whole escalation: the plate is set larger, and the frame around it carries
  * more of the warmth it already had. Nothing bounces, nothing shakes, nothing
- * spins, and no banner appears — a 2x is a bigger number in a warmer frame, which
- * is what a 2x is.
+ * spins — a 2x is a bigger number on a brighter plate, which is what a 2x is.
  */
 .hero-figure.big {
   font-size: 58px;
-  text-shadow:
-    0 0 34px rgba(201, 162, 39, 0.5),
-    0 0 70px rgba(201, 162, 39, 0.22);
 }
 
 .hero-figure.huge {
   font-size: 68px;
-  color: var(--lamp-core);
-  text-shadow:
-    0 0 40px rgba(255, 231, 190, 0.55),
-    0 0 96px rgba(201, 162, 39, 0.34);
+}
+
+.hero.won:has(.hero-figure.big) {
+  padding: 18px 32px 20px;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 253, 244, 0.92),
+    inset 0 -3px 0 rgba(150, 72, 4, 0.4),
+    0 3px 0 #a85e08,
+    0 18px 46px -12px rgba(255, 168, 40, 0.85),
+    0 0 120px 22px rgba(255, 150, 30, 0.42),
+    0 30px 60px -28px rgba(3, 12, 26, 0.95);
+}
+
+.hero.won:has(.hero-figure.huge) {
+  padding: 20px 36px 22px;
+  background:
+    radial-gradient(120% 96% at 50% 8%, #fffdf2 0%, #ffe694 30%, #ffc23c 66%, #ef9412 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 252, 0.96),
+    inset 0 -3px 0 rgba(150, 72, 4, 0.4),
+    0 3px 0 #a85e08,
+    0 20px 54px -12px rgba(255, 186, 60, 0.95),
+    0 0 160px 40px rgba(255, 160, 40, 0.5),
+    0 30px 60px -28px rgba(3, 12, 26, 0.95);
+}
+
+/*
+ * The plate arriving: 380 ms, and it settles *onto* its size from below it.
+ *
+ * §6.4 rules out overshoot, so this scales up to 1 and stops. What makes it read
+ * as an event rather than as a fade is that the light arrives with it — the bloom
+ * is part of the same 380 ms — which is the reference set's entire celebration
+ * grammar in one property.
+ */
+@keyframes plate-in {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 /* §6.4's own sentence, said once, at the top of the scale only. */
 .warm-line {
   color: var(--brass);
+  text-shadow: 0 0 18px rgba(255, 196, 38, 0.45);
 }
 
-/* The other ending: the same weight, none of the light (§S6, §10.2). */
+/*
+ * The other ending: the same weight, none of the light, and no plate (§S6, §10.2).
+ *
+ * This is the pre-attentive half of the rubric's signal-clarity rule. A win is a
+ * bright warm surface at the centre of the frame; a loss is cool type on the fog
+ * with nothing built for it. The two are different events in a thumbnail, and the
+ * difference costs the loss no extra volume — which is the point, because
+ * §10.2 forbids making the loss the loudest thing in the game.
+ */
+.hero.cold {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  animation: none;
+}
+
 .hero.cold .hero-figure {
   color: var(--mist);
   text-shadow: none;
@@ -2623,6 +2989,11 @@ summary.link.tap {
   margin-top: 6px;
   font-size: var(--floor-secondary);
   color: var(--fog-far);
+}
+
+/* On the plate everything is ink, including the line stating the multiple. */
+.hero.won .hero-note {
+  color: #7a4406;
 }
 
 /*
@@ -2641,8 +3012,16 @@ summary.link.tap {
   display: none;
 }
 
-.screen.settled.held .footer {
-  display: none;
+/*
+ * The beat owns the frame, and the exit is not drawn under it — but its box is
+ * still there, so the stage above it never changes height mid-celebration.
+ * `display: none` here cost a 63 px layout shift and a full backdrop rebuild in
+ * the middle of the payoff; `visibility: hidden` costs nothing and hides exactly
+ * as much.
+ */
+.screen.settled.held .footer,
+.footer.waiting {
+  visibility: hidden;
 }
 
 /*
@@ -2654,23 +3033,98 @@ summary.link.tap {
  * beat. Over the frame, the scene keeps its full height, the type has a scrim
  * to sit on, and the only thing that moves during the beat is the type arriving.
  */
+/*
+ * The frame lit by its own payoff.
+ *
+ * A wide warm wash over the whole screen, arriving on the same 380 ms as the
+ * plate and holding with it. It is what turns a bright object into a bright
+ * *moment*: the reference win frames raise mean luminance by ~84% and roughly
+ * triple their highlight area, and none of that comes from the payout surface's
+ * own pixels. Scaled by tier, so a recovery does not get a jackpot's light.
+ */
+.screen.settled.paid::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  background: radial-gradient(
+    88% 46% at 50% 47%,
+    rgba(255, 190, 76, 0.5) 0%,
+    rgba(255, 140, 30, 0.22) 46%,
+    rgba(255, 110, 16, 0) 82%
+  );
+  animation: wash-in 380ms var(--curve) both;
+}
+
+.screen.settled.paid.tier-big::before {
+  background: radial-gradient(
+    104% 56% at 50% 47%,
+    rgba(255, 206, 96, 0.64) 0%,
+    rgba(255, 148, 34, 0.28) 46%,
+    rgba(255, 110, 16, 0) 84%
+  );
+}
+
+.screen.settled.paid.tier-huge::before {
+  background: radial-gradient(
+    124% 70% at 50% 47%,
+    rgba(255, 224, 136, 0.82) 0%,
+    rgba(255, 158, 40, 0.36) 46%,
+    rgba(255, 110, 16, 0) 88%
+  );
+}
+
+/* Held: the beat owns the frame, and the wash has not been earned yet (§9). */
+.screen.settled.paid.held::before {
+  display: none;
+}
+
+@keyframes wash-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/*
+ * The payoff sits at the optical centre, because that is where a payoff is.
+ *
+ * The round-3 build docked it to the bottom edge as a scrim with type on it, and
+ * measured accordingly: no new object, no luminance lift, no colour-temperature
+ * shift — a win that changed a number and nothing else, which the reference set
+ * does nowhere. Every payoff in that set builds a *physical object* at the middle
+ * of the frame with the figure inside it, and this is ours.
+ */
 .settle-panel {
   position: absolute;
   left: 0;
   right: 0;
+  top: 0;
   bottom: 0;
+  /* Above the wash, so the plate is lit *by* it and not washed *over*. */
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   padding: 22px var(--gutter) 20px;
   text-align: center;
-  background: linear-gradient(
-    180deg,
-    rgba(14, 17, 20, 0) 0%,
-    rgba(14, 17, 20, 0.66) 34%,
-    rgba(14, 17, 20, 0.9) 100%
+  pointer-events: none;
+  background: radial-gradient(
+    72% 36% at 50% 47%,
+    rgba(3, 11, 24, 0.82) 0%,
+    rgba(3, 11, 24, 0.52) 46%,
+    rgba(3, 11, 24, 0) 76%
   );
+}
+
+.settle-panel > * {
+  pointer-events: auto;
 }
 
 .settle-panel p {
   margin: 6px 0 0;
+  max-width: 30ch;
 }
 
 /*

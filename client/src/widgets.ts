@@ -59,8 +59,21 @@ export function heroFigure(options: {
    * a loss has one volume on purpose (§10.2).
    */
   readonly tier?: 'quiet' | 'big' | 'huge';
+  /**
+   * Whether this figure is a win, and may therefore be built as one.
+   *
+   * The payout plate — a lit gold surface with the figure in ink on its face — is
+   * celebratory whatever number is printed on it, so it is gated on the one
+   * question that decides whether celebrating is honest: did more come back than
+   * went in (`payoff.ts`'s `celebrates`). Absent or false, the figure is stated
+   * plainly on the frame and none of the plate, the rim, the bloom or the ink
+   * inversion is drawn. §10.5, and the blocker on dressing a partial return as a
+   * win.
+   */
+  readonly won?: boolean;
 }): HTMLElement {
   const tier = options.tone === 'cold' ? 'quiet' : (options.tier ?? 'quiet');
+  const won = options.tone !== 'cold' && options.won === true;
   const figure = el('div', {
     class: `hero-figure${options.tone === 'cold' ? ' cold' : ' money'}${tier === 'quiet' ? '' : ` ${tier}`}`,
     text: options.from ?? options.value,
@@ -69,7 +82,7 @@ export function heroFigure(options: {
     roll(figure, options.from, options.value, options.ms ?? 900);
   return el(
     'div',
-    { class: `hero${options.tone === 'cold' ? ' cold' : ''}` },
+    { class: `hero${options.tone === 'cold' ? ' cold' : ''}${won ? ' won' : ''}` },
     el('div', { class: 'hero-label', text: options.label }),
     figure,
     options.note ?? null,
@@ -114,7 +127,22 @@ export function claimMeter(options: {
     pips.push(
       el(
         'div',
-        { class: `pip ${member.status}`, title: `${member.name} — ${credits(member.valueMicro, 3)}` },
+        {
+          class: `pip ${member.status}`,
+          /*
+           * Which Kindling this pip is, as a colour.
+           *
+           * The stage paints the same five identity colours on the figures'
+           * straps (`stage.ts`'s `STRAPS`). Carrying them onto the pip is what
+           * makes the money object and the world one thing: the player can see
+           * which light in the meter is the figure they are watching, without a
+           * name on either. The flame inside the pip is untouched — §6.2's
+           * emissive budget spends its warm on the lantern and only there — so
+           * the identity lives on the rim, which is brass, which is an object.
+           */
+          'data-kin': String(member.slot % 5),
+          title: `${member.name} — ${credits(member.valueMicro, 3)}`,
+        },
         el('span', { class: 'dot' }),
         el('span', { class: 'value', text: credits(member.valueMicro, 3) }),
       ),
@@ -445,6 +473,7 @@ export function routeCard(options: {
       'section',
       {
         class: `card${options.selected ? ' selected' : ''}`,
+        'data-band': String(payoutBand(figures.display.multiplier)),
         onClick: options.onSelect,
       },
       el(
@@ -509,6 +538,29 @@ export function routeCard(options: {
 }
 
 /**
+ * Which rung of the payout ramp a multiple sits on, 1 (lowest) to 4 (highest).
+ *
+ * `RUBRIC` criterion 11 — *"the player learns the payout scale by looking, never
+ * by reading"* — is the whole reason this exists: a route's price gets a hue that
+ * encodes its magnitude, the way a Plinko chip or a Balloon Mania balloon does.
+ *
+ * Three things it deliberately is not. It is not a recommendation: the bands are
+ * a *scale*, all four routes return 95.5%, and §S2's rule that no segment gains
+ * weight over another still holds — a band is a legend, not a badge. It is not a
+ * danger signal: §6.1's first hard rule survives intact because the ramp is
+ * green -> cyan -> violet -> magenta and never passes through red. And it is not
+ * a decision: this reads a figure the server already computed and picks a class
+ * name from it. Nothing downstream of it can reach money.
+ */
+export function payoutBand(multiplier: string): 1 | 2 | 3 | 4 {
+  const value = Number.parseFloat(multiplier);
+  if (!Number.isFinite(value) || value < 1.25) return 1;
+  if (value < 2) return 2;
+  if (value < 5) return 3;
+  return 4;
+}
+
+/**
  * The page indicator, which is also the way to reach a page.
  *
  * `DESIGN.md` §S2 asks for a paged stack of cards with a page indicator. An
@@ -516,7 +568,9 @@ export function routeCard(options: {
  * a swipe, so this one is tappable and carries each route's price: all four
  * options and all four multipliers are on screen at rest, which is what makes the
  * screen comparable at a glance. All four segments have identical weight — no
- * badge, no recommendation, no highlight of the higher multiplier (§S2).
+ * badge, no recommendation, no highlight of the higher multiplier (§S2). What a
+ * segment does carry is `payoutBand`, which is the price itself expressed as a
+ * colour rather than as an endorsement of it.
  */
 export function routeTabs(
   entries: readonly { readonly route: string; readonly multiplier: string }[],
@@ -532,6 +586,7 @@ export function routeTabs(
         {
           class: 'route-tab',
           role: 'tab',
+          'data-band': String(payoutBand(entry.multiplier)),
           'aria-selected': String(entry.route === selected),
           onClick: () => onPick(entry.route),
         },
