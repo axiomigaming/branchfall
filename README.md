@@ -1,5 +1,9 @@
 # BRANCHFALL
 
+<p align="center">
+  <img src="docs/screenshots/gameplay.png" alt="BRANCHFALL banked settlement at The Lamp House" width="390">
+</p>
+
 [![CI](https://github.com/metaforismo/branchfall/actions/workflows/ci.yml/badge.svg)](https://github.com/metaforismo/branchfall/actions/workflows/ci.yml)
 ![RTP](https://img.shields.io/badge/RTP-95.5%25%20exact-C9A227)
 ![Proof](https://img.shields.io/badge/paytable-exhaustively%20enumerated-informational)
