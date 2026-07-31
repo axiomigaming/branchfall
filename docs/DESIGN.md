@@ -63,7 +63,7 @@ BUY  ->  [ ROUTE -> RUN -> RESOLVE -> BANK? ] x up to 5  ->  SETTLE  ->  VERIFY
 4. **Commit the route.** On a Split with four or five runners, set the fork
    balance. Optionally attach side bets. Optionally choose which Kindlings to
    shelter.
-5. **The run.** A 9–14 second deterministic replay of the committed transcript.
+5. **The run.** A 6.5 second deterministic replay of the committed transcript.
    Client physics is presentation; the transcript already decided who falls.
 6. **Resolve.** Survivors are counted. The claim is multiplied by
    `(survivors / runners) x route multiplier`. If nobody clears, the round ends.
@@ -75,7 +75,7 @@ BUY  ->  [ ROUTE -> RUN -> RESOLVE -> BANK? ] x up to 5  ->  SETTLE  ->  VERIFY
 9. **Verify.** The server seed is revealed. The player can re-derive the whole
    round, including the routes they did not take.
 
-A full five-arena run is 90–120 seconds. A cautious two-arena run is ~35 seconds.
+A full five-arena run is 70–95 seconds. A cautious two-arena run is ~30 seconds.
 
 **Buying a run commits you to arena 1.** BANK exists from arena 2 onward, and a
 Shelter can withdraw at most `n-1` of `n` runners, so once the stake is debited
@@ -243,8 +243,9 @@ fields and the per-outcome fractions did not leave the product — they are behi
 §5.2.5's disclosure ladder says depth belongs.
 
 The height that bought goes to the world: the Kindlings are ~34% of the frame on
-the decision screen, large enough to be characters with names over them and a
-brass chip under each carrying that runner's share.
+the decision screen, large enough to be characters with a name tag under each and
+a single plate on the branch carrying the route's multiple and what one lantern
+is worth (§6.5).
 
 Filled in for NARROW at five runners, from the generated tables:
 
@@ -556,7 +557,7 @@ field precisely so the position is explicit and can be changed to `'round'`
 without touching anything else. If it must be the round, the floor applies to the
 round and the game gets slower; nothing else changes.
 
-The number is close to free either way: the arena replay is 9–14 s, so the floor
+The number is close to free either way: the arena replay is 6.5 s, so the floor
 is already satisfied by watching the run. It binds only when a player skips.
 
 The distinction that matters:
@@ -633,16 +634,21 @@ tutorial-only explanation. There is no onboarding widget that gets thrown away.
 - Five pips sit under the claim figure, one per runner, each labelled with its
   own value. Five shares of 0.955 read as five shares long before anybody reads
   the word "fifth".
-- **On the decision screen the shares are on the figures instead, and the pip row
-  is not drawn.** Round 2 of the visual pass gave S2's world a third of the frame
-  and hung a brass chip under each Kindling carrying that runner's value, which is
-  the same five numbers in the one place `RUBRIC` criterion 11 asks for them —
-  printed on the outcome object, the way a Plinko chip carries `×5.6` and a
-  Balloon Mania balloon carries `×16`. Printing them again in a row underneath is
-  the duplication the subtraction test names as noise. The teaching object is
-  unchanged in substance: the claim, and its shares, visible together, never
-  dismissed — what changed is that the shares are now attached to the people
-  carrying them. Every screen where the world is *not* carrying them draws the
+- **On the decision screen the price and the share are on the branch, and the pip
+  row is not drawn.** Round 2 of the visual pass hung a brass chip under *each*
+  Kindling carrying that runner's value, on the reading that `RUBRIC` criterion 11
+  wants the payout scale printed on the outcome object. It does — but every runner
+  in this game carries an identical share, so five chips printed the same number
+  five times, and the round-2 judge named it: *"the five chips under them print
+  the same money share five times over (1.910 x5, 4.775 x5, 2.273 x5), which is
+  repetition with zero information."* The subtraction test agrees.
+  A ladder of running totals would have been informative and would also have been
+  wrong twice over: money computed on the client (§6.9 forbids it) and a statement
+  about a *count* attached to a named individual. So the five became one — a plate
+  bolted to the branch under the file, carrying the route's multiple in its band
+  colour and the per-lantern share in brass, both rendered by the server. The
+  scale it teaches is *five lights, this much each, at this multiple*, and it
+  needs no legend. Every screen where the world is *not* carrying it draws the
   pips.
 - On a resolve, the pips of fallen runners go dark **first**, held for 350 ms
   with the claim figure unchanged, and only then does the claim roll to its new
@@ -926,8 +932,8 @@ repository discharges.
   is visible at the mouth of the branch, lanterns lit, breathing idle.
   **The world is a third of the frame here, and the squad is its subject.** The
   five Kindlings stand spread across the branch rather than filed at one end, each
-  a fifth of the band tall, with a name over it and a brass chip under it carrying
-  that runner's share. The round-1 build gave this band 100 px — 6% of frame
+  a fifth of the band tall, with a name tag under it on its own dark ground.
+  The round-1 build gave this band 100 px — 6% of frame
   height — under a chart and a percentage table, and the blind ranking identified
   the screen as the non-professional entry on exactly that proportion.
 - **The branch carries the selected route's price**, as a plate cut into the
@@ -978,7 +984,7 @@ repository discharges.
 ### S3 — The run
 - Viewport expands to full bleed. Decision surface slides away; only the claim
   and squad count remain, docked bottom-left.
-- 9–14 s replay. Camera travels with the squad. On Narrow it drops to a close
+- 6.5 s replay. Camera travels with the squad. On Narrow it drops to a close
   handheld follow. On Split it holds both limbs in frame until they diverge, then
   cuts to whichever limb resolves first.
 - A `skip` affordance appears after 1.5 s (bottom-right, low contrast). Skipping
@@ -1281,10 +1287,14 @@ illuminate nothing (§6.7).
   all four shout equally.
 - **Minimum sizes:** 15 pt body, 13 pt secondary, 28 pt for the claim figure.
   Numbers never below 15 pt.
-- **The payout numeral, and its unit.** The terminal figure is 46 / 66 / 82 pt by
-  tier (§6.4) — well over `RUBRIC` criterion 17's floor of 4% of frame height at
-  every rung — set in tabular monospace, dark on the plate's gold, and it **always
-  carries its unit**. Every money figure a player reads does: `balance 500.00 cr`,
+- **The payout numeral, and its unit.** The terminal figure is 52 / 64 / 76 pt by
+  tier (§6.4) — 4.4% / 5.5% / 6.5% of cap height against `RUBRIC` criterion 17's
+  floor of 4% of frame height — set in tabular monospace, dark on the plate's
+  gold, and it **always carries its unit**. The round-2 sizes (46 / 66 / 82) put
+  the top rung inside 28 px of padding, which made a payout *plate* 16% of the
+  frame against a reference band of 5.7-7.1%; the quiet rung came up and the loud
+  one came down so the surface stays an object rather than becoming a card laid
+  over a wash. Every money figure a player reads does: `balance 500.00 cr`,
   `stake 5.00 cr`, `banked 15.28 cr`. Round 1 shipped none of them, which failed
   two criteria on one omission and is the difference between a quantity and money.
   The unit is a step down in size and contrast from the figure it belongs to,

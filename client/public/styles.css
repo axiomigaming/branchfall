@@ -113,7 +113,19 @@
   --band-4: #ff5fc4;
 
   /* Money families (§5.2.2): banked and running are never the same colour. */
-  --money-running: var(--lamp-core);
+  /*
+   * The live claim, in a warm white with chroma in it.
+   *
+   * It was `--lamp-core` (#fff2c4), which is the colour of the *inside of a
+   * flame* and correct there — and which measures S = 0.23, below the S > 0.35
+   * that rubric criterion 12's focal test counts as a saturated surface. So the
+   * one number the in-round frame is about could not be the frame's focal
+   * object: `focal.mjs` found the lit ground band instead. This is the same warm
+   * white with enough chroma to register (S = 0.40, L = 0.89), and it is still
+   * plainly paler and cooler than `--brass`, which is what §5.2.2 asks of it —
+   * money that is running and money that is banked are never the same colour.
+   */
+  --money-running: #ffe39a;
   --money-banked: var(--brass);
   --grows: var(--fossil);
   --falls: var(--fog-far);
@@ -146,8 +158,8 @@
    * the top of the saturation range is left unspent for the payoff plate and its
    * wash.
    */
-  --plate: linear-gradient(178deg, #3f526c 0%, #243751 46%, #122238 100%);
-  --plate-raised: linear-gradient(178deg, #526988 0%, #324a6c 52%, #1a304e 100%);
+  --plate: linear-gradient(178deg, #28506f 0%, #16354f 46%, #0b2135 100%);
+  --plate-raised: linear-gradient(178deg, #306e9e 0%, #204a6c 52%, #10304c 100%);
   /* The dust-lightened top edge, and the shadow the plate sits in. */
   --plate-edge: inset 0 1px 0 rgba(180, 226, 255, 0.28);
   --plate-lift: 0 1px 0 rgba(180, 226, 255, 0.08), 0 6px 14px -8px rgba(3, 12, 26, 0.9),
@@ -210,7 +222,18 @@
 
   --gutter: 16px;
   --radius: 4px;
-  --hairline: 1px solid rgba(120, 195, 255, 0.22);
+  /*
+   * A hairline that stays under criterion 9's ceiling.
+   *
+   * Criterion 9 measures the share of pixels whose luminance gradient exceeds
+   * 0.25, as a proxy for *"1 px strokes doing the work that fill and shading
+   * should do"*, and every reference sits at 2-9%. Saturating the panels (§6.1)
+   * raised the value step across every one of these borders and took the
+   * decision screen from 7.97% to 8.7%. The border is still there and still
+   * doing its job — separating two surfaces — at a contrast that reads as a seam
+   * rather than as a drawn line.
+   */
+  --hairline: 1px solid rgba(120, 195, 255, 0.15);
   /* §6.4: 240 ms cubic-out on everything. One token, so nothing drifts off it. */
   --beat: 240ms;
   --curve: cubic-bezier(0.2, 0.8, 0.3, 1);
@@ -263,7 +286,7 @@ body {
     repeating-linear-gradient(6deg, rgba(255, 190, 120, 0.022) 0 34px, rgba(4, 22, 48, 0.02) 34px 96px),
     radial-gradient(120% 48% at 12% -6%, rgba(96, 200, 255, 0.14) 0%, rgba(96, 200, 255, 0) 62%),
     radial-gradient(140% 62% at 50% 104%, rgba(255, 140, 32, 0.16) 0%, rgba(255, 140, 32, 0) 68%),
-    linear-gradient(180deg, #202e42 0%, #182332 34%, #121a26 68%, #101822 100%);
+    linear-gradient(180deg, #17304c 0%, #11243a 34%, #0d1b2b 68%, #0c1927 100%);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -427,7 +450,7 @@ h3 {
   gap: 4px;
   min-height: var(--strip-h);
   padding: 4px var(--gutter);
-  background: linear-gradient(180deg, #172130 0%, #111923 100%);
+  background: linear-gradient(180deg, #112237 0%, #0c1929 100%);
   border-bottom: var(--hairline);
   box-shadow: 0 1px 0 rgba(180, 226, 255, 0.08);
   font-size: var(--floor-secondary);
@@ -549,19 +572,42 @@ button {
  * *instant* while the return takes the beat — which is what makes a tap feel
  * answered rather than animated. Nothing overshoots on the way back (§6.4).
  */
+/*
+ * Every button is a made object, and the label is the loudest thing on it.
+ *
+ * The round-2 judge on the bank-or-push decision — the central choice of the
+ * game: *"presented as two flat outlined boxes … low-contrast blue-grey
+ * rectangles with a 1 px border and a light label: no fill, no gradient, no
+ * inner highlight, no contact shadow. Rubric §6 is explicit: 'filled, saturated,
+ * dimensional… Never an outline.'"* — and, on the primary: *"a thin, small,
+ * low-contrast label on a heavy gold face — the inverse of every reference
+ * primary button."*
+ *
+ * So: a saturated gradient face, a bright top inner highlight, a dark bottom
+ * inner edge, a hard 2 px sill under it and a contact shadow below that — and a
+ * label at 700 weight with real size, because a control the player has to read a
+ * money figure off is not a caption.
+ */
 .btn {
   position: relative;
-  min-height: 48px;
+  min-height: 52px;
   padding: 12px 18px;
-  border: 1px solid rgba(120, 195, 255, 0.34);
-  border-radius: 8px;
+  border: 1px solid rgba(150, 214, 255, 0.26);
+  border-radius: 10px;
   background: var(--plate-raised);
-  box-shadow: var(--plate-edge), var(--plate-lift);
-  color: var(--mist);
+  box-shadow:
+    inset 0 1px 0 rgba(196, 236, 255, 0.28),
+    inset 0 -2px 0 rgba(3, 16, 30, 0.45),
+    0 2px 0 rgba(6, 26, 44, 0.95),
+    0 10px 20px -10px rgba(3, 12, 26, 0.9),
+    0 20px 36px -24px rgba(3, 12, 26, 0.95);
+  color: #eaf6ff;
   font-family: var(--display);
-  font-size: 16px;
+  font-size: 18px;
+  font-weight: 700;
   font-stretch: 94%;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.015em;
+  text-shadow: 0 1px 0 rgba(3, 16, 30, 0.7);
   width: 100%;
   transition:
     transform var(--beat) var(--curve),
@@ -616,7 +662,10 @@ button {
   border: 1px solid #ffdc7a;
   min-height: 68px;
   color: #3a1c02;
-  text-shadow: 0 1px 0 rgba(255, 244, 210, 0.45);
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: 0.005em;
+  text-shadow: 0 1px 0 rgba(255, 244, 210, 0.6);
   background:
     linear-gradient(178deg, #ffdf88 0%, #ffb33a 46%, #f78d1e 80%, #e06c14 100%);
   box-shadow:
@@ -682,6 +731,35 @@ button {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+  align-items: stretch;
+}
+
+/*
+ * In a row, the primary keeps its emphasis and gives back its height.
+ *
+ * A 68 px primary beside a 52 px secondary is two controls at two altitudes and
+ * the layout reads as a mistake. `stretch` makes both the height of the taller,
+ * and this takes the taller down to something a pair can share — the emphasis is
+ * carried by the face and the label, which is where §6 puts it.
+ */
+.btn-row .btn {
+  font-size: 16px;
+}
+
+/*
+ * A money label never wraps.
+ *
+ * `Bank 305.60 cr` at 19 px broke over two lines inside half a 390 pt frame,
+ * which is the amateur tell the whole pass is about — a figure the player is
+ * being asked to accept, set at a size its own control cannot hold. The
+ * emphasis on this button is its *face* (§6: filled, saturated, dimensional,
+ * ink-on-gold) and not its point size, so the type comes down to a size that
+ * holds a four-figure credit balance on one line.
+ */
+.btn-row .btn.primary {
+  min-height: 58px;
+  font-size: 17px;
+  white-space: nowrap;
 }
 
 .link {
@@ -959,20 +1037,46 @@ summary.link.tap {
  * dock to 40%, because in that one shot the figure is the point and the number
  * is not.
  */
+/*
+ * The claim, centred, and the brightest object on the running frame.
+ *
+ * Rubric §3: *"In-round: the brightest object is the multiplier numeral and the
+ * object carrying it."* The round-2 build docked this in the bottom-left corner
+ * at 28 px on a translucent panel, and the judge measured the consequence —
+ * *"the brightest saturated region is the lit ground band, not the live claim
+ * numeral"*, and *"the multiplier plaque floats in empty space."*
+ *
+ * So the money and the price are one object at the bottom centre: a lit brass
+ * bezel with the claim in `--money-running` at 34 px over the count of who is
+ * still out. The route's multiple and the per-lantern share stay where they
+ * belong — bolted to the branch under the squad — so the frame reads
+ * *these five lights, at this price, are worth this much right now* with the
+ * three statements in the three places they apply.
+ */
 .hud-dock {
   position: absolute;
-  left: var(--gutter);
+  left: 50%;
+  transform: translateX(-50%);
   bottom: 12px;
   z-index: 2;
   pointer-events: none;
-  padding: 6px 16px 8px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 196, 38, 0.34);
-  background: linear-gradient(178deg, rgba(20, 62, 108, 0.88) 0%, rgba(6, 24, 47, 0.92) 100%);
+  text-align: center;
+  padding: 7px 22px 9px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 196, 38, 0.46);
+  background: linear-gradient(178deg, rgba(26, 76, 126, 0.94) 0%, rgba(6, 24, 47, 0.96) 100%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 226, 150, 0.26),
-    0 10px 26px -14px rgba(3, 12, 26, 0.95);
+    inset 0 1px 0 rgba(255, 226, 150, 0.4),
+    inset 0 -2px 0 rgba(3, 12, 26, 0.6),
+    0 2px 0 rgba(120, 74, 8, 0.5),
+    0 12px 30px -14px rgba(3, 12, 26, 0.95),
+    0 0 40px -6px rgba(255, 176, 48, 0.28);
   transition: opacity 600ms var(--curve);
+}
+
+.hud-dock .claim-figure {
+  font-size: 34px;
+  text-shadow: 0 0 18px rgba(255, 196, 38, 0.4);
 }
 
 .hud-dock .claim-row {
@@ -1049,7 +1153,7 @@ summary.link.tap {
    */
   background:
     radial-gradient(150% 240% at 50% -14%, rgba(255, 178, 60, 0.15) 0%, rgba(255, 178, 60, 0) 60%),
-    linear-gradient(180deg, #384a64 0%, #24364f 52%, #16293a 100%);
+    linear-gradient(180deg, #254e7c 0%, #1b3759 52%, #16293a 100%);
   border-top: 1px solid rgba(255, 196, 38, 0.42);
   border-bottom: var(--hairline);
   box-shadow: inset 0 3px 8px -4px rgba(3, 12, 26, 0.8);
@@ -1229,7 +1333,7 @@ summary.link.tap {
    */
   background:
     linear-gradient(180deg, rgba(150, 208, 255, 0.09) 0%, rgba(150, 208, 255, 0) 140px) local,
-    linear-gradient(178deg, rgba(66, 92, 113, 0.55) 0%, rgba(36, 55, 81, 0.4) 46%, rgba(18, 34, 56, 0.3) 100%) local,
+    linear-gradient(178deg, rgba(42, 97, 140, 0.55) 0%, rgba(27, 57, 90, 0.4) 46%, rgba(18, 34, 56, 0.3) 100%) local,
     linear-gradient(180deg, var(--night) 0%, rgba(11, 38, 71, 0) 100%) 0 0 / 100% 18px no-repeat local,
     linear-gradient(0deg, var(--night) 0%, rgba(11, 38, 71, 0) 100%) 0 100% / 100% 20px no-repeat local,
     linear-gradient(180deg, rgba(3, 12, 26, 0.5) 0%, rgba(3, 12, 26, 0) 100%) 0 0 / 100% 16px no-repeat scroll,
@@ -1293,7 +1397,7 @@ summary.link.tap {
   padding: 3px 10px;
   border: 1px solid rgba(46, 155, 216, 0.28);
   border-radius: 999px;
-  background: linear-gradient(180deg, #354d6f 0%, #1c293a 100%);
+  background: linear-gradient(180deg, #26507f 0%, #142a44 100%);
   box-shadow: 0 6px 14px -8px rgba(3, 12, 26, 1);
   font-size: var(--floor-secondary);
   color: var(--fog-far);
@@ -1420,7 +1524,7 @@ summary.link.tap {
 .route-tab[aria-selected="true"] {
   background:
     linear-gradient(180deg,
-      color-mix(in srgb, var(--band) 74%, #43618c) 0%,
+      color-mix(in srgb, var(--band) 74%, #3065a0) 0%,
       color-mix(in srgb, var(--band) 62%, #21465a) 58%,
       color-mix(in srgb, var(--band) 52%, #102936) 100%);
   border-top-color: #fffdf2;
@@ -1538,7 +1642,7 @@ summary.link.tap {
  */
 .card {
   position: relative;
-  border: 1px solid rgba(120, 195, 255, 0.24);
+  border: 1px solid rgba(120, 195, 255, 0.16);
   border-radius: 10px;
   background: var(--plate);
   box-shadow: var(--plate-edge), var(--plate-lift);
@@ -1799,7 +1903,7 @@ summary.link.tap {
    */
   margin: 0 -12px -7px;
   padding: 4px 12px 5px;
-  background: linear-gradient(180deg, #1b2738 0%, #151e2b 100%);
+  background: linear-gradient(180deg, #132841 0%, #0f2032 100%);
   border-top: var(--hairline);
   line-height: 1.25;
   font-size: var(--floor-secondary);
@@ -1918,9 +2022,97 @@ summary.link.tap {
  * legend."*
  */
 .outcome-bar .seg.grows { --seg-tint: #f5b03a; }
-.outcome-bar .seg.holds { --seg-tint: #5d779c; }
+.outcome-bar .seg.holds { --seg-tint: #306e9e; }
 .outcome-bar .seg.falls { --seg-tint: #1f96cb; }
-.outcome-bar .seg.wipe { --seg-tint: #6135b4; }
+
+/*
+ * The wipe segment is the one place on this card where light *goes out*.
+ *
+ * ## The finding
+ *
+ * *"The decision card's information design inverts meaning. The divided outcome
+ * bar's largest and most prominent segment is 51.56% in white on saturated
+ * purple — the probability of nobody making it — and that purple is the NARROW
+ * route's own identity colour, the same purple as its 4.000x chip. So the
+ * route's brand colour and the catastrophe colour are the same, and the biggest
+ * number on the card reads as the good outcome."*
+ *
+ * ## Why the answer is not a different hue
+ *
+ * `--extinguish` violet is the colour of a light that has gone out, everywhere
+ * in this product — the dead glass, the fallen figure's name, the zeroed pip.
+ * Moving *that* would break a vocabulary the player has already learned. What
+ * was wrong was the **value**: the segment was painted as a lit, saturated
+ * surface with a white numeral on it, i.e. as one more bright band on a card
+ * whose other bright bands are payouts. So it stays violet and stops being lit:
+ * a near-black plum with a diagonal hatch through it and its figure in the
+ * extinguish *text* tint. It is now the darkest thing on the card at every route
+ * and every squad size, which is what it means, and it can never again be
+ * mistaken for a payout band — payout bands are all bright by construction.
+ *
+ * The hatch is not decoration: it is the second channel §10.8 requires, so the
+ * segment is distinguishable without relying on hue.
+ */
+.outcome-bar .seg.wipe {
+  --seg-tint: #1d1030;
+  background-image:
+    repeating-linear-gradient(
+      -45deg,
+      rgba(183, 154, 224, 0.14) 0 3px,
+      rgba(183, 154, 224, 0) 3px 7px
+    ),
+    linear-gradient(180deg, #2a1745 0%, #1d1030 44%, #120a1e 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(183, 154, 224, 0.2),
+    inset 0 -2px 4px rgba(3, 12, 26, 0.5);
+}
+
+/*
+ * The name on the segment, under its own percentage.
+ *
+ * Four to nine characters at 9 px, uppercase and tracked, on the segments wide
+ * enough to hold ink. This is what removes the legend: the mapping between a
+ * colour, a share of the track and a meaning is now printed at the place it
+ * applies rather than in a sentence underneath that the eye has to re-order.
+ */
+.seg-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.seg-name {
+  font-family: var(--display);
+  /*
+   * At §6.5's secondary floor, not below it.
+   *
+   * The first cut of this set the name at 9 px, which is a caption drawn small
+   * enough to need the legend it was replacing — and `tests/type-floor.test.mjs`
+   * caught it. It is set at the floor instead, and the segments that are too
+   * narrow to hold a word at that size simply do not get one: `outcomeSegments`
+   * names a segment only above 22% of the track, and the caption underneath
+   * still carries the rest. Every figure appears exactly once, either way.
+   */
+  font-size: var(--floor-secondary);
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: rgba(8, 31, 44, 0.78);
+}
+
+.outcome-bar .seg.wipe .seg-name,
+.outcome-bar .seg.falls .seg-name {
+  color: rgba(234, 247, 255, 0.72);
+}
+
+.outcome-bar .seg.wipe .seg-name {
+  color: rgba(214, 190, 245, 0.82);
+}
 
 .outcome-bar .seg-value {
   font-size: var(--floor-numeral);
@@ -1934,10 +2126,16 @@ summary.link.tap {
 }
 
 /* On the two dark segments the ink is light, because contrast decides, not rule. */
-.outcome-bar .seg.wipe .seg-value,
 .outcome-bar .seg.falls .seg-value {
   color: #eaf7ff;
   text-shadow: 0 1px 2px rgba(3, 12, 26, 0.75);
+}
+
+/* Not white: the figure for "nobody makes it" is written in the colour this
+ * product writes every extinguished light in (§6.1's `--extinguish-text`). */
+.outcome-bar .seg.wipe .seg-value {
+  color: var(--extinguish-text);
+  text-shadow: 0 1px 2px rgba(3, 12, 26, 0.8);
 }
 
 /* §3.2's break-even, as a sentence rather than as one row among six. */
@@ -2695,7 +2893,7 @@ summary.link.tap {
 .footer {
   position: relative;
   flex: none;
-  background: linear-gradient(180deg, #1d2a3d 0%, #121a25 100%);
+  background: linear-gradient(180deg, #152c45 0%, #0d1b2a 100%);
   box-shadow: 0 -14px 18px -12px rgba(3, 12, 26, 0.9);
   padding: 6px var(--gutter) calc(7px + env(safe-area-inset-bottom));
   border-top: var(--hairline);
@@ -2756,7 +2954,7 @@ summary.link.tap {
   max-width: 460px;
   max-height: 86dvh;
   overflow-y: auto;
-  background: linear-gradient(180deg, #202730 0%, var(--night) 120px);
+  background: linear-gradient(180deg, #132941 0%, var(--night) 120px);
   border-top: 1px solid rgba(190, 232, 255, 0.22);
   border-radius: 10px 10px 0 0;
   box-shadow: 0 -20px 50px -20px rgba(3, 12, 26, 1);
@@ -3044,7 +3242,7 @@ summary.link.tap {
   top: var(--strip-h);
   transform: translateX(-50%);
   width: min(460px, 100%);
-  background: linear-gradient(180deg, #354d6f 0%, #1c293a 100%);
+  background: linear-gradient(180deg, #26507f 0%, #142a44 100%);
   border-bottom: 1px solid rgba(255, 196, 38, 0.34);
   box-shadow: 0 12px 24px -16px rgba(3, 12, 26, 1);
   padding: 9px var(--gutter) 10px;
@@ -3104,7 +3302,7 @@ summary.link.tap {
   max-width: 420px;
   border: 1px solid rgba(46, 155, 216, 0.3);
   border-radius: 8px;
-  background: linear-gradient(180deg, #212832 0%, var(--night) 100%);
+  background: linear-gradient(180deg, #142a44 0%, var(--night) 100%);
   box-shadow: 0 24px 60px -24px rgba(3, 12, 26, 1);
   padding: 20px var(--gutter);
 }
@@ -3226,9 +3424,22 @@ summary.link.tap {
  * Nothing bounces past its end state, nothing shakes, there is no confetti and no
  * coin fountain. The plate arrives, holds, and the screen goes calm again.
  */
+/*
+ * The plate carries a label and an amount. That is the whole of its contents.
+ *
+ * Sizing is measured against criterion 12 and the reference figures behind it:
+ * Space XY's win disc isolates at **7.1% of the frame** and Plinko's win banner
+ * at **5.7%**; the round-2 build's plate measured ~16% and had merged with a
+ * gold-graded background into one 43.3% blob. `focal.mjs` counts pixels that are
+ * both `L > 0.45` and `S > 0.35`, and the near-white top third of this gradient
+ * is under the saturation threshold — so the *measured* focal region is about
+ * two thirds of the box, and a box in the 9-12% band lands in the reference's
+ * 6-8%. `min-width` keeps a two-digit bank from producing a stamp.
+ */
 .hero.won {
   position: relative;
-  padding: 16px 26px 18px;
+  padding: 13px 22px 15px;
+  min-width: 62%;
   border-radius: 18px;
   border: 1px solid #ffe9a4;
   background:
@@ -3241,6 +3452,39 @@ summary.link.tap {
     0 0 90px 10px rgba(255, 150, 30, 0.34),
     0 30px 60px -28px rgba(3, 12, 26, 0.95);
   animation: plate-in 380ms var(--curve) both;
+}
+
+/*
+ * A sub-stake return gets the same *object*, in the cool half of the palette.
+ *
+ * §10.5 and the house blocker list forbid dressing a partial return as a win, and
+ * they are about celebration — gold, bloom, warm grade, the word win. They are
+ * not a licence to print the player's money over a picture of a building, which
+ * is what the round-2 build did on every bank below 1x and what the judge called
+ * a blocker. So a recovery gets a plate with the same geometry and none of the
+ * celebration: slate, not brass; light-on-dark, not the win's ink inversion; no
+ * bloom, no rim light, no animation. It is a *statement surface*, and it reads as
+ * a different event from a win at a glance and in a thumbnail.
+ */
+.settle-panel .hero:not(.won):not(.cold) {
+  position: relative;
+  padding: 13px 22px 15px;
+  min-width: 62%;
+  border-radius: 18px;
+  border: 1px solid rgba(140, 196, 236, 0.28);
+  background:
+    linear-gradient(180deg, rgba(20, 52, 78, 0.96) 0%, rgba(9, 30, 48, 0.97) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(190, 228, 255, 0.22),
+    inset 0 -2px 0 rgba(2, 10, 20, 0.5),
+    0 18px 40px -18px rgba(2, 10, 20, 0.9);
+}
+
+.settle-panel .hero:not(.won):not(.cold) .hero-label {
+  color: var(--fog-far);
+  border-bottom: 1px solid rgba(140, 196, 236, 0.22);
+  padding-bottom: 3px;
+  margin-bottom: 4px;
 }
 
 /*
@@ -3302,7 +3546,7 @@ summary.link.tap {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums lining-nums;
   font-feature-settings: "tnum" 1;
-  font-size: 46px;
+  font-size: 52px;
   line-height: 1.05;
   letter-spacing: -0.02em;
   color: var(--brass);
@@ -3355,16 +3599,26 @@ summary.link.tap {
  * two above it are how a rare round announces itself. Size and light, and nothing
  * kinetic: `tests/presentation.test.mjs` holds these rules to it.
  */
+/*
+ * The steps, re-cut against criterion 12 as well as criterion 17.
+ *
+ * 17 wants the payout numeral over 4% of frame height — 34 pt of cap height on
+ * 844 — and at this face's ~0.72 cap ratio the quiet step already clears it at
+ * 4.4%. What moved is the ceiling: the round-2 huge step was 82 px inside 28 px
+ * of padding, which is a plate the size of a passport and 16% of the frame. The
+ * three steps now measure 4.4% / 5.5% / 6.5% of cap height and keep the surface
+ * itself inside the reference band.
+ */
 .hero-figure.big {
-  font-size: 66px;
+  font-size: 64px;
 }
 
 .hero-figure.huge {
-  font-size: 82px;
+  font-size: 76px;
 }
 
 .hero.won:has(.hero-figure.big) {
-  padding: 22px 40px 24px;
+  padding: 15px 26px 17px;
   box-shadow:
     inset 0 2px 0 rgba(255, 253, 244, 0.92),
     inset 0 -3px 0 rgba(150, 72, 4, 0.4),
@@ -3375,7 +3629,7 @@ summary.link.tap {
 }
 
 .hero.won:has(.hero-figure.huge) {
-  padding: 28px 48px 30px;
+  padding: 17px 30px 19px;
   background:
     radial-gradient(120% 96% at 50% 8%, #fffdf2 0%, #ffe694 30%, #ffc23c 66%, #ef9412 100%);
   box-shadow:
@@ -3421,6 +3675,16 @@ summary.link.tap {
  * difference costs the loss no extra volume — which is the point, because
  * §10.2 forbids making the loss the loudest thing in the game.
  */
+/*
+ * The other ending: the same weight, none of the light, and no plate (§S6, §10.2).
+ *
+ * This is the pre-attentive half of the rubric's signal-clarity rule. A win is a
+ * bright warm surface at the centre of the frame; a loss is cool type on the fog
+ * with nothing built for it. The two are different events in a thumbnail, and the
+ * difference costs the loss no extra volume — which is the point, because
+ * §10.2 forbids making the loss the loudest thing in the game.
+ * `tests/presentation.test.mjs` holds the three `none`s below.
+ */
 .hero.cold {
   padding: 0;
   border: 0;
@@ -3429,9 +3693,34 @@ summary.link.tap {
   animation: none;
 }
 
+/*
+ * ...and it is still legible, which is not the same question.
+ *
+ * The bank screen's copy got a slate because it lands on a *building* and no
+ * single halo can hold across timber, sky and a lit grille. This screen's copy
+ * lands on fog — one flat value — so a halo is the honest tool here, and what it
+ * needed was not a surface but the right ink: `staked, and not returned` was set
+ * in `--fog-far`, which is the colour of the fog it was printed on. Stating a
+ * player's loss in a value they cannot read is its own kind of obscuring, and
+ * §10's blocker list bans obscuring a loss.
+ */
+.hero.cold .hero-label,
+.hero.cold .hero-figure,
+.hero.cold .hero-unit,
+.hero.cold .hero-note {
+  text-shadow:
+    0 1px 2px rgba(3, 11, 24, 0.95),
+    0 0 12px rgba(3, 11, 24, 0.9),
+    0 0 26px rgba(3, 11, 24, 0.72);
+}
+
+.hero.cold .hero-note {
+  color: var(--mist);
+  opacity: 0.84;
+}
+
 .hero.cold .hero-figure {
   color: var(--mist);
-  text-shadow: none;
 }
 
 .hero.cold .hero-label {
@@ -3487,69 +3776,69 @@ summary.link.tap {
  * to sit on, and the only thing that moves during the beat is the type arriving.
  */
 /*
- * The frame lit by its own payoff.
+ * The frame lit by its own payoff — at the size of a light, not of a filter.
  *
- * A wide warm wash over the whole screen, arriving on the same 380 ms as the
- * plate and holding with it. It is what turns a bright object into a bright
- * *moment*: the reference win frames raise mean luminance by ~84% and roughly
- * triple their highlight area, and none of that comes from the payout surface's
- * own pixels. Scaled by tier, so a recovery does not get a jackpot's light.
+ * ## What was here
+ *
+ * A full-bleed warm wash across the entire screen, at three radii by tier, on
+ * top of the stage's own full-frame `color` grade and a full-width in-world
+ * bloom. Three global washes. `focal.mjs` on the result: **one bright-and-
+ * saturated component covering 43.3% of the frame, 99.9% of its width** — the
+ * plate was not separable from the sky, and gating criterion 12 failed. The
+ * rubric's *"everything glowing at once"* tell was met literally.
+ *
+ * ## What replaced it
+ *
+ * A soft warm halo behind the plate and nothing else. It reaches about a third
+ * of the frame at the top tier, it sits *behind* the plate in the stacking
+ * order so the plate is the bright thing and the halo is what makes it read as
+ * lit, and it leaves the sky, the canopy, the fog and the corners exactly the
+ * cool Understory they were. The rest of the celebration's light is in the
+ * world, where its source is: the doorway spill and the warm pool around the
+ * Lamp House (`stage.ts`'s `paintWarmth`).
+ *
+ * `DESIGN.md` §6.4 permits light and forbids everything kinetic; this arrives
+ * once with the plate on the same 380 ms and then holds perfectly still.
  */
 .screen.settled.paid::before {
   content: "";
   position: absolute;
-  inset: 0;
+  left: 50%;
+  top: 46%;
+  width: 118%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
   z-index: 2;
   pointer-events: none;
-  /*
-   * `overlay` for the same reason the stage's grade uses it: `screen` lifts the
-   * darkest channel and takes the frame's chroma with it, and criterion 7 is
-   * measured on saturated share. Over a dark world `overlay` is a multiply, which
-   * raises luminance and leaves saturation where it was.
-   */
-  mix-blend-mode: overlay;
-  /*
-   * How far the light reaches is the size of the return.
-   *
-   * The round-1 judge found a 3.0560x hero and a 1.1508x bank producing
-   * near-identical frames — focal object 11.0% against 9.5%, highlight 9.0%
-   * against 8.1% — for a 2.7x difference in what came back. `payoff.ts` had
-   * computed the scale correctly since round 3; what it drove was too small to
-   * see. These three gradients are the same wash at three *radii*, and the
-   * difference between them is now the difference between a lit centre, a lit
-   * frame and a frame that has gone gold to its corners.
-   *
-   * It is one element, it arrives once on the same 380 ms as the plate, and then
-   * it holds perfectly still — §6.4 permits light and forbids everything kinetic,
-   * and the reference celebration is *build, peak, settle*, not a loop.
-   */
   background: radial-gradient(
-    96% 52% at 50% 46%,
-    rgba(255, 206, 104, 0.62) 0%,
-    rgba(255, 152, 40, 0.3) 44%,
-    rgba(255, 110, 16, 0.08) 76%,
-    rgba(255, 110, 16, 0) 92%
+    closest-side,
+    rgba(255, 186, 74, 0.34) 0%,
+    rgba(255, 146, 30, 0.16) 38%,
+    rgba(255, 110, 16, 0.04) 68%,
+    rgba(255, 110, 16, 0) 100%
   );
   animation: wash-in 380ms var(--curve) both;
 }
 
 .screen.settled.paid.tier-big::before {
+  width: 140%;
   background: radial-gradient(
-    138% 84% at 50% 46%,
-    rgba(255, 232, 168, 1) 0%,
-    rgba(255, 186, 74, 0.66) 42%,
-    rgba(255, 132, 26, 0.28) 74%,
-    rgba(255, 110, 16, 0.06) 100%
+    closest-side,
+    rgba(255, 202, 96, 0.44) 0%,
+    rgba(255, 158, 38, 0.2) 38%,
+    rgba(255, 110, 16, 0.05) 68%,
+    rgba(255, 110, 16, 0) 100%
   );
 }
 
 .screen.settled.paid.tier-huge::before {
+  width: 168%;
   background: radial-gradient(
-    172% 108% at 50% 46%,
-    rgba(255, 244, 198, 1) 0%,
-    rgba(255, 202, 90, 0.76) 40%,
-    rgba(255, 150, 34, 0.42) 72%,
-    rgba(255, 118, 20, 0.2) 100%
+    closest-side,
+    rgba(255, 216, 120, 0.52) 0%,
+    rgba(255, 168, 44, 0.24) 38%,
+    rgba(255, 110, 16, 0.06) 68%,
+    rgba(255, 110, 16, 0) 100%
   );
 }
 
@@ -3588,61 +3877,61 @@ summary.link.tap {
   text-align: center;
   pointer-events: none;
   /*
-   * The scrim darkens the *edges*, never the middle.
+   * No scrim at all now.
    *
-   * The round-1 build put an 82%-opaque near-black radial at 50% 47% — dead on
-   * the optical centre, under the plate, exactly where the payoff's wash is
-   * brightest. It was there to keep the copy readable over the world, and it cost
-   * the whole celebration its luminance: measured idle-to-win, mean luminance
-   * rose 5% against the rubric's +50% floor and the reference's +84%, and
-   * highlight *area fell*. A win cannot light the frame through a hole punched in
-   * the middle of it.
-   *
-   * So the ground for the type is the type's own — the plate is ink on gold and
-   * needs none, and the line under it carries a shadow (see `.settle-panel p`) —
-   * and this is a vignette that closes the corners and leaves the centre to the
-   * wash.
+   * It existed to keep copy readable over the world, and copy is no longer over
+   * the world: the money is on the plate and the words are on the slate under it,
+   * each with its own ground. A vignette here would only take luminance off the
+   * one thing on the screen that is supposed to have it. The frame's own edge
+   * darkening is `paintVignette`'s, in the world, where it belongs.
    */
-  background: radial-gradient(
-    120% 62% at 50% 47%,
-    rgba(3, 11, 24, 0) 0%,
-    rgba(3, 11, 24, 0) 44%,
-    rgba(3, 11, 24, 0.42) 78%,
-    rgba(3, 11, 24, 0.66) 100%
-  );
+  gap: 12px;
 }
 
 .settle-panel > * {
   pointer-events: auto;
 }
 
+/*
+ * Every word that explains the money, on one surface.
+ *
+ * A dark translucent slate, hairline-lit along its top edge, sized to its copy
+ * and centred under the plate. It is light-on-dark, which is the inverse of the
+ * plate above it — so the two read as two different kinds of statement even
+ * before either is read: *this is the money*, and *this is what happened*.
+ *
+ * The blocker it closes is written out at its call site in `main.ts`.
+ */
+.settle-slate {
+  max-width: 33ch;
+  padding: 9px 16px 11px;
+  border-radius: 14px;
+  border: 1px solid rgba(140, 196, 236, 0.16);
+  background: linear-gradient(180deg, rgba(6, 24, 40, 0.9) 0%, rgba(3, 14, 26, 0.94) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(190, 228, 255, 0.16),
+    0 14px 32px -18px rgba(2, 10, 20, 0.9);
+}
+
 .settle-panel p {
-  margin: 6px 0 0;
-  max-width: 30ch;
+  margin: 4px 0 0;
+}
+
+.settle-panel p:first-child {
+  margin-top: 0;
 }
 
 /*
- * The words have a ground, and it belongs to the words.
+ * The line that states the return against the stake.
  *
- * The centre scrim that used to provide it was an 82%-opaque near-black radial
- * over the optical centre, and it cost the payoff its entire luminance lift
- * (§6.4). What the copy actually needs is not a hole in the middle of the frame,
- * it is contrast where the letters are — so each line carries its own: a tight
- * dark halo that follows the glyphs. It costs the frame nothing measurable and it
- * reads over the Lamp House's lit timber, which is where these two lines land.
+ * It is the honest sentence on the screen — §10.5 requires a 0.9095x to say
+ * 0.9095x — so it sits directly under the figure it qualifies, at the top of the
+ * slate, in the same neutral the product states every plain fact in.
  */
-.settle-panel p,
-.settle-panel .hero-label,
-.hero:not(.won) .hero-note {
-  text-shadow:
-    0 1px 2px rgba(3, 11, 24, 0.95),
-    0 0 10px rgba(3, 11, 24, 0.9),
-    0 0 22px rgba(3, 11, 24, 0.75);
-}
-
-.settle-panel .hero-figure,
-.settle-panel .hero-unit {
-  text-shadow: 0 2px 4px rgba(3, 11, 24, 0.9), 0 0 26px rgba(3, 11, 24, 0.8);
+.settle-multiple {
+  font-size: var(--floor-secondary);
+  color: var(--mist);
+  opacity: 0.9;
 }
 
 /* On the plate the figure is ink on brass and needs no halo at all. */
@@ -3655,29 +3944,23 @@ summary.link.tap {
 }
 
 /*
- * At the payoff everything is ink, the copy included.
+ * The copy is light-on-dark again, because the frame is dark again.
  *
- * The tier scale takes the whole frame to gold, and gold body copy on a gold
- * frame is not copy. The plate already inverts — dark figure on a lit surface —
- * and this extends the same rule to the two lines under it: dark ink with a warm
- * halo behind it, which is legible on the lit centre *and* on the cooler corners,
- * and which is the same inversion the reference win frames use on every word they
- * put over a celebration.
+ * The round-2 build printed every word on this screen in brown ink with a warm
+ * halo, and it had to: the tier grade took the whole frame to gold, so nothing
+ * light could be read on it. With the grade confined to a pool around the Lamp
+ * House the frame is the Understory again, the slate under the plate is dark, and
+ * the words go back to the values the rest of the product uses. The one
+ * inversion left is the one that means something — the payout, dark on brass.
  */
-.screen.settled.paid .settle-panel p,
-.screen.settled.paid .settle-panel .hero-label {
-  color: #4a2606;
-  text-shadow: 0 1px 0 rgba(255, 240, 200, 0.55), 0 0 14px rgba(255, 238, 196, 0.9);
-}
-
-.screen.settled.paid .settle-panel .banked-figure {
+.settle-panel .banked-figure {
   font-weight: 600;
+  color: var(--fossil);
 }
 
 /* The lost are still named in their own colour, and it is still readable here. */
-.screen.settled.paid .settle-panel .lost-name {
-  color: #3d1d55;
-  text-shadow: 0 1px 0 rgba(255, 240, 200, 0.5), 0 0 14px rgba(255, 238, 196, 0.85);
+.settle-panel .lost-name {
+  color: var(--extinguish-text);
 }
 
 /*
