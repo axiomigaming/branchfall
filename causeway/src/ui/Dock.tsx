@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { formatCredits, formatMult, parseCredits, parseMult, payout } from '../engine/money';
 import { useStore } from '../state/store';
 import { useCtl } from './context';
+import { IconMinus, IconPlus } from './icons';
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -76,6 +77,7 @@ function Setup() {
     setAutoText(formatMult(c));
   };
   const target = s.autoOn ? s.auto : null;
+  const won = s.phase === 'result' && !!s.result?.won;
 
   return (
     <>
@@ -91,7 +93,7 @@ function Setup() {
           </div>
           <div className="stepper">
             <button className="step" onClick={stepDown} disabled={busy || s.stake <= limits.minStake} aria-label="Lower stake">
-              −
+              <IconMinus />
             </button>
             <div className="amount">
               <input
@@ -116,7 +118,7 @@ function Setup() {
               </span>
             </div>
             <button className="step" onClick={stepUp} disabled={busy || s.stake >= max} aria-label="Raise stake">
-              +
+              <IconPlus />
             </button>
           </div>
           <div className="chips">
@@ -153,7 +155,7 @@ function Setup() {
             </button>
           </div>
           <div className={`auto-amount${s.autoOn ? ' on' : ''}`}>
-            <div className="amount" style={{ maxWidth: 170 }}>
+            <div className="amount">
               <input
                 aria-label="Auto cash-out multiplier"
                 inputMode="decimal"
@@ -166,11 +168,10 @@ function Setup() {
                   if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
                   e.stopPropagation();
                 }}
-                style={{ fontSize: 28 }}
               />
               <span className="unit">×</span>
             </div>
-            <div className="field-note" style={{ marginTop: 8 }}>
+            <div className="field-note auto-note">
               {target ? (
                 <>
                   Pays <b>{formatCredits(payout(s.stake, target))}</b> if the way holds
@@ -183,20 +184,26 @@ function Setup() {
         </div>
         <div className="run-cell">
           {broke ? (
-            <button className="btn btn-gold run-btn" onClick={() => void ctl?.refill()}>
-              Refill
-              <small>demo credits</small>
+            <button className="btn btn-gold run-btn" onClick={() => void ctl?.refill()} onMouseEnter={() => ctl?.audio.ui('hover')}>
+              <span className="medal" aria-hidden />
+              <span className="btn-label">Refill</span>
+              <small className="btn-sub">Demo credits</small>
             </button>
           ) : (
             <button
-              className={`btn btn-gold run-btn${busy ? ' busy' : ''}`}
+              className={`btn btn-gold run-btn${busy ? ' busy' : ''}${won ? ' won' : ''}`}
               onClick={() => void ctl?.run()}
               onMouseEnter={() => ctl?.audio.ui('hover')}
               disabled={s.stake > s.balance}
-              aria-label={`Run with a stake of ${formatCredits(s.stake)}`}
+              aria-busy={busy}
+              aria-label={busy ? 'Placing your stake' : `${s.phase === 'result' ? 'Run again' : 'Run'} with a stake of ${formatCredits(s.stake)}`}
             >
-              {busy ? <span className="spinner" aria-hidden /> : s.phase === 'result' ? 'Run again' : 'Run'}
-              <small>{formatCredits(s.stake)}</small>
+              <span className="medal" aria-hidden />
+              <span className="btn-label">{busy ? 'Placing' : s.phase === 'result' ? 'Run again' : 'Run'}</span>
+              <small className="btn-sub num">
+                {formatCredits(s.stake)}
+                <i>CR</i>
+              </small>
             </button>
           )}
         </div>
@@ -227,7 +234,7 @@ function CashOut() {
   return (
     <>
       <button
-        className={`btn btn-gold cash${lead ? ' lead' : ''}${phase === 'cashing' ? ' pressed' : ''}`}
+        className={`btn cash${lead ? ' lead' : ''}${phase === 'cashing' ? ' pressed' : ''}`}
         onPointerDown={(e) => {
           // Pointer-down, not click: the tap is the decision.
           if (e.button === 0) void ctl?.cashout();
@@ -238,11 +245,13 @@ function CashOut() {
         aria-disabled={lead}
         aria-label="Cash out"
       >
+        <span className="aura" aria-hidden />
+        <span className="medal" aria-hidden />
         <span className="label">
-          {lead ? 'Get set' : phase === 'cashing' ? 'Cashing out' : 'Cash out'}
-          <small>{lead ? 'The run starts in a moment' : 'Take the return now'}</small>
+          <span className="btn-label">{lead ? 'Get set' : phase === 'cashing' ? 'Securing' : 'Cash out'}</span>
+          <small>{lead ? 'The run starts in a moment' : phase === 'cashing' ? 'Taking the return' : 'Take the return now'}</small>
         </span>
-        <span className="amt" ref={amtRef}>
+        <span className="amt num" ref={amtRef}>
           {formatCredits(live.stake)}
         </span>
       </button>
@@ -250,7 +259,15 @@ function CashOut() {
         <span>
           Stake <b>{formatCredits(live.stake)}</b>
         </span>
-        <span>{live.autoCashout ? <>Auto at <b>{formatMult(live.autoCashout)}×</b></> : <>Press <b>Space</b> to cash out</>}</span>
+        {live.autoCashout ? (
+          <span>
+            Auto at <b>{formatMult(live.autoCashout)}×</b>
+          </span>
+        ) : (
+          <span className="kbd-hint">
+            Press <kbd>Space</kbd> to cash out
+          </span>
+        )}
       </div>
     </>
   );

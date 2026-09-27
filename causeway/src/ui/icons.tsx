@@ -76,6 +76,16 @@ export const IconDice = (p: SVGProps<SVGSVGElement>) => (
     <circle cx="9" cy="15" r="1" fill="currentColor" />
   </svg>
 );
+export const IconMinus = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base({ strokeWidth: 2.2, ...p })}>
+    <path d="M6 12h12" />
+  </svg>
+);
+export const IconPlus = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base({ strokeWidth: 2.2, ...p })}>
+    <path d="M6 12h12M12 6v12" />
+  </svg>
+);
 /** The mark: an arch over a causeway. */
 export const Mark = (p: SVGProps<SVGSVGElement>) => (
   <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden {...p}>
