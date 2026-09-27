@@ -27,6 +27,7 @@ export class Controller {
   async connect(): Promise<void> {
     const s = await this.service.connect();
     const st = useStore.getState();
+    if (s.notice) setTimeout(() => useStore.getState().toast(s.notice!), 1500);
     st.set({
       balance: s.balance,
       limits: s.limits,
@@ -80,7 +81,20 @@ export class Controller {
     this.audio.setScene('title');
   }
 
+  /** Set for the whole of run(): a second press during the world's reset fade must not place a second bet. */
+  private starting = false;
+
   async run(): Promise<void> {
+    if (this.starting) return;
+    this.starting = true;
+    try {
+      await this.startRun();
+    } finally {
+      this.starting = false;
+    }
+  }
+
+  private async startRun(): Promise<void> {
     const st = useStore.getState();
     if (st.phase !== 'setup' && st.phase !== 'result') return;
     if (st.stake > st.balance) {

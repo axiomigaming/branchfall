@@ -218,4 +218,22 @@ describe('controller ↔ authority', () => {
       expect(useStore.getState().balance).toBe(before - stake + payout(stake, 237));
     }
   });
+
+  it('a second press during the reset fade does not place a second bet', async () => {
+    const { clock, ctl, svc, crash } = await setup('c7', (c) => c > 150);
+    await ctl.run();
+    useStore.getState().set({ phase: 'running' });
+    clock.advance(LEAD_IN_MS + elapsedFor(120));
+    await ctl.cashout();
+    expect(useStore.getState().phase).toBe('result');
+    const before = useStore.getState().balance;
+    const historyBefore = (await svc.connect()).nextNonce;
+    // Run again, pressed twice while the world fades back to the start.
+    await Promise.all([ctl.run(), ctl.run()]);
+    const s = await svc.connect();
+    expect(s.nextNonce).toBe(historyBefore + 1);
+    expect(useStore.getState().balance).toBe(before - 1000);
+    expect(useStore.getState().phase).toBe('lead');
+    expect(crash).toBeGreaterThan(150);
+  });
 });

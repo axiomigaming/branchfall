@@ -60,23 +60,32 @@ export class WorkerRoundService implements RoundService {
 
   async connect() {
     const restore = this.deterministic ? undefined : loadRestore();
+    // The demo authority lives in this page: a reload loses a live run whose stake was already
+    // taken. It cannot be settled honestly without its seed, so the demo refunds it.
+    let notice: string | undefined;
+    if (restore?.pending && Number.isSafeInteger(restore.pending.stake) && restore.pending.stake > 0) {
+      restore.balance += restore.pending.stake;
+      notice = 'Your interrupted demo run was refunded.';
+    }
+    if (restore) restore.pending = null;
     const r = await this.send(restore ? { kind: 'hello', restore } : { kind: 'hello' });
     if (r.kind !== 'hello') throw new Error('bad reply');
-    this.cache = { balance: r.session.balance, clientSeed: r.session.clientSeed, nextNonce: r.session.nextNonce, history: r.session.history };
-    return r.session;
+    this.cache = { balance: r.session.balance, clientSeed: r.session.clientSeed, nextNonce: r.session.nextNonce, history: r.session.history, pending: null };
+    if (!this.deterministic && this.cache) saveRestore(this.cache);
+    return notice ? { ...r.session, notice } : r.session;
   }
 
   async placeBet(stake: Cents, autoCashout: number | null) {
     const r = await this.send({ kind: 'bet', stake, autoCashout });
     if (r.kind !== 'bet') throw new Error('bad reply');
-    this.patch({ balance: r.balance, nextNonce: r.round.nonce + 1 });
+    this.patch({ balance: r.balance, nextNonce: r.round.nonce + 1, pending: { id: r.round.id, stake: r.round.stake } });
     return { round: r.round, balance: r.balance };
   }
 
   async cashout(roundId: string) {
     const r = await this.send({ kind: 'cashout', roundId });
     if (r.kind !== 'cashout') throw new Error('bad reply');
-    this.patch({ balance: r.balance, history: [r.settled, ...(this.cache?.history ?? []).filter((h) => h.id !== r.settled.id)].slice(0, 60) });
+    this.patch({ balance: r.balance, pending: null, history: [r.settled, ...(this.cache?.history ?? []).filter((h) => h.id !== r.settled.id)].slice(0, 60) });
     return { settled: r.settled, balance: r.balance, nextCommitment: r.nextCommitment };
   }
 
@@ -110,6 +119,7 @@ export class WorkerRoundService implements RoundService {
     this.patch({
       balance: p.balance,
       nextNonce: p.nextNonce,
+      pending: null,
       history: [p.settled, ...(this.cache?.history ?? []).filter((h) => h.id !== p.settled.id)].slice(0, 60),
     });
   }

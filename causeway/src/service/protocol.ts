@@ -58,6 +58,8 @@ export interface Session {
   limits: Limits;
   demo: boolean;
   deterministic: boolean;
+  /** A one-off message for the player about their session (demo: an interrupted run was refunded). */
+  notice?: string;
 }
 
 export type ErrorCode =
@@ -83,6 +85,8 @@ export interface DemoRestore {
   clientSeed: string;
   nextNonce: number;
   history: SettledRound[];
+  /** A run whose stake was taken but which had not settled when the page went away. */
+  pending?: { id: string; stake: Cents } | null;
 }
 
 export type Reply =
