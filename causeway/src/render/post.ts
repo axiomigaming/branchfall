@@ -98,11 +98,11 @@ class SunShaftsEffect extends Effect {
           float sky = step(0.99995, readDepth(p));
           vec3 c = texture2D(inputBuffer, p).rgb;
           float l = max(max(c.r, c.g), c.b);
-          acc += sky * min(c, vec3(6.0)) * smoothstep(0.7, 2.2, l) * (0.4 + 0.6 * t);
+          acc += sky * min(c, vec3(6.0)) * smoothstep(0.45, 1.8, l) * (0.4 + 0.6 * t);
         }
         acc /= float(${samples});
         float r = length(vec2((uv.x - sunPos.x) * aspectRatio, uv.y - sunPos.y));
-        float fall = exp(-r * 1.9);
+        float fall = exp(-r * 1.6);
         outputColor = vec4(inputColor.rgb + acc * tint * strength * fall, inputColor.a);
       }`,
       {
@@ -261,7 +261,7 @@ export class Post {
     const y = this.sunV.y * 0.5 + 0.5;
     const off = Math.max(0, Math.max(Math.abs(x - 0.5), Math.abs(y - 0.5)) - 0.5);
     u.get('sunPos')!.value.set(x, y);
-    u.get('strength')!.value = behind ? 0 : 0.55 * Math.max(0, 1 - off * 2.2);
+    u.get('strength')!.value = behind ? 0 : 1.0 * Math.max(0, 1 - off * 2.2);
   }
 
   render(dt: number): void {
