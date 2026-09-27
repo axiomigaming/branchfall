@@ -28,7 +28,7 @@ interface Variant {
   inUse: number;
 }
 
-interface TileSlot {
+export interface TileSlot {
   piece: string;
   index: number;
   world: THREE.Matrix4;
@@ -50,6 +50,9 @@ export interface SectionInstance {
   falls: THREE.Mesh[];
   variant: Variant;
 }
+
+/** Length along the path of each walkable piece (metres). */
+const TILE_LENGTH: Record<string, number> = { floor_wide_0: 8 };
 
 const TILE_CAPACITY: Record<string, number> = {
   floor_0: 110,
@@ -289,14 +292,19 @@ export class Track {
 
     const inst: SectionInstance = { type, layout, s0: seg.s0, len: layout.len, seg, root, mirror, tiles: [], falls, variant };
     const tmp = new THREE.Matrix4();
-    const p = new THREE.Vector3();
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
     for (const t of layout.tiles) {
       tmp.copy(world).multiply(t.m);
-      // Tiles run 4 m along −Z from their origin (or +Z when rotated half a turn).
-      p.setFromMatrixPosition(t.m);
-      const flipped = Math.abs(Math.abs(new THREE.Euler().setFromRotationMatrix(t.m).y) - Math.PI) < 0.1;
-      const near = flipped ? -p.z - 4 : -p.z;
-      const slot: TileSlot = { piece: t.piece, index: -1, world: tmp.clone(), sNear: seg.s0 + near, sFar: seg.s0 + near + (t.piece === 'floor_wide_0' ? 8 : 4), alive: true };
+      // A tile runs `len` metres along its own −Z from its origin. Push both ends through the
+      // placement and read the extent along the section's −Z: robust to however the rotation is
+      // factored (a half turn about Y can decompose as Euler (π, 0, π)).
+      const len = TILE_LENGTH[t.piece] ?? 4;
+      a.set(0, 0, 0).applyMatrix4(t.m);
+      b.set(0, 0, -len).applyMatrix4(t.m);
+      const near = Math.min(-a.z, -b.z);
+      const far = Math.max(-a.z, -b.z);
+      const slot: TileSlot = { piece: t.piece, index: -1, world: tmp.clone(), sNear: seg.s0 + near, sFar: seg.s0 + far, alive: true };
       this.tiles.alloc(slot);
       inst.tiles.push(slot);
     }
@@ -315,19 +323,45 @@ export class Track {
     return this.sections[this.sections.length - 1];
   }
 
-  /** Remove the walkable tiles overlapping [sFrom, sTo]; returns their world matrices for debris. */
-  collapse(sFrom: number, sTo: number): { piece: string; world: THREE.Matrix4 }[] {
+  /**
+   * Remove the walkable tiles overlapping [sFrom, sTo]; returns their world matrices for debris.
+   * By default a tile only has to touch the range; `whole` keeps tiles that extend outside it
+   * (so the slab under the runner can be spared precisely), `includeFixed` also takes wide
+   * plaza slabs and stairs.
+   */
+  collapse(sFrom: number, sTo: number, opts: { whole?: boolean; includeFixed?: boolean } = {}): { piece: string; world: THREE.Matrix4 }[] {
     const out: { piece: string; world: THREE.Matrix4 }[] = [];
+    for (const t of this.tilesIn(sFrom, sTo, opts.whole)) {
+      if (!opts.includeFixed && (t.piece === 'floor_wide_0' || t.piece.startsWith('stairs'))) continue;
+      this.hideTile(t);
+      out.push({ piece: t.piece, world: t.world });
+    }
+    return out;
+  }
+
+  /** Live walkable tiles overlapping [sFrom, sTo] (or lying wholly inside it with `whole`). */
+  tilesIn(sFrom: number, sTo: number, whole = false): TileSlot[] {
+    const out: TileSlot[] = [];
     for (const sec of this.sections) {
       for (const t of sec.tiles) {
-        if (!t.alive || t.sFar < sFrom || t.sNear > sTo) continue;
-        if (t.piece === 'floor_wide_0' || t.piece.startsWith('stairs')) continue;
-        t.alive = false;
-        this.tiles.hide(t);
-        out.push({ piece: t.piece, world: t.world });
+        if (!t.alive) continue;
+        if (whole ? t.sNear >= sFrom && t.sFar <= sTo : t.sFar > sFrom && t.sNear < sTo) out.push(t);
       }
     }
     return out;
+  }
+
+  /** The live tile under arc length `s`, if any. */
+  tileAt(s: number): TileSlot | undefined {
+    for (const sec of this.sections) for (const t of sec.tiles) if (t.alive && s >= t.sNear && s < t.sFar) return t;
+    return undefined;
+  }
+
+  /** Hide one walkable tile (it stays allocated until its section despawns). */
+  hideTile(t: TileSlot): void {
+    if (!t.alive) return;
+    t.alive = false;
+    this.tiles.hide(t);
   }
 
   tick(time: number): void {
