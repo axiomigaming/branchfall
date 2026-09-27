@@ -16,6 +16,7 @@ from common import reset, bake_group, ensure_uvs, export_glb, textured_material,
 import kit_geo as K
 import materials as M
 import foliage as F
+import setpieces as S
 
 FAST = "--fast" in sys.argv
 Q = 4 if FAST else 1
@@ -31,7 +32,8 @@ reset()
 log("rendering foliage atlas")
 leaf_img = F.render_atlas(2048 // (2 if FAST else 1))
 
-groups = {"stoneA": [], "stoneB": [], "floor": [], "rock": [], "wood": [], "bark": [], "leaf": []}
+groups = {"stoneA": [], "stoneB": [], "floor": [], "rock": [], "wood": [], "bark": [], "leaf": [], "statue": [], "flora": [],
+          "relief": []}
 
 # ---- stone A: walls
 for i, (h, ruin) in enumerate([(1.3, 0.35), (1.6, 0.55), (1.15, 0.7), (1.8, 0.4)]):
@@ -62,6 +64,18 @@ for i in range(4):
     groups["stoneB"].append(K.rubble(f"rubble_{i}", 270 + i, n=4 + i * 2, spread=0.6 + 0.4 * i))
 groups["stoneB"].append(K.rubble("debris_0", 290, n=1, spread=0, size=(0.5, 0.5)))
 
+# ---- statuary and set pieces (their own atlas, so the faces get texels)
+groups["statue"] += [
+    S.colossal_head("head_0", 700, size=1.9),
+    S.colossal_head("head_1", 701, size=2.5),
+    S.guardian("guardian_0", 710),
+    S.guardian("guardian_1", 711, broken=True),
+    S.fallen_column("column_fallen_0", 720),
+    S.fallen_column("column_fallen_1", 721, radius=0.6, n=4),
+    S.stepping_stones("steps_water_0", 730),
+]
+groups["relief"] += [S.relief_wall("relief_wall_0", 740), S.relief_wall("relief_wall_1", 741)]
+
 # ---- floors
 groups["floor"] += [
     K.floor("floor_0", 300),
@@ -78,7 +92,16 @@ for i in range(3):
     groups["rock"].append(K.rock_obj(f"rock_mid_{i}", 410 + i, size=(3.2, 2.6, 2.4), detail=4))
 
 # ---- wood
-groups["wood"] += [K.planks("planks_0", 500), K.planks("planks_1", 501)]
+groups["wood"] += [K.planks("planks_0", 500), K.planks("planks_1", 501), S.rope_rail("rope_rail_0", 510)]
+groups["bark"] += [S.roots("roots_0", 520), S.roots("roots_1", 521, width=4.5, n=10, length=(2.0, 4.5))]
+groups["flora"] += [
+    S.lily_pads("lily_0", 800),
+    S.lily_pads("lily_1", 801, n=20, spread=2.4, flowers=3),
+    S.lily_pads("lily_2", 802, n=7, spread=1.0, flowers=1),
+    S.moss_clump("moss_0", 810),
+    S.moss_clump("moss_1", 811, radius=0.9, n=7),
+    S.moss_clump("moss_2", 812, radius=0.4, n=3),
+]
 
 # ---- foliage cards
 for i in range(3):
@@ -95,6 +118,10 @@ for i in range(2):
     groups["leaf"].append(F.grass(f"grass_{i}", 660 + i, n=4 + 3 * i))
 for i in range(2):
     groups["leaf"].append(F.vines(f"vines_{i}", 680 + i, width=4.0 + 2 * i, n=6 + 3 * i))
+groups["leaf"].append(F.vines("vines_2", 682, width=5.0, n=12, length=(2.2, 5.0)))
+# Ferns that sprout from the joints of walls and floors.
+groups["leaf"].append(F.bush("fern_0", 690, radius=0.6, cells=("fern",), n=8))
+groups["leaf"].append(F.bush("fern_1", 691, radius=0.85, cells=("fern", "broad"), n=10))
 
 # Spread pieces out so baked AO only sees each piece itself.
 all_objs = [o for g in groups.values() for o in g]
@@ -102,17 +129,19 @@ for i, o in enumerate(all_objs):
     o.location = Vector(((i % 8) * 40.0, (i // 8) * 40.0, 0))
 
 mats = {
-    "stoneA": (M.stone("stoneA", moss=0.6), 4096),
+    "stoneA": (M.stone("stoneA", moss=0.7), 4096),
     "stoneB": (M.stone("stoneB", moss=0.45, glyphs=False), 4096),
     "floor": (M.floor("floor"), 4096),
     "rock": (M.rock("rock"), 2048),
     "wood": (M.wood("wood"), 1024),
     "bark": (M.bark("bark"), 1024),
+    "statue": (M.stone("statue", moss=0.5, glyphs=False), 2048),
+    "flora": (M.flora("flora"), 1024),
 }
 # The gate and stelae carry carved glyphs: give them their own small atlas.
 glyph_objs = [o for o in groups["stoneB"] if o.name.startswith(("gate_", "stele_"))]
 groups["stoneB"] = [o for o in groups["stoneB"] if o not in glyph_objs]
-groups["glyph"] = glyph_objs
+groups["glyph"] = glyph_objs + groups.pop("relief")
 mats["glyph"] = (M.stone("glyph", moss=0.35, glyphs=True), 2048)
 
 for key, (mat, size) in mats.items():

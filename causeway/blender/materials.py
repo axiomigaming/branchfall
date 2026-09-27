@@ -90,6 +90,17 @@ def stone(name="stone", moss=0.55, glyphs=False):
     L(nt, vec, zpos.inputs[0])
     damp = maprange(nt, zpos.outputs[2], 0.6, -0.3, 0.0, 0.55)
     col = mix(nt, damp, col, hexcol("#4f4630"), "MULTIPLY")
+    # Waterline: foundations run down to the water (object z ≈ −2.2); stone below it is dark,
+    # green with algae and stained a band above, where the splash reaches.
+    wetn = _noise(nt, vec, 5, 3)
+    wet = maprange(nt, math_node(nt, "ADD", zpos.outputs[2], math_node(nt, "MULTIPLY", wetn.outputs[0], 0.3)), -1.55, -2.05, 0.0, 1.0)
+    col = mix(nt, math_node(nt, "MULTIPLY", wet, 0.8), col, hexcol("#3a4a2a"), "MULTIPLY")
+    col = mix(nt, math_node(nt, "MULTIPLY", wet, 0.45), col, hexcol("#34502c"), "MIX")
+    # Tafoni: honeycomb weathering hollows, clustered in soft bands of the sediment.
+    taf = _voronoi(nt, vec, 4.5, "F1", 0.9)
+    tafm = maprange(nt, _noise(nt, vec, 1.6, 3).outputs[0], 0.5, 0.62)
+    tafh = math_node(nt, "MULTIPLY", maprange(nt, taf.outputs["Distance"], 0.28, 0.0, 0.0, 1.0), tafm)
+    col = mix(nt, math_node(nt, "MULTIPLY", tafh, 0.55), col, hexcol("#6b4a2e"), "MULTIPLY")
     # Pale dust on convex, weathered edges.
     edge = _ao(nt, 0.08, True, True)
     ew = maprange(nt, edge, 0.55, 0.9, 0.45, 0.0)
@@ -127,6 +138,9 @@ def stone(name="stone", moss=0.55, glyphs=False):
     height = math_node(nt, "ADD", h1.outputs[0], math_node(nt, "MULTIPLY", h2.outputs["Distance"], 0.35))
     nrm = _bump(nt, height, 0.7, 0.14)
     nrm = _bump(nt, math_node(nt, "SUBTRACT", 0, math_node(nt, "ADD", crack, pm)), 0.7, 0.04, nrm)
+    nrm = _bump(nt, math_node(nt, "SUBTRACT", 0, tafh), 0.8, 0.08, nrm)
+    rough_v = mix(nt, math_node(nt, "MULTIPLY", wet, 0.6), rough_v, (0.45, 0.45, 0.45, 1), "MIX")
+    L(nt, rough_v, bsdf.inputs["Roughness"])
     if glyphs:
         # Carved relief: a grid of cartouches with voronoi-cut glyph strokes.
         brick = N(nt, "ShaderNodeTexBrick", Scale=1.4, **{"Mortar Size": 0.06, "Mortar Smooth": 0.4})
@@ -253,4 +267,27 @@ def bark(name="bark"):
     L(nt, col, bsdf.inputs["Base Color"])
     bsdf.inputs["Roughness"].default_value = 0.9
     L(nt, _bump(nt, wave.outputs[1], 0.8, 0.1), bsdf.inputs["Normal"])
+    return m
+
+
+def flora(name="flora"):
+    """Vertex-coloured plants and moss: lily pads, lotus, moss mounds."""
+    m = bpy.data.materials.new(name)
+    nt = nodes_clear(m)
+    out = N(nt, "ShaderNodeOutputMaterial")
+    bsdf = N(nt, "ShaderNodeBsdfPrincipled")
+    L(nt, bsdf.outputs[0], out.inputs[0])
+    vec, _ = _coords(nt, 1.0)
+    base = N(nt, "ShaderNodeVertexColor", _layer_name="Col").outputs[0]
+    fine = _noise(nt, vec, 24, 6, 0.7)
+    col = mix(nt, 1.0, base, ramp(nt, fine.outputs[0], [(0.3, (0.78, 0.8, 0.74)), (0.7, (1.12, 1.1, 1.0))]), "MULTIPLY")
+    veins = _voronoi(nt, vec, 9, "DISTANCE_TO_EDGE")
+    col = mix(nt, maprange(nt, veins.outputs["Distance"], 0.0, 0.04, 0.25, 0.0), col, hexcol("#2c3d14"), "MIX")
+    sun = _noise(nt, vec, 3, 3)
+    col = mix(nt, maprange(nt, sun.outputs[0], 0.55, 0.7, 0.0, 0.3), col, hexcol("#a4a24a"), "MIX")
+    ao = _ao(nt, 0.25)
+    col = mix(nt, maprange(nt, ao, 0.3, 0.95, 0.7, 0.0), col, hexcol("#1b2410"), "MIX")
+    L(nt, col, bsdf.inputs["Base Color"])
+    L(nt, maprange(nt, fine.outputs[0], 0.3, 0.7, 0.5, 0.85), bsdf.inputs["Roughness"])
+    L(nt, _bump(nt, fine.outputs[0], 0.6, 0.03), bsdf.inputs["Normal"])
     return m

@@ -3,13 +3,14 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { Rng } from '../engine/rng';
 import type { Kit } from './assets';
 import { Path, frameMatrix, type Frame, type Segment } from './path';
-import { buildLayout, nextType, type Layout, type SectionType } from './sections';
+import { buildLayout, isWaterPiece, nextType, type Layout, type SectionType } from './sections';
+import { foamTime, makeFoamMaterial, makeFoamRing, makeFoamStrip } from './water';
 import { makeWaterfallMaterial } from './waterfall';
 
 const VARIANTS: Record<SectionType, number> = {
   start: 1,
   corridor: 6,
-  bridge: 3,
+  bridge: 4,
   arcade: 3,
   gate: 2,
   tall: 3,
@@ -18,6 +19,7 @@ const VARIANTS: Record<SectionType, number> = {
   stairsUp: 2,
   cliff: 3,
   ruins: 3,
+  avenue: 3,
 };
 
 interface Variant {
@@ -139,10 +141,18 @@ export class Track {
   private fallMat = makeWaterfallMaterial();
   private density = { foliage: 1, scenery: 1 };
   viewDistance = 190;
+  /** QA: section types to spawn next, in order, before the pacing rules resume. */
+  forceNext: SectionType[] = [];
 
   constructor(private kit: Kit) {
     this.root.name = 'track';
     this.tiles = new TileSystem(kit, this.root);
+    // Foam is generated here rather than in Blender: it is a shader, not a texture.
+    kit.geo.set('foam_strip', makeFoamStrip());
+    kit.geo.set('foam_ring', makeFoamRing());
+    kit.matOf.set('foam_strip', 'foam');
+    kit.matOf.set('foam_ring', 'foam');
+    if (!kit.mat.has('foam')) kit.mat.set('foam', makeFoamMaterial());
   }
 
   /** Build every section variant. Yields between variants so a loading screen can animate. */
@@ -171,7 +181,9 @@ export class Track {
 
   private mergeProps(layout: Layout): THREE.Group {
     // Near the path (walls, pillars, arches) casts shadows; scenery out over the water does not,
-    // and is merged separately so both halves cull on their own tighter bounds.
+    // and is merged separately so both halves cull on their own tighter bounds. Things that float
+    // on the water (lilies, foam) are a third zone: like the far scenery they are placed relative
+    // to the water, so a section lowered by stairs moves them back up to the surface.
     const byKey = new Map<string, THREE.BufferGeometry[]>();
     const p = new THREE.Vector3();
     for (const pl of layout.props) {
@@ -181,8 +193,8 @@ export class Track {
         continue;
       }
       p.setFromMatrixPosition(pl.m);
-      const far = Math.abs(p.x) > 7.5;
-      const key = `${this.kit.matOf.get(pl.piece)!}|${far ? 'far' : 'near'}`;
+      const zone = isWaterPiece(pl.piece) ? 'water' : Math.abs(p.x) > 7.5 ? 'far' : 'near';
+      const key = `${this.kit.matOf.get(pl.piece)!}|${zone}`;
       const c = g.clone().applyMatrix4(pl.m);
       if (!byKey.has(key)) byKey.set(key, []);
       byKey.get(key)!.push(c);
@@ -196,7 +208,8 @@ export class Track {
       const [mat, zone] = key.split('|') as [string, string];
       const mesh = new THREE.Mesh(merged, this.kit.mat.get(mat)!);
       mesh.name = key;
-      mesh.castShadow = zone === 'near';
+      mesh.castShadow = zone === 'near' && mat !== 'flora';
+      if (zone === 'water') mesh.renderOrder = 1;
       mesh.receiveShadow = true;
       group.add(mesh);
     }
@@ -219,7 +232,7 @@ export class Track {
   /** Keep the route built ahead of `s` and cleared behind it. */
   update(s: number, intensity: number): void {
     while (this.path.length < s + this.viewDistance) {
-      const t = nextType(this.rng, this.lastType, this.elevation, intensity);
+      const t = this.forceNext.shift() ?? nextType(this.rng, this.lastType, this.elevation, intensity);
       this.spawn(t);
       this.lastType = t;
     }
@@ -250,12 +263,16 @@ export class Track {
     root.matrixAutoUpdate = false;
     root.matrix.copy(world);
     root.matrixWorldNeedsUpdate = true;
+    // Scenery and floating things keep to the water, whatever the path's elevation.
+    const toWater = -seg.p0.y;
     for (const child of variant.group.children) {
       const m = child as THREE.Mesh;
       const inst = new THREE.Mesh(m.geometry, m.material);
       inst.castShadow = m.castShadow;
       inst.receiveShadow = m.receiveShadow;
+      inst.renderOrder = m.renderOrder;
       inst.name = m.name;
+      if (!m.name.endsWith('|near')) inst.position.y = toWater;
       root.add(inst);
     }
     const falls: THREE.Mesh[] = [];
@@ -263,7 +280,7 @@ export class Track {
       const geo = new THREE.PlaneGeometry(f.w, f.h, 1, 12).translate(0, -f.h / 2, 0);
       const mesh = new THREE.Mesh(geo, this.fallMat);
       mesh.matrixAutoUpdate = false;
-      mesh.matrix.copy(f.m);
+      mesh.matrix.makeTranslation(0, toWater, 0).multiply(f.m);
       mesh.renderOrder = 2;
       root.add(mesh);
       falls.push(mesh);
@@ -315,6 +332,7 @@ export class Track {
 
   tick(time: number): void {
     this.fallMat.uniforms.uTime!.value = time;
+    foamTime.value = time;
   }
 
   get tileMeshes(): THREE.InstancedMesh[] {

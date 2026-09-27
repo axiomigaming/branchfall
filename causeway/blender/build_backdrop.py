@@ -25,7 +25,7 @@ FAST = "--fast" in sys.argv
 sc = reset()
 rng = random.Random(11)
 
-SUN_EL = 17.0
+SUN_EL = 14.0
 SUN_AZ = 20.0  # degrees from +X toward +Y (the run direction is +Y): to the right, a little ahead
 SUN_ROT = 90.0 - SUN_AZ  # Nishita: dir = (sin r·cos e, cos r·cos e, sin e)
 
@@ -40,16 +40,21 @@ sky.sky_type = "NISHITA"
 sky.sun_elevation = math.radians(SUN_EL)
 sky.sun_rotation = math.radians(SUN_ROT)
 sky.sun_size = math.radians(1.2)
-sky.sun_intensity = 0.35
+sky.sun_intensity = 0.4
 sky.altitude = 200
-sky.air_density = 1.4
-sky.dust_density = 3.2
+sky.air_density = 1.7
+sky.dust_density = 5.0
 sky.ozone_density = 1.0
-nt.links.new(sky.outputs[0], bg.inputs[0])
+_tc = nt.nodes.new("ShaderNodeTexCoord")
+_sep = nt.nodes.new("ShaderNodeSeparateXYZ")
+nt.links.new(_tc.outputs["Generated"], _sep.inputs[0])
+_hz = maprange(nt, _sep.outputs[2], 0.0, 0.45, 0.0, 1.0)
+_warm = ramp(nt, _hz, [(0.0, (1.34, 1.0, 0.7, 1)), (0.45, (1.16, 1.0, 0.84, 1)), (1.0, (1.04, 0.99, 0.95, 1))])
+nt.links.new(mix(nt, 1.0, sky.outputs[0], _warm, "MULTIPLY"), bg.inputs[0])
 bg.inputs[1].default_value = 0.22
 
 # Haze colour for aerial perspective: warm near the sun side, cooler away.
-HAZE = hexcol("#d9c3a3")
+HAZE = hexcol("#e2c49a")
 HAZE_FAR = hexcol("#c9c9c4")
 
 
@@ -78,7 +83,7 @@ def terrain_mat(name, low, high, green=0.0, near=150, far=2600):
         geo = N(t, "ShaderNodeNewGeometry")
         sn = N(t, "ShaderNodeSeparateXYZ")
         L(t, geo.outputs["Normal"], sn.inputs[0])
-        g = maprange(t, sn.outputs[2], 0.55, 0.85, 0.0, green)
+        g = maprange(t, sn.outputs[2], 0.45, 0.8, 0.0, green)
         gn = N(t, "ShaderNodeTexNoise", Scale=0.08, Detail=6.0)
         L(t, tc.outputs["Object"], gn.inputs["Vector"])
         g = math_node(t, "MULTIPLY", g, maprange(t, gn.outputs[0], 0.35, 0.55))
@@ -88,7 +93,7 @@ def terrain_mat(name, low, high, green=0.0, near=150, far=2600):
         L(t, tc.outputs["Object"], mpv.inputs[0])
         vn = N(t, "ShaderNodeTexNoise", Scale=1.0, Detail=8.0, Roughness=0.65)
         L(t, mpv.outputs[0], vn.inputs["Vector"])
-        face = maprange(t, vn.outputs[0], 0.5, 0.62, 0.0, green)
+        face = maprange(t, vn.outputs[0], 0.46, 0.6, 0.0, green)
         base = maprange(t, sep.outputs[2], 60.0, 5.0, 0.0, 1.0)
         g = math_node(t, "MAXIMUM", g, math_node(t, "MAXIMUM", face, base))
         col = mix(t, g, col, ramp(t, gn.outputs[0], [(0.3, hexcol("#223315")), (0.7, hexcol("#435a20"))]), "MIX")
@@ -136,9 +141,9 @@ def ridge(name, r0, r1, hmax, seed, mat, steps_a=720, steps_r=40, cliff=0.0, gap
     return ob
 
 
-rock_far = terrain_mat("farrock", hexcol("#7f6250"), hexcol("#b4906c"), green=0.55, near=300, far=3200)
+rock_far = terrain_mat("farrock", hexcol("#7a5a44"), hexcol("#a88260"), green=0.75, near=300, far=3200)
 jungle = terrain_mat("jungle", hexcol("#2a3a18"), hexcol("#4a5e25"), green=0.0, near=150, far=1600)
-rock_near = terrain_mat("nearrock", hexcol("#7a5c48"), hexcol("#a88563"), green=0.85, near=200, far=2200)
+rock_near = terrain_mat("nearrock", hexcol("#6e5140"), hexcol("#9c7a58"), green=1.0, near=200, far=2200)
 
 # Mesas and cliff walls far away, a gap toward the sun so the light pours over the water.
 ridge("mesas", 1100, 2600, 620, 3, rock_far, cliff=0.6, gap=(SUN_AZ, 16))
@@ -301,32 +306,43 @@ wo.data.materials.append(water)
 clouds = bpy.data.materials.new("clouds")
 t = nodes_clear(clouds)
 out = N(t, "ShaderNodeOutputMaterial")
-bsdf = N(t, "ShaderNodeBsdfPrincipled")
+em = N(t, "ShaderNodeEmission")
 tr = N(t, "ShaderNodeBsdfTransparent")
 mx = N(t, "ShaderNodeMixShader")
 tc = N(t, "ShaderNodeTexCoord")
 mp = N(t, "ShaderNodeMapping")
-mp.inputs["Scale"].default_value = (1.0, 2.6, 1.0)
+mp.inputs["Scale"].default_value = (1.0, 4.5, 1.0)
 L(t, tc.outputs["Object"], mp.inputs[0])
 cn = N(t, "ShaderNodeTexNoise", Scale=0.00045, Detail=12.0, Roughness=0.58, Distortion=0.2)
 L(t, mp.outputs[0], cn.inputs["Vector"])
-dens = maprange(t, cn.outputs[0], 0.53, 0.66)
+dens = maprange(t, cn.outputs[0], 0.52, 0.7)
+dens = math_node(t, "MULTIPLY", dens, 0.8)
 L(t, dens, mx.inputs[0])
 L(t, tr.outputs[0], mx.inputs[1])
-L(t, bsdf.outputs[0], mx.inputs[2])
+L(t, em.outputs[0], mx.inputs[2])
 L(t, mx.outputs[0], out.inputs[0])
-bsdf.inputs["Base Color"].default_value = (1.0, 0.94, 0.86, 1)
-bsdf.inputs["Roughness"].default_value = 1.0
-try:
-    bsdf.inputs["Subsurface Weight"].default_value = 0.4
-except KeyError:
-    pass
+# Self-lit, so they glow gold toward the sun and go lilac-grey away from it (seen from below,
+# a lit plane would only show its dark side).
+_e, _r = math.radians(SUN_EL), math.radians(SUN_ROT)
+_sd = (math.sin(_r) * math.cos(_e), math.cos(_r) * math.cos(_e), math.sin(_e))
+geo = N(t, "ShaderNodeNewGeometry")
+nv = t.nodes.new("ShaderNodeVectorMath")
+nv.operation = "NORMALIZE"
+L(t, geo.outputs["Position"], nv.inputs[0])
+dv = t.nodes.new("ShaderNodeVectorMath")
+dv.operation = "DOT_PRODUCT"
+L(t, nv.outputs[0], dv.inputs[0])
+dv.inputs[1].default_value = _sd
+toward = maprange(t, dv.outputs["Value"], 0.2, 0.98, 0.0, 1.0)
+ccol = ramp(t, toward, [(0.0, hexcol("#b9a9a6")), (0.55, hexcol("#f1c79a")), (1.0, hexcol("#fff0d0"))])
+L(t, ccol, em.inputs["Color"])
+L(t, maprange(t, dv.outputs["Value"], 0.2, 0.98, 1.1, 3.2), em.inputs["Strength"])
 bm = bmesh.new()
 bmesh.ops.create_grid(bm, x_segments=1, y_segments=1, size=30000)
 co = new_mesh_obj("clouds", bm)
-co.location.z = 1800
+co.location.z = 1400
 co.data.materials.append(clouds)
-bpy.data.objects.remove(co)  # the references are clear, hazy skies; clouds read as smudges here
+co.visible_shadow = False  # thin golden streaks; they must not dim the land
 
 # ---------------------------------------------------------------- sun lamp matching the sky
 sl = bpy.data.lights.new("sun", "SUN")

@@ -154,8 +154,22 @@ def build_vine(rng):
                         a = math.radians(rng.uniform(200, 250) if sd < 0 else rng.uniform(-70, -20))
                         _leaflet(bm, (x, y, 0), (math.cos(a), math.sin(a), 0), rng.uniform(0.06, 0.1), 0.06,
                                  hexcol(rng.choice(LEAF_GREENS)), seg=3)
+            # Flowering vines: small five-petalled blooms, warm against the green.
+            if rng.random() < 0.16:
+                _flower(bm, (x + rng.uniform(-0.04, 0.04), y, 0.02), rng.uniform(0.035, 0.05), rng.choice(FLOWERS))
             x, y = nx, ny
     return bm
+
+
+FLOWERS = ["#e8577a", "#f08a4b", "#f4d9e2", "#d9406a", "#f5b642"]
+
+
+def _flower(bm, c, r, col):
+    base = hexcol(col)
+    for k in range(5):
+        a = 2 * math.pi * k / 5
+        _leaflet(bm, c, (math.cos(a), math.sin(a), 0), r, r * 0.9, base, seg=2)
+    _leaflet(bm, (c[0] - r * 0.15, c[1], c[2] + 0.01), (1, 0, 0), r * 0.3, r * 0.35, hexcol("#f2d24a"), seg=1)
 
 
 def build_grass(rng):

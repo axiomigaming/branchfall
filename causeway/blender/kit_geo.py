@@ -174,7 +174,7 @@ def arch(name, seed, span=6.8, pier_h=4.0, depth=1.3):
             crest = top - abs(xc) * 0.25 - rng.uniform(0, 0.9)
             if not inside and z + h / 2 < crest:
                 add_block(bm, (w - 0.02, depth * 0.92, h - 0.02), (xc, rng.uniform(-0.05, 0.05), z + h / 2), bevel=0.04,
-                          rng=rng, color=sand(rng), chip=0.3)
+                          rng=rng, color=sand(rng), chip=0.3, segments=1)
             x += w
         z += h
     return finish_obj(name, bm)
@@ -362,7 +362,7 @@ def foundation(name, seed, length=4.0, height=2.6):
         while y < length:
             bl = rng.uniform(0.7, 1.4)
             add_block(bm, (0.9, bl - 0.03, ch - 0.02), (rng.uniform(-0.06, 0.06), y + bl / 2, z + ch / 2), bevel=0.06,
-                      rng=rng, color=sand(rng), chip=0.3)
+                      rng=rng, color=sand(rng), chip=0.3, segments=1)
             y += bl
         z += ch
     return finish_obj(name, bm)
