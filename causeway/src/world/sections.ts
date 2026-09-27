@@ -102,16 +102,24 @@ class Builder {
   }
 
   /** A band of foam where a stone face along the path meets the water, 4 m long from z0 toward −Z. */
+  /** Small water dressing (foam, lilies, moss) costs draw calls: the lightest tier goes without. */
+  get rich() {
+    return this.density.scenery >= 0.5;
+  }
+
   foam(side: number, x: number, z0: number, len = TILE) {
+    if (!this.rich) return;
     this.place('foam_strip', side * x, WL, z0, 0, [side, 1, len / TILE]);
   }
 
   /** A ring of foam around something standing in the water. */
   foamRing(x: number, z: number, r: number) {
+    if (!this.rich) return;
     this.place('foam_ring', x, WL, z, this.rng.range(0, 6.28), [r, 1, r]);
   }
 
   lilies(x: number, z: number, s = 1) {
+    if (!this.rich) return;
     if (this.foliage(0.9)) this.place(`lily_${this.rng.int(0, 2)}`, x, WL + 0.01, z, this.rng.range(0, 6.28), s);
   }
 }
@@ -140,7 +148,7 @@ function lowWalls(b: Builder, z0: number, n: number, sides: number[] = [-1, 1], 
         b.foam(side, PATH_HALF + 0.84, z);
       }
       if (b.foliage(0.3)) b.place(`fern_${b.rng.int(0, 1)}`, side * (PATH_HALF - 0.05), -0.05, z - b.rng.range(0.4, 3.6), b.rng.range(0, 6.28), b.rng.range(0.6, 0.95));
-      if (b.foliage(0.25)) b.place(`moss_${b.rng.pick([0, 2])}`, side * (PATH_HALF + 0.05), 0, z - b.rng.range(0.5, 3.5), b.rng.range(0, 6.28), b.rng.range(0.7, 1.1));
+      if (b.rich && b.foliage(0.25)) b.place(`moss_${b.rng.pick([0, 2])}`, side * (PATH_HALF + 0.05), 0, z - b.rng.range(0.5, 3.5), b.rng.range(0, 6.28), b.rng.range(0.7, 1.1));
       if (b.rng.chance(gaps)) {
         b.place(`rubble_${b.rng.int(0, 3)}`, side * (PATH_HALF + 0.6), 0, z - 2, b.rng.range(0, 6.28));
         continue;
@@ -176,7 +184,7 @@ function scenery(b: Builder, len: number, opts: { minX?: number; sides?: number[
         const s = b.rng.range(0.9, 2.3);
         b.place(`rock_mid_${b.rng.int(0, 2)}`, x, -2.2 + s * 0.25, zz, b.rng.range(0, 6.28), [s * 1.3, s * 0.6, s * 1.3]);
         b.foamRing(x, zz, s * 2.1);
-        if (b.foliage(0.6)) b.place(`moss_${b.rng.int(0, 1)}`, x + b.rng.range(-0.6, 0.6), -2.2 + s * 0.5, zz + b.rng.range(-0.6, 0.6), b.rng.range(0, 6.28), s * 0.8);
+        if (b.rich && b.foliage(0.6)) b.place(`moss_${b.rng.int(0, 1)}`, x + b.rng.range(-0.6, 0.6), -2.2 + s * 0.5, zz + b.rng.range(-0.6, 0.6), b.rng.range(0, 6.28), s * 0.8);
         if (kind === 'palm' || b.rng.chance(0.5)) {
           const pi = b.rng.int(0, 2);
           const ps = b.rng.range(0.8, 1.15);
@@ -208,7 +216,7 @@ function scenery(b: Builder, len: number, opts: { minX?: number; sides?: number[
       } else if (kind === 'column') {
         b.place(`column_fallen_${b.rng.int(0, 1)}`, x, WL - 0.35, zz, b.rng.range(0, 6.28), b.rng.range(0.9, 1.3));
         b.foamRing(x, zz, 2.2);
-        if (b.foliage(0.5)) b.place(`moss_${b.rng.int(0, 1)}`, x, WL + 0.6, zz, 0, 0.9);
+        if (b.rich && b.foliage(0.5)) b.place(`moss_${b.rng.int(0, 1)}`, x, WL + 0.6, zz, 0, 0.9);
       } else if (kind === 'stones') {
         b.place('steps_water_0', x, WL, zz, b.rng.range(0, 6.28), b.rng.range(0.8, 1.2));
         b.lilies(x + b.rng.range(-2, 2), zz + b.rng.range(-2, 2), b.rng.range(0.9, 1.4));
@@ -403,7 +411,7 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
         o.set(Math.cos(f.yaw) * side * 4.2, 0, -Math.sin(f.yaw) * side * 4.2).add(f.pos);
         if (b.rng.chance(0.6)) b.place('drum_0', o.x, 0, o.z, b.rng.range(0, 6.28));
         else b.place(`rubble_${b.rng.int(1, 3)}`, o.x, 0, o.z, b.rng.range(0, 6.28));
-        if (b.foliage(0.8)) b.place(`moss_${b.rng.int(0, 2)}`, o.x + b.rng.range(-1, 1), 0, o.z + b.rng.range(-1, 1), 0, 1);
+        if (b.rich && b.foliage(0.8)) b.place(`moss_${b.rng.int(0, 2)}`, o.x + b.rng.range(-1, 1), 0, o.z + b.rng.range(-1, 1), 0, 1);
         if (b.foliage(0.8)) b.place(`fern_${b.rng.int(0, 1)}`, o.x + b.rng.range(-1, 1), 0, o.z + b.rng.range(-1, 1), b.rng.range(0, 6.28), 1);
       }
       {
@@ -492,7 +500,7 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
           b.place(`column_fallen_${b.rng.int(0, 1)}`, cx, WL + 0.2, cz, b.rng.range(0, 6.28));
           b.foamRing(cx, cz, 2.4);
         } else b.place('guardian_1', side * 5.6, WL + 0.3, cz, faceIn(side, 0.9), 0.9);
-        for (let k = 0; k < 2; k++) if (b.foliage(0.6)) b.place(`moss_${b.rng.int(0, 2)}`, side * b.rng.range(3, 5.5), -0.4, -b.rng.range(0, len), 0, b.rng.range(0.8, 1.3));
+        for (let k = 0; k < 2; k++) if (b.rich && b.foliage(0.6)) b.place(`moss_${b.rng.int(0, 2)}`, side * b.rng.range(3, 5.5), -0.4, -b.rng.range(0, len), 0, b.rng.range(0.8, 1.3));
       }
       scenery(b, len, { minX: 9, big: false });
       return { hazards: ['rockfall', 'chasm'], walls: 'low' };
@@ -510,9 +518,9 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
           const x = side * 5.2;
           const broken = b.rng.chance(0.3);
           b.place(broken ? 'guardian_1' : 'guardian_0', x, WL + 0.45, z, faceIn(side, 0.25), b.rng.range(1.15, 1.3));
-          b.foamRing(x, z, 1.9);
+          b.foamRing(x, z, 2.4);
           b.lilies(x + side * 1.8, z - 3, b.rng.range(0.8, 1.2));
-          if (b.foliage(0.5)) b.place(`moss_${b.rng.int(0, 2)}`, x, WL + 1.05, z + 0.6, 0, 0.8);
+          if (b.rich && b.foliage(0.5)) b.place(`moss_${b.rng.int(0, 2)}`, x, WL + 1.05, z + 0.6, 0, 0.8);
         }
       }
       const hs = b.rng.chance(0.5) ? -1 : 1;

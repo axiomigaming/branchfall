@@ -190,10 +190,11 @@ export function makeFoamMaterial(): THREE.ShaderMaterial {
         float nz = n(p * 2.3 + vec2(uTime * 0.35, -uTime * 0.2)) * 0.6 + n(p * 6.1 - uTime * 0.5) * 0.4;
         // A lapping line that swells out from the stone and back.
         float lap = 0.18 + 0.12 * sin(uTime * 1.3 + n(p * 0.7) * 6.0);
-        float line = smoothstep(0.1, 0.0, abs(e - lap - nz * 0.12));
-        float hug = exp(-e * 7.0);
-        float lace = smoothstep(0.55, 0.8, nz) * exp(-e * 2.5);
-        float a = clamp(hug * (0.45 + 0.55 * nz) + line * 0.55 + lace * 0.45, 0.0, 1.0) * smoothstep(1.0, 0.75, e);
+        // Broken up by the noise so it never draws a clean outline.
+        float line = smoothstep(0.16, 0.0, abs(e - lap - nz * 0.2)) * smoothstep(0.35, 0.7, nz);
+        float hug = exp(-e * 5.0);
+        float lace = smoothstep(0.5, 0.8, nz) * exp(-e * 2.5);
+        float a = clamp(hug * (0.3 + 0.7 * nz) + line * 0.4 + lace * 0.4, 0.0, 1.0) * smoothstep(1.0, 0.7, e) * smoothstep(0.0, 0.08, e + 0.02);
         gl_FragColor = vec4(vec3(0.9, 0.95, 0.92), a * 0.85);
         #include <fog_fragment>
       }`,
