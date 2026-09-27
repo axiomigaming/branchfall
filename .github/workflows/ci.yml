@@ -120,3 +120,31 @@ jobs:
         with:
           name: enumeration-evidence
           path: artifacts/
+
+  causeway:
+    name: CAUSEWAY — crash engine tests, typecheck and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: causeway
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: causeway/package-lock.json
+
+      - run: npm ci
+
+      # Exact crash distribution (P(crash >= m) = 0.97/m), fairness vectors, the demo
+      # authority's refusals and races, the controller's money bookkeeping, and a 5 km
+      # route-generation soak.
+      - name: Tests
+        run: npm test
+
+      - name: Typecheck and production build
+        run: npm run build
+

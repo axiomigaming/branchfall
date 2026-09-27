@@ -31,7 +31,9 @@ render(null);
 
 async function boot() {
   const store = useStore.getState();
-  const quality = (params.get('q') as typeof store.settings.quality | null) ?? store.settings.quality;
+  const forced = params.get('q') as typeof store.settings.quality | null;
+  if (forced && ['low', 'medium', 'high', 'ultra'].includes(forced)) store.setSettings({ quality: forced, autoQuality: false });
+  const quality = useStore.getState().settings.quality;
   const audio = new AudioEngine();
   const service = new WorkerRoundService({ seed: params.get('seed') });
   const [game] = await Promise.all([

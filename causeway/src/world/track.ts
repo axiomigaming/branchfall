@@ -128,8 +128,9 @@ export class Track {
   /** Build every section variant. Yields between variants so a loading screen can animate. */
   async prepare(density: { foliage: number; scenery: number }, onStep?: (i: number, n: number) => void): Promise<void> {
     this.density = density;
-    for (const vs of this.variants.values()) for (const v of vs) disposeGroup(v.group);
-    this.variants.clear();
+    // Build into a fresh map and swap at the end: the route keeps spawning from the old
+    // variants meanwhile, and their geometry is retired only when the world next resets.
+    const next = new Map<SectionType, Variant[]>();
     const total = Object.values(VARIANTS).reduce((a, b) => a + b, 0);
     let done = 0;
     for (const [type, n] of Object.entries(VARIANTS) as [SectionType, number][]) {
@@ -140,9 +141,13 @@ export class Track {
         onStep?.(++done, total);
         await new Promise((r) => setTimeout(r, 0));
       }
-      this.variants.set(type, list);
+      next.set(type, list);
     }
+    for (const vs of this.variants.values()) for (const v of vs) this.retired.push(v.group);
+    this.variants = next;
   }
+
+  private retired: THREE.Group[] = [];
 
   private mergeProps(layout: Layout): THREE.Group {
     const byMat = new Map<string, THREE.BufferGeometry[]>();
@@ -175,6 +180,8 @@ export class Track {
   reset(seed: string): void {
     for (const s of this.sections) this.despawn(s);
     this.sections.length = 0;
+    for (const g of this.retired) disposeGroup(g);
+    this.retired.length = 0;
     this.rng = new Rng(`world/${seed}`);
     this.elevation = 0;
     this.path.reset({ pos: new THREE.Vector3(0, 0, 0), yaw: 0 });

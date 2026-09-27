@@ -95,20 +95,23 @@ export class CameraRig {
         break;
       }
       case 'crash': {
-        // Rise and swing to the side to show what happened ahead, runner in the foreground.
-        this.orbit = damp(this.orbit, 1, 1.4, dt);
-        const ang = this.side * (0.35 + 0.85 * this.orbit);
-        const dir = new THREE.Vector3().copy(this.fwd).multiplyScalar(-Math.cos(ang)).addScaledVector(this.right, Math.sin(ang));
-        this.targetPos.copy(runnerPos).addScaledVector(dir, 4.6 + 1.2 * this.orbit).setY(runnerPos.y + 1.9 + 1.4 * this.orbit);
-        this.targetLook.copy(runnerPos).lerp(this.focus, 0.45).setY(runnerPos.y + 1.0);
-        fov = 58;
+        // Crane up and back, staying inside the corridor: runner in the foreground, the fall ahead.
+        this.orbit = damp(this.orbit, 1, 1.3, dt);
+        const o = this.orbit;
+        this.targetPos
+          .copy(runnerPos)
+          .addScaledVector(this.fwd, -(3.0 + 2.2 * o))
+          .addScaledVector(this.right, this.side * (0.4 + 0.9 * o))
+          .setY(runnerPos.y + 1.9 + 2.9 * o);
+        this.targetLook.copy(runnerPos).lerp(this.focus, 0.55).setY(runnerPos.y + 0.5);
+        fov = 56;
         break;
       }
       case 'cashout': {
         this.orbit = damp(this.orbit, 1, 1.1, dt);
-        const ang = this.side * (0.2 + 2.25 * this.orbit);
+        const ang = this.side * (0.2 + 2.55 * this.orbit);
         const dir = new THREE.Vector3().copy(this.fwd).multiplyScalar(-Math.cos(ang)).addScaledVector(this.right, Math.sin(ang));
-        this.targetPos.copy(runnerPos).addScaledVector(dir, 3.3 + 0.4 * this.orbit).setY(runnerPos.y + 1.55 - 0.15 * this.orbit);
+        this.targetPos.copy(runnerPos).addScaledVector(dir, 3.2 + 0.3 * this.orbit).setY(runnerPos.y + 1.6 - 0.15 * this.orbit);
         this.targetLook.copy(runnerPos).setY(runnerPos.y + 1.25);
         fov = 50;
         break;
@@ -152,10 +155,28 @@ export class CameraRig {
     this.camera.position.y += sy + bob;
     this.camera.lookAt(this.look);
     this.camera.rotateZ((Math.sin(t * 13.1) * 0.5 + Math.sin(t * 7.7)) * amp * 0.25);
-    if (Math.abs(this.camera.fov - this.fov) > 0.01) {
-      this.camera.fov = this.fov;
-      this.camera.updateProjectionMatrix();
+    this.camera.fov = this.fov;
+    this.applyShift(dt);
+    this.camera.updateProjectionMatrix();
+  }
+
+  private shift = 0;
+  private shiftTarget = 0;
+  /** Compose for the part of the screen the interface leaves free (px covered at top/bottom). */
+  setInsets(top: number, bottom: number, heightPx: number): void {
+    this.shiftTarget = Math.min(0.32, Math.max(-0.1, (bottom - top) / 2 / Math.max(1, heightPx)));
+  }
+
+  private applyShift(dt: number) {
+    this.shift += (this.shiftTarget - this.shift) * (1 - Math.exp(-dt * 3));
+    const c = this.camera;
+    if (Math.abs(this.shift) < 0.001) {
+      if (c.view) c.clearViewOffset();
+      return;
     }
+    const w = 1000;
+    const h = w / c.aspect;
+    c.setViewOffset(w, h, 0, this.shift * h, w, h);
   }
 
   setAspect(a: number): void {

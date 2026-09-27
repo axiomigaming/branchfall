@@ -36,6 +36,10 @@ a browser client that plays a whole round through it, drawing `docs/DESIGN.md`
 npm install && npm run dev      # http://localhost:4173
 ```
 
+> This repository also holds **CAUSEWAY** in [`causeway/`](causeway/README.md): a
+> separate 3D crash game presented as an escape run through collapsing ruins,
+> with its own engine, demo round authority, Blender asset pipeline and tests.
+
 ---
 
 ## How a round works

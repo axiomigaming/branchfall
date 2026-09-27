@@ -372,7 +372,7 @@ function How({ onClose }: { onClose: () => void }) {
       </ol>
       <div className="callout">
         Where the way falls is decided before the run starts and cannot be read from the world — the path, the obstacles and the tremors carry no hint of it. Jumping, timing
-        or watching the scenery does not change the odds. Return to player: <b>{limits?.rtpPercent ?? 97}%</b> for every strategy. About 4% of runs fall at the very start.
+        or watching the scenery does not change the odds. Return to player: <b>{limits?.rtpPercent ?? 97}%</b>, whenever you cash out. About 4% of runs fall at the very start.
       </div>
     </Sheet>
   );

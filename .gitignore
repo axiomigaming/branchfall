@@ -9,3 +9,4 @@ scratch/
 causeway/node_modules/
 causeway/dist/
 causeway/blender/cache/
+e2e-out/

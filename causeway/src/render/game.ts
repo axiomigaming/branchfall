@@ -285,13 +285,13 @@ export class Game {
   }
 
   /** The way falls. `mult` is the crash point, now public. */
-  crash(mult: number, roundId: string): void {
+  crash(mult: number, roundId: string, forceKind?: 'chasm' | 'gate' | 'rockfall'): void {
     this.frozenMult = mult;
     this.live.mult = mult / 100;
     const r = new Rng(`${roundId}/staging`);
     const sec = this.track.sectionAt(this.s);
     const hazards = sec?.layout.hazards ?? ['rockfall'];
-    const kind = this.stage === 'lead' || this.speed < 2 ? 'gate' : r.pick(hazards);
+    const kind = forceKind ?? (this.stage === 'lead' || this.speed < 2 ? 'gate' : r.pick(hazards));
     this.setStage('crash');
     this.runner.play('fall', 0.12);
     this.crashKind = kind;

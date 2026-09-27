@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { formatCredits, formatMult, parseCredits, parseMult, payout } from '../engine/money';
 import { useStore } from '../state/store';
 import { useCtl } from './context';
@@ -10,9 +10,33 @@ const LADDER = [10, 20, 50, 100, 200, 250, 500, 1000, 1500, 2000, 2500, 5000, 75
 
 export function Dock() {
   const phase = useStore((s) => s.phase);
+  const ctl = useCtl();
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !ctl) return;
+    const report = () => {
+      const r = el.getBoundingClientRect();
+      const top = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0;
+      ctl.game.rig.setInsets(top, window.innerHeight - r.top, window.innerHeight);
+    };
+    report();
+    const ro = new ResizeObserver(report);
+    ro.observe(el);
+    window.addEventListener('resize', report);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', report);
+      ctl.game.rig.setInsets(0, 0, window.innerHeight);
+    };
+  }, [ctl, phase]);
   if (phase === 'title' || phase === 'loading') return null;
   const live = phase === 'lead' || phase === 'running' || phase === 'cashing';
-  return <div className="dock">{live ? <CashOut /> : <Setup />}</div>;
+  return (
+    <div className="dock" ref={ref}>
+      {live ? <CashOut /> : <Setup />}
+    </div>
+  );
 }
 
 function Setup() {
@@ -102,7 +126,7 @@ function Setup() {
             <button className="qchip" disabled={busy} onClick={() => setStake(s.stake * 2)}>
               2×
             </button>
-            {[100, 1000, 5000].map((v) => (
+            {[500, 2500, 10000].map((v) => (
               <button key={v} className="qchip" disabled={busy || v > max} onClick={() => setStake(v)}>
                 {formatCredits(v).replace('.00', '')}
               </button>

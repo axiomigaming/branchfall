@@ -216,15 +216,15 @@ button { cursor: pointer; }
 
 /* Result plate: replaces the multiplier when the round settles. */
 .result { position: fixed; left: 0; right: 0; top: 11vh; display: flex; flex-direction: column; align-items: center; text-align: center; animation: resultIn 0.9s var(--ease-out); }
-.result .eyebrow { font-size: 13px; letter-spacing: 0.42em; }
+.result .eyebrow { font-size: 14px; letter-spacing: 0.42em; text-shadow: 0 1px 14px rgba(0, 0, 0, 0.8); font-weight: 600; }
 .result.won .eyebrow { color: var(--jade); }
 .result.lost .eyebrow { color: var(--ember); }
 .result .big { font-family: var(--f-num); font-weight: 800; font-size: clamp(70px, 10vw, 136px); line-height: 0.9; margin-top: 10px; text-shadow: 0 6px 40px rgba(0, 0, 0, 0.5); }
 .result.won .big { color: var(--gold-hi); }
 .result.lost .big { color: #f3d9cf; }
-.result .line { margin-top: 12px; font-size: 16px; color: var(--bone-2); text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7); }
+.result .line { margin-top: 14px; font-size: 17px; color: var(--bone-2); text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7); }
 .result .line b { font-family: var(--f-num); font-size: 20px; color: var(--bone); font-weight: 600; }
-.result .verify { margin-top: 12px; pointer-events: auto; background: none; border: 0; color: var(--bone-3); font-size: 12px; letter-spacing: 0.08em; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(241, 232, 212, 0.25); }
+.result .verify { margin-top: 14px; pointer-events: auto; background: none; border: 0; color: var(--bone-2); text-shadow: 0 1px 10px rgba(0, 0, 0, 0.8); font-size: 12px; letter-spacing: 0.08em; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(241, 232, 212, 0.25); }
 .result .verify:hover { color: var(--gold-hi); }
 @keyframes resultIn { from { opacity: 0; transform: translateY(14px) scale(0.97); filter: blur(6px); } }
 
@@ -424,5 +424,7 @@ input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border-radius
   .qchip { font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .title .eyebrow, .wordmark, .rule, .tagline, .title-actions, .title-foot { opacity: 1 !important; transform: none !important; }
+  .title.leaving .title-inner, .title.leaving .title-foot { opacity: 0 !important; }
 }
