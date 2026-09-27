@@ -1,0 +1,30 @@
+export type QualityLevel = 'low' | 'medium' | 'high' | 'ultra';
+
+export interface QualityProfile {
+  pixelRatioCap: number;
+  shadows: boolean;
+  shadowMapSize: number;
+  bloom: boolean;
+  speedBlur: boolean;
+  smaa: boolean;
+  foliageDensity: number; // 0..1
+  sceneryDensity: number; // 0..1 (islands, far props)
+  viewDistance: number; // metres of track kept ahead
+  dust: number; // particle budget multiplier
+  waterDetail: 0 | 1 | 2;
+}
+
+export const QUALITY: Record<QualityLevel, QualityProfile> = {
+  low: { pixelRatioCap: 1, shadows: false, shadowMapSize: 1024, bloom: false, speedBlur: true, smaa: false, foliageDensity: 0.45, sceneryDensity: 0.4, viewDistance: 110, dust: 0.4, waterDetail: 0 },
+  medium: { pixelRatioCap: 1.5, shadows: true, shadowMapSize: 1024, bloom: true, speedBlur: true, smaa: false, foliageDensity: 0.7, sceneryDensity: 0.7, viewDistance: 150, dust: 0.7, waterDetail: 1 },
+  high: { pixelRatioCap: 2, shadows: true, shadowMapSize: 2048, bloom: true, speedBlur: true, smaa: true, foliageDensity: 1, sceneryDensity: 1, viewDistance: 190, dust: 1, waterDetail: 2 },
+  ultra: { pixelRatioCap: 2.5, shadows: true, shadowMapSize: 4096, bloom: true, speedBlur: true, smaa: true, foliageDensity: 1, sceneryDensity: 1, viewDistance: 230, dust: 1.3, waterDetail: 2 },
+};
+
+/** A first guess before any frame has been timed. The frame-time governor refines it. */
+export function detectQuality(): QualityLevel {
+  const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || matchMedia('(pointer: coarse)').matches;
+  const cores = navigator.hardwareConcurrency ?? 4;
+  if (mobile) return cores >= 8 ? 'medium' : 'low';
+  return cores >= 8 ? 'high' : 'medium';
+}
