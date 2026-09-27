@@ -1,6 +1,7 @@
 import { multiplierAt } from '../engine/curve';
 import { payout } from '../engine/money';
 import type { AudioEngine } from '../audio/engine';
+import { haptic, type Haptic } from '../audio/feedback';
 import type { Game } from '../render/game';
 import type { RoundService } from '../service/RoundService';
 import { ServiceError } from '../service/RoundService';
@@ -97,6 +98,7 @@ export class Controller {
       this.game.lead();
       this.audio.setScene('lead');
       this.audio.ui('bet');
+      this.buzz('bet');
       // Flip to "running" exactly at the server's start time.
       const wait = Math.max(0, round.runStartsAt - this.service.serverNow());
       setTimeout(() => {
@@ -104,6 +106,7 @@ export class Controller {
         if (s.phase === 'lead' && s.live?.id === round.id) {
           s.set({ phase: 'running' });
           this.audio.setScene('run');
+          this.buzz('go');
         }
       }, wait);
     } catch (e) {
@@ -117,6 +120,7 @@ export class Controller {
     if (st.phase !== 'running' || !st.live) return;
     st.set({ phase: 'cashing' });
     this.audio.ui('cashout');
+    this.buzz('press');
     try {
       const r = await this.service.cashout(st.live.id);
       this.settle(r.settled, r.balance, r.nextCommitment, r.settled.nonce + 1);
@@ -150,10 +154,18 @@ export class Controller {
       this.game.live.mult = (round.cashoutMult ?? 100) / 100;
       this.game.cashout();
       this.audio.setScene('escaped');
+      this.buzz('cashout');
     } else {
       this.game.crash(round.crash, round.id);
       this.audio.setScene('fallen');
+      this.buzz('crash');
     }
+  }
+
+  /** Haptic feedback on phones; off with reduced motion. Presentation only. */
+  buzz(kind: Haptic): void {
+    if (useStore.getState().settings.motion === 'reduced') return;
+    haptic(kind);
   }
 
   async setClientSeed(seed: string): Promise<boolean> {
