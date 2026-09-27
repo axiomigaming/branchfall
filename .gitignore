@@ -6,3 +6,6 @@ dist/
 .DS_Store
 client/dist/
 scratch/
+causeway/node_modules/
+causeway/dist/
+causeway/blender/cache/
