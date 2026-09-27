@@ -244,9 +244,6 @@ def surf(origin, direction, off=0.0):
 def body_region(c):
     if c.z > 1.47 and abs(c.x) < 0.075:
         return SKIN, M_SKIN
-    # Open collar: a V of skin at the throat.
-    if c.y > 0.05 and c.z > 1.38 and abs(c.x) < 0.045 * (c.z - 1.38) / 0.08:
-        return SKIN, M_SKIN
     armx = 0.212 if c.z < 1.0 else 0.196
     if abs(c.x) > armx and 0.84 < c.z < 1.21:
         return SKIN, M_SKIN
@@ -519,10 +516,14 @@ def head_offset(p):
     q.y += 0.012 * gauss(x * x + (z + 0.097) ** 2, 0.018) * fy
     if fy > 0.35:
         # Brow ridge.
-        q.y += 0.009 * math.exp(-((z - 0.031) / 0.012) ** 2) * math.exp(-(x / 0.052) ** 4)
+        q.y += 0.013 * math.exp(-((z - 0.032) / 0.012) ** 2) * math.exp(-(x / 0.05) ** 4)
+        # Temples and the hollows under the cheekbones.
+        for sx in (-1, 1):
+            q += Vector((sx, 0.3, 0)) * -0.005 * gauss((x - sx * 0.062) ** 2 + (z - 0.03) ** 2, 0.014)
+            q.y -= 0.006 * gauss((x - sx * 0.042) ** 2 + (z + 0.045) ** 2, 0.012)
         # Eye sockets.
         for sx in (-1, 1):
-            q.y -= 0.01 * gauss((x - sx * 0.031) ** 2 + (z - 0.007) ** 2, 0.012)
+            q.y -= 0.015 * gauss((x - sx * 0.031) ** 2 + (z - 0.008) ** 2, 0.012)
         # Nose: bridge rising to the tip, wings either side.
         if -0.05 < z < 0.03:
             u = (0.025 - z) / 0.06  # 0 at bridge, 1 at tip
@@ -533,7 +534,7 @@ def head_offset(p):
             q.y += 0.009 * gauss((x - sx * 0.014) ** 2 + (z + 0.034) ** 2, 0.007)
         # Cheekbones.
         for sx in (-1, 1):
-            q += Vector((sx * 0.4, 0.6, 0)) * 0.006 * gauss((x - sx * 0.05) ** 2 + (z + 0.008) ** 2, 0.016)
+            q += Vector((sx * 0.4, 0.6, 0)) * 0.011 * gauss((x - sx * 0.05) ** 2 + (z + 0.01) ** 2, 0.015)
         # Lips and the mouth line.
         q.y += 0.006 * math.exp(-(x / 0.021) ** 4) * math.exp(-((z + 0.06) / 0.009) ** 2)
         q.y -= 0.003 * math.exp(-(x / 0.019) ** 4) * math.exp(-((z + 0.0625) / 0.0022) ** 2)
@@ -546,9 +547,9 @@ def hairline(q):
     d = Vector((x / HR.x, y / HR.y, z / HR.z)).normalized()
     front = smooth((d.y - 0.1) / 0.6)
     temple = 0.05 * smooth((abs(x) - 0.02) / 0.04)
-    h_front = 0.066 - temple * 0.25 + 0.004 * math.sin(x * 160)
+    h_front = 0.066 - temple * 0.25
     h_side = 0.028 - 0.035 * smooth((-d.y + 0.2) / 0.9)  # down to the nape at the back
-    return h_side + (h_front - h_side) * front + 0.006 * noise.noise(Vector(q) * 60)
+    return h_side + (h_front - h_side) * front + 0.002 * noise.noise(Vector(q) * 25)
 
 
 def build_head(bm):
@@ -581,7 +582,7 @@ def head_paint(c):
     q = c - HC
     x, y, z = q
     d = Vector((x / HR.x, y / HR.y, z / HR.z))
-    if z > hairline(q) - 0.004:
+    if z > hairline(q) + 0.006:
         return HAIR, M_HAIR
     if d.y > 0.5:
         if 0.025 < z < 0.035 - 0.12 * max(0.0, abs(x) - 0.03) and 0.012 < abs(x) < 0.052:
@@ -612,15 +613,14 @@ def head_surf(x, z, off=0.0):
 
 # Hair: a shell over the scalp, thick and tousled on top, feathered to nothing at the hairline.
 def build_hair(bm):
+    """A shell over the scalp whose thickness is a signed function of the distance above the
+    hairline: below it the shell dips under the skin, so the visible edge is the smooth curve where
+    the shell meets the head, not the stair-step of the face boundary."""
     src = HEAD_BM.copy()
     src.normal_update()
-    keep = set()
-    for f in src.faces:
-        c = f.calc_center_median() - HC
-        if c.z > hairline(c) - 0.002:
-            keep.add(f)
     for f in list(src.faces):
-        if f not in keep:
+        c = f.calc_center_median() - HC
+        if c.z < hairline(c) - 0.03:
             src.faces.remove(f)
     for v in list(src.verts):
         if not v.link_faces:
@@ -628,15 +628,14 @@ def build_hair(bm):
     src.normal_update()
     for v in src.verts:
         q = v.co - HC
-        edge = v.is_boundary
+        above = q.z - hairline(q)
         top = smooth((q.z - 0.02) / 0.09)
         tuft = 0.5 + 0.5 * noise.noise(q * 55)
-        thick = 0.006 + 0.012 * top + 0.009 * tuft * (0.4 + top)
-        # Swept back from the forehead, a little fuller over the ears.
-        if edge:
-            thick = 0.0015
+        full = 0.006 + 0.012 * top + 0.009 * tuft * (0.4 + top)
+        k = max(-1.0, min(1.0, above / 0.014))
+        thick = full * smooth(k) if k > 0 else 0.004 * k
         v.co += v.normal * thick
-        if not edge and q.y > 0.02 and q.z > 0.04:
+        if k > 0.5 and q.y > 0.02 and q.z > 0.04:
             v.co.y -= 0.004 * top
             v.co.z += 0.004
     _merge(bm, src)
@@ -750,8 +749,13 @@ def build_boot_L(bm, part):
             rounded_box((0.052, 0.006, 0.0055), (0.112, y + 0.004, z + 0.002), 0.002, 1, rot=(0.3 + k * 0.12, 0, 0.35 if k % 2 else -0.35))(bm)
         return
     # Sole with a stacked heel.
-    rounded_box((0.108, 0.285, 0.022), (0.112, 0.058, 0.011), 0.009, 2)(bm)
-    rounded_box((0.1, 0.08, 0.03), (0.112, -0.042, 0.015), 0.008, 2)(bm)
+    def sole_shape(co):
+        # The upper's footprint plus a small welt: heel squared off, toe narrowed.
+        if co.y < -0.08:
+            co.y = -0.08 + (co.y + 0.08) * 0.5
+        co.x *= 1 - 0.1 * smooth((co.y - 0.07) / 0.07)
+    ellipsoid((0.112, 0.06, 0.012), (0.056, 0.146, 0.012), seg=16, rings=6, shape=sole_shape)(bm)
+    rounded_box((0.08, 0.056, 0.026), (0.112, -0.04, 0.014), 0.008, 2)(bm)
 
 
 for s, sx in (("L", 1), ("R", -1)):
@@ -972,7 +976,7 @@ hmap.inputs["Scale"].default_value = (70.0, 70.0, 14.0)
 L(nt, tc.outputs["Object"], hmap.inputs["Vector"])
 hn = N(nt, "ShaderNodeTexNoise", Scale=2.0, Detail=4.0)
 L(nt, hmap.outputs[0], hn.inputs["Vector"])
-col = mix(nt, msep.outputs[2], col, mix(nt, 1.0, col, ramp(nt, hn.outputs[0], [(0.35, (0.6, 0.6, 0.6)), (0.65, (1.35, 1.25, 1.15))]), "MULTIPLY"), "MIX")
+col = mix(nt, msep.outputs[2], col, mix(nt, 1.0, col, ramp(nt, hn.outputs[0], [(0.35, (0.72, 0.72, 0.72)), (0.65, (1.12, 1.08, 1.04))]), "MULTIPLY"), "MIX")
 # Stubble: fine dark speckle.
 sn = N(nt, "ShaderNodeTexNoise", Scale=900.0, Detail=1.0)
 L(nt, tc.outputs["Object"], sn.inputs["Vector"])
