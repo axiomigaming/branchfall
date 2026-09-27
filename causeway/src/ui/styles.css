@@ -123,7 +123,7 @@ button { cursor: pointer; }
 .btn:disabled > * { opacity: 0.55; }
 /* focus: the plaque itself takes a gold halo that follows its cut outline */
 .btn:focus-visible { outline: none; }
-.btn:focus-visible::before { filter: drop-shadow(0 0 1.5px var(--gold-hi)) drop-shadow(0 0 1.5px var(--gold-hi)) drop-shadow(0 0 10px rgba(246, 213, 142, 0.7)); }
+.btn:focus-visible::before { filter: drop-shadow(0 0 2px #fff0c4) drop-shadow(0 0 2px var(--gold-hi)) drop-shadow(0 0 12px rgba(246, 213, 142, 0.85)); }
 
 /* Engraved, gilt lettering: the label reads as gold set into the stone. */
 .btn-label {
