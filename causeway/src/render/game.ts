@@ -91,7 +91,8 @@ export class Game {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', stencil: false, depth: true });
     this.renderer.toneMapping = THREE.NoToneMapping;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.info.autoReset = false;
     this.rig = new CameraRig(canvas.clientWidth / Math.max(1, canvas.clientHeight));
   }
 
@@ -402,7 +403,7 @@ export class Game {
     const side = new THREE.Vector3(Math.cos(f.yaw), 0, -Math.sin(f.yaw)).multiplyScalar(foot === 'L' ? -0.13 : 0.13);
     const p = this.runner.root.position.clone().add(side);
     const wood = this.track.sectionAt(this.s)?.type === 'bridge';
-    this.particles.burst(p, 2 + k * 3, { spread: 0.25, up: 0.5 + k * 0.6, speed: 0.8 + k, size: 0.22 + k * 0.2, life: 0.9, color: wood ? DUST_DARK : DUST, alpha: 0.32, grow: 2.2 });
+    this.particles.burst(p, 1 + k * 2, { spread: 0.2, up: 0.35 + k * 0.4, speed: 0.6 + k * 0.6, size: 0.1 + k * 0.08, life: 0.7, color: wood ? DUST_DARK : DUST, alpha: 0.16, grow: 1.4 });
     this.sounds.footstep(k, wood ? 'wood' : 'stone');
   }
 
@@ -482,7 +483,7 @@ export class Game {
         this.tremor(I);
       }
     }
-    const dangerTarget = this.stage === 'run' ? Math.max(0, (I - 0.3) / 0.7) * 0.8 : 0;
+    const dangerTarget = this.stage === 'run' ? Math.max(0, (I - 0.35) / 0.65) * 0.55 : 0;
     this.fx.danger += (dangerTarget - this.fx.danger) * (1 - Math.exp(-dt * 2));
     const coldTarget = this.stage === 'crash' ? Math.min(0.85, this.stageT * 0.7) : 0;
     this.fx.cold += (coldTarget - this.fx.cold) * (1 - Math.exp(-rawDt * 3));
@@ -535,7 +536,7 @@ export class Game {
 
     // Keep the runner sharp in the blur: project the chest to screen.
     const chest = rp.clone().setY(rp.y + 1.05).project(cam);
-    const speedBlur = this.motion === 'reduced' ? 0 : Math.min(1, Math.max(0, (this.speed - 3.5) / 9));
+    const speedBlur = this.motion === 'reduced' ? 0 : Math.min(1, Math.max(0, (this.speed - 4) / 10));
     this.post.apply({
       speed: speedBlur,
       runnerScreen: new THREE.Vector2(chest.x * 0.5 + 0.5, chest.y * 0.5 + 0.5),
@@ -548,6 +549,7 @@ export class Game {
     });
     this.sounds.run(I, this.stage === 'run', this.speed);
     if (!render) return;
+    this.renderer.info.reset();
     this.post.render(rawDt);
     this.govern(performance.now() - t0, rawDt);
   }
@@ -602,6 +604,29 @@ export class Game {
   debugAdvance(metres: number): void {
     this.s += metres;
     this.track.update(this.s, 0.5);
+  }
+
+  /** Triangles by mesh name, split into what the camera sees and what it does not. */
+  debugTriangles() {
+    const cam = this.rig.camera;
+    cam.updateMatrixWorld();
+    const fr = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
+    const out: Record<string, { visible: number; hidden: number; shadow: number }> = {};
+    this.scene.updateMatrixWorld(true);
+    this.scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || !m.geometry.index) return;
+      let tris = m.geometry.index.count / 3;
+      if ((m as THREE.InstancedMesh).isInstancedMesh) tris *= (m as THREE.InstancedMesh).count;
+      const key = m.name.split(':')[0]!.split('|').join('.') || 'anon';
+      out[key] ??= { visible: 0, hidden: 0, shadow: 0 };
+      if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere();
+      const sph = m.geometry.boundingSphere!.clone().applyMatrix4(m.matrixWorld);
+      const vis = !m.frustumCulled || fr.intersectsSphere(sph);
+      out[key]![vis ? 'visible' : 'hidden'] += tris;
+      if (m.castShadow) out[key]!.shadow += tris;
+    });
+    return out;
   }
 
   get debugState() {

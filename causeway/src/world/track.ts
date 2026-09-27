@@ -60,10 +60,13 @@ const TILE_CAPACITY: Record<string, number> = {
   stairs_0: 8,
 };
 
-/** Walkable tiles, drawn as one InstancedMesh per piece so any tile can be removed on its own. */
+/**
+ * Walkable tiles, drawn as one InstancedMesh per piece so any tile can be removed on its own.
+ * Instances stay densely packed (swap-remove), so the GPU draws exactly the live tiles.
+ */
 class TileSystem {
   readonly meshes = new Map<string, THREE.InstancedMesh>();
-  private free = new Map<string, number[]>();
+  private owners = new Map<string, TileSlot[]>();
   private static ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 
   constructor(kit: Kit, parent: THREE.Object3D) {
@@ -75,35 +78,52 @@ class TileSystem {
       m.receiveShadow = true;
       m.castShadow = true;
       m.frustumCulled = false;
-      for (let i = 0; i < cap; i++) m.setMatrixAt(i, TileSystem.ZERO);
+      m.count = 0;
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       parent.add(m);
       this.meshes.set(piece, m);
-      this.free.set(piece, Array.from({ length: cap }, (_, i) => cap - 1 - i));
+      this.owners.set(piece, []);
     }
   }
 
-  alloc(piece: string, world: THREE.Matrix4): number {
-    const f = this.free.get(piece);
-    const mesh = this.meshes.get(piece);
-    if (!f || !mesh || f.length === 0) return -1;
-    const i = f.pop()!;
-    mesh.setMatrixAt(i, world);
-    mesh.instanceMatrix.needsUpdate = true;
-    return i;
-  }
-
-  hide(piece: string, i: number): void {
-    const mesh = this.meshes.get(piece);
-    if (!mesh || i < 0) return;
-    mesh.setMatrixAt(i, TileSystem.ZERO);
+  alloc(slot: TileSlot): void {
+    const mesh = this.meshes.get(slot.piece);
+    const owners = this.owners.get(slot.piece);
+    if (!mesh || !owners || mesh.count >= mesh.instanceMatrix.count) {
+      slot.index = -1;
+      return;
+    }
+    slot.index = mesh.count++;
+    owners[slot.index] = slot;
+    mesh.setMatrixAt(slot.index, slot.world);
     mesh.instanceMatrix.needsUpdate = true;
   }
 
-  release(piece: string, i: number): void {
-    if (i < 0) return;
-    this.hide(piece, i);
-    this.free.get(piece)?.push(i);
+  hide(slot: TileSlot): void {
+    const mesh = this.meshes.get(slot.piece);
+    if (!mesh || slot.index < 0) return;
+    mesh.setMatrixAt(slot.index, TileSystem.ZERO);
+    mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  release(slot: TileSlot): void {
+    const mesh = this.meshes.get(slot.piece);
+    const owners = this.owners.get(slot.piece);
+    if (!mesh || !owners || slot.index < 0) return;
+    const last = mesh.count - 1;
+    const moved = owners[last]!;
+    if (moved !== slot) {
+      // Move the last live instance into the hole, keeping its visibility.
+      const tmp = new THREE.Matrix4();
+      mesh.getMatrixAt(last, tmp);
+      mesh.setMatrixAt(slot.index, tmp);
+      moved.index = slot.index;
+      owners[slot.index] = moved;
+    }
+    owners.length = last;
+    mesh.count = last;
+    slot.index = -1;
+    mesh.instanceMatrix.needsUpdate = true;
   }
 }
 
@@ -150,27 +170,33 @@ export class Track {
   private retired: THREE.Group[] = [];
 
   private mergeProps(layout: Layout): THREE.Group {
-    const byMat = new Map<string, THREE.BufferGeometry[]>();
-    for (const p of layout.props) {
-      const g = this.kit.geo.get(p.piece);
+    // Near the path (walls, pillars, arches) casts shadows; scenery out over the water does not,
+    // and is merged separately so both halves cull on their own tighter bounds.
+    const byKey = new Map<string, THREE.BufferGeometry[]>();
+    const p = new THREE.Vector3();
+    for (const pl of layout.props) {
+      const g = this.kit.geo.get(pl.piece);
       if (!g) {
-        if (import.meta.env.DEV) console.warn('missing piece', p.piece);
+        if (import.meta.env.DEV) console.warn('missing piece', pl.piece);
         continue;
       }
-      const key = this.kit.matOf.get(p.piece)!;
-      const c = g.clone().applyMatrix4(p.m);
-      if (!byMat.has(key)) byMat.set(key, []);
-      byMat.get(key)!.push(c);
+      p.setFromMatrixPosition(pl.m);
+      const far = Math.abs(p.x) > 7.5;
+      const key = `${this.kit.matOf.get(pl.piece)!}|${far ? 'far' : 'near'}`;
+      const c = g.clone().applyMatrix4(pl.m);
+      if (!byKey.has(key)) byKey.set(key, []);
+      byKey.get(key)!.push(c);
     }
     const group = new THREE.Group();
-    for (const [key, geos] of byMat) {
+    for (const [key, geos] of byKey) {
       const merged = mergeGeometries(geos, false);
       for (const g of geos) g.dispose();
       if (!merged) continue;
       merged.computeBoundingSphere();
-      const mesh = new THREE.Mesh(merged, this.kit.mat.get(key)!);
+      const [mat, zone] = key.split('|') as [string, string];
+      const mesh = new THREE.Mesh(merged, this.kit.mat.get(mat)!);
       mesh.name = key;
-      mesh.castShadow = key !== 'leaf' || true;
+      mesh.castShadow = zone === 'near';
       mesh.receiveShadow = true;
       group.add(mesh);
     }
@@ -249,12 +275,13 @@ export class Track {
     const p = new THREE.Vector3();
     for (const t of layout.tiles) {
       tmp.copy(world).multiply(t.m);
-      const idx = this.tiles.alloc(t.piece, tmp);
       // Tiles run 4 m along −Z from their origin (or +Z when rotated half a turn).
       p.setFromMatrixPosition(t.m);
       const flipped = Math.abs(Math.abs(new THREE.Euler().setFromRotationMatrix(t.m).y) - Math.PI) < 0.1;
       const near = flipped ? -p.z - 4 : -p.z;
-      inst.tiles.push({ piece: t.piece, index: idx, world: tmp.clone(), sNear: seg.s0 + near, sFar: seg.s0 + near + (t.piece === 'floor_wide_0' ? 8 : 4), alive: true });
+      const slot: TileSlot = { piece: t.piece, index: -1, world: tmp.clone(), sNear: seg.s0 + near, sFar: seg.s0 + near + (t.piece === 'floor_wide_0' ? 8 : 4), alive: true };
+      this.tiles.alloc(slot);
+      inst.tiles.push(slot);
     }
     this.sections.push(inst);
   }
@@ -262,7 +289,7 @@ export class Track {
   private despawn(s: SectionInstance): void {
     this.root.remove(s.root);
     for (const f of s.falls) f.geometry.dispose();
-    for (const t of s.tiles) this.tiles.release(t.piece, t.index);
+    for (const t of s.tiles) this.tiles.release(t);
     s.variant.inUse--;
   }
 
@@ -279,7 +306,7 @@ export class Track {
         if (!t.alive || t.sFar < sFrom || t.sNear > sTo) continue;
         if (t.piece === 'floor_wide_0' || t.piece.startsWith('stairs')) continue;
         t.alive = false;
-        this.tiles.hide(t.piece, t.index);
+        this.tiles.hide(t);
         out.push({ piece: t.piece, world: t.world });
       }
     }

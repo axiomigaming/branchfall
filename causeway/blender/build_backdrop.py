@@ -25,8 +25,8 @@ FAST = "--fast" in sys.argv
 sc = reset()
 rng = random.Random(11)
 
-SUN_EL = 14.0
-SUN_AZ = 62.0  # degrees from +X toward +Y (the run direction is +Y): ahead and to the right
+SUN_EL = 17.0
+SUN_AZ = 20.0  # degrees from +X toward +Y (the run direction is +Y): to the right, a little ahead
 SUN_ROT = 90.0 - SUN_AZ  # Nishita: dir = (sin r·cos e, cos r·cos e, sin e)
 
 # ---------------------------------------------------------------- world

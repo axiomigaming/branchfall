@@ -89,10 +89,10 @@ class GradeEffect extends Effect {
         vec3 c = inputColor.rgb;
         float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
         c = mix(vec3(l), c, saturation + gold * 0.15 - cold * 0.6);
-        c = (c - 0.5) * (contrast + danger * 0.12 + cold * 0.1) + 0.5;
+        c = (c - 0.5) * (contrast + danger * 0.06 + cold * 0.1) + 0.5;
         c *= tint;
         // Danger: embers in the highlights, a clamp in the shadows.
-        c = mix(c, c * vec3(1.12, 0.92, 0.8), danger * 0.55);
+        c = mix(c, c * vec3(1.1, 0.95, 0.86), danger * 0.4);
         // Fall: blue-grey and heavy.
         c = mix(c, c * vec3(0.78, 0.86, 1.0) * 0.8, cold);
         // Escape: honey light.
@@ -171,7 +171,7 @@ export class Post {
   apply(p: PostParams): void {
     if (this.blur) {
       const u = this.blur.uniforms;
-      u.get('strength')!.value = p.speed * 0.105;
+      u.get('strength')!.value = p.speed * 0.085;
       u.get('protectPos')!.value.copy(p.runnerScreen);
       u.get('fringe')!.value = 0.05 + p.speed * 0.08;
     }

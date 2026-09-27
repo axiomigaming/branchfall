@@ -58,6 +58,7 @@ export class CameraRig {
   }
 
   private targetPos = new THREE.Vector3();
+  private tmp = new THREE.Vector3();
   private targetLook = new THREE.Vector3();
   private fwd = new THREE.Vector3();
   private right = new THREE.Vector3();
@@ -88,10 +89,10 @@ export class CameraRig {
         break;
       }
       case 'run': {
-        const dist = 2.75 + 0.55 * I;
+        const dist = 2.7 + 0.45 * I;
         this.targetPos.copy(runnerPos).addScaledVector(this.fwd, -dist).setY(runnerPos.y + 1.68 - 0.1 * I);
         this.targetLook.copy(runnerPos).addScaledVector(this.fwd, 6.5).setY(runnerPos.y + 1.12);
-        fov = 58 + 16 * I;
+        fov = 57 + 12 * I;
         break;
       }
       case 'crash': {
@@ -100,10 +101,10 @@ export class CameraRig {
         const o = this.orbit;
         this.targetPos
           .copy(runnerPos)
-          .addScaledVector(this.fwd, -(3.0 + 2.2 * o))
-          .addScaledVector(this.right, this.side * (0.4 + 0.9 * o))
-          .setY(runnerPos.y + 1.9 + 2.9 * o);
-        this.targetLook.copy(runnerPos).lerp(this.focus, 0.55).setY(runnerPos.y + 0.5);
+          .addScaledVector(this.fwd, -(2.9 + 1.3 * o))
+          .addScaledVector(this.right, this.side * (0.4 + 0.8 * o))
+          .setY(runnerPos.y + 1.8 + 1.5 * o);
+        this.targetLook.copy(runnerPos).lerp(this.focus, 0.6).setY(runnerPos.y + 1.3);
         fov = 56;
         break;
       }
@@ -131,6 +132,11 @@ export class CameraRig {
     const fov = this.computeTarget(runnerPos, runnerYaw, intensity, dt);
     const stiff = this.mode === 'run' ? 7.5 : this.mode === 'title' ? 1.2 : 3.2;
     dampV(this.pos, this.targetPos, stiff, dt);
+    if (this.mode === 'run') {
+      // Hold the chase distance along the route exactly; springs only carry sway and height.
+      const along = this.tmp.copy(this.targetPos).sub(this.pos).dot(this.fwd);
+      this.pos.addScaledVector(this.fwd, along * (1 - Math.exp(-dt * 30)));
+    }
     dampV(this.look, this.targetLook, stiff * 1.4, dt);
     // Never let the lens dip under the runner's feet.
     this.pos.y = Math.max(this.pos.y, runnerPos.y + 0.6);
