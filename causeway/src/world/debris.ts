@@ -12,6 +12,8 @@ interface Body {
   splashed: boolean;
   age: number;
   settle: boolean;
+  /** Heavy bodies (a gate slab) land dead: one small recoil, no tumbling. */
+  heavy: boolean;
   onImpact?: (b: Body, speed: number) => void;
 }
 
@@ -39,7 +41,7 @@ export class Debris {
     vel: THREE.Vector3,
     spin: THREE.Vector3,
     ground: (x: number, z: number) => number | null,
-    opts: { settle?: boolean; scale?: number } = {},
+    opts: { settle?: boolean; scale?: number; heavy?: boolean } = {},
   ): THREE.Mesh | null {
     const geo = this.kit.geo.get(piece);
     if (!geo) return null;
@@ -49,7 +51,7 @@ export class Debris {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     this.root.add(mesh);
-    this.bodies.push({ mesh, vel: vel.clone(), spin: spin.clone(), ground, bounces: 0, splashed: false, age: 0, settle: opts.settle ?? false });
+    this.bodies.push({ mesh, vel: vel.clone(), spin: spin.clone(), ground, bounces: 0, splashed: false, age: 0, settle: opts.settle ?? false, heavy: opts.heavy ?? false });
     return mesh;
   }
 
@@ -68,8 +70,8 @@ export class Debris {
       if (ground !== null && m.position.y < ground && b.vel.y < 0 && !b.splashed) {
         const speed = -b.vel.y;
         m.position.y = ground;
-        if (speed > 2.5 && b.bounces < 2) {
-          b.vel.y = speed * 0.28;
+        if (speed > 2.5 && b.bounces < (b.heavy ? 1 : 2)) {
+          b.vel.y = speed * (b.heavy ? 0.05 : 0.28);
           b.vel.x *= 0.5;
           b.vel.z *= 0.5;
           b.spin.multiplyScalar(0.5);
