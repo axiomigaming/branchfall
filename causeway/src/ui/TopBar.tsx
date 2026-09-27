@@ -41,7 +41,7 @@ export function TopBar() {
       </button>
       <button className="history" onClick={() => open('history')} aria-label="Previous runs">
         {history.length === 0 ? (
-          <span className="chip" style={{ opacity: 0.6 }}>
+          <span className="chip none">
             No runs yet
           </span>
         ) : (
@@ -54,7 +54,9 @@ export function TopBar() {
       </button>
       <div className="top-right">
         <div className={`balance${bump ? ' bump' : ''}`} aria-live="polite">
-          <div className="k">Balance</div>
+          <div className="k">
+            <span className="k-demo">Demo </span>Balance
+          </div>
           <div className="v num">
             {formatCredits(balance)}
             <small>CR</small>

@@ -38,8 +38,9 @@ export function Title() {
             </p>
           ) : ready ? (
             <div className="title-actions">
-              <button className="btn btn-gold" onClick={enter} onMouseEnter={() => ctl?.audio.ui('hover')} autoFocus>
-                Enter the ruins
+              <button className="btn btn-gold enter-btn" onClick={enter} onMouseEnter={() => ctl?.audio.ui('hover')} autoFocus>
+                <span className="medal" aria-hidden />
+                <span className="btn-label">Enter the ruins</span>
               </button>
               <button
                 className="btn btn-ghost"
@@ -49,7 +50,7 @@ export function Title() {
                   set({ modal: 'how' });
                 }}
               >
-                How it works
+                <span className="btn-label">How it works</span>
               </button>
             </div>
           ) : (
