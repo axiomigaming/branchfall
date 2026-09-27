@@ -76,7 +76,7 @@ describe('return to player through the whole authority', () => {
     expect(settledPayout % (100 * (MAX_MULT / 100))).toBe(0);
   });
 
-  it('hand cash-outs are priced at the authority's multiplier and never above the fall point', () => {
+  it('hand cash-outs are priced at the authority multiplier and never above the fall point', () => {
     // Cash out by hand at arbitrary times; a paid cash-out is never above the round's fall point.
     const clock = new Clock();
     const server = new DemoCrashServer(clock, () => {}, 'edge-exact');
