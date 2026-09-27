@@ -487,10 +487,10 @@ export class Game {
     this.fx.danger += (dangerTarget - this.fx.danger) * (1 - Math.exp(-dt * 2));
     const coldTarget = this.stage === 'crash' ? Math.min(0.85, this.stageT * 0.7) : 0;
     this.fx.cold += (coldTarget - this.fx.cold) * (1 - Math.exp(-rawDt * 3));
-    const goldTarget = this.stage === 'cashout' ? (this.stageT < 1 ? 0.75 : 0.4) : 0;
+    const goldTarget = this.stage === 'cashout' ? (this.stageT < 1 ? 0.55 : 0.3) : 0;
     this.fx.gold += (goldTarget - this.fx.gold) * (1 - Math.exp(-rawDt * 3));
     this.fx.flash *= Math.exp(-rawDt * 6);
-    this.fx.bloom = this.stage === 'cashout' ? 0.5 * Math.exp(-this.stageT * 0.8) : this.fx.danger * 0.3;
+    this.fx.bloom = this.stage === 'cashout' ? 0.3 * Math.exp(-this.stageT * 1.2) : this.fx.danger * 0.25;
 
     if (this.gateLand && !this.gateLand.done && this.stageT > 0.9) this.gateLand.done = true;
 

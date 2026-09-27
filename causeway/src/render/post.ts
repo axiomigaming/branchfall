@@ -96,7 +96,7 @@ class GradeEffect extends Effect {
         // Fall: blue-grey and heavy.
         c = mix(c, c * vec3(0.78, 0.86, 1.0) * 0.8, cold);
         // Escape: honey light.
-        c = mix(c, c * vec3(1.12, 1.02, 0.82) + vec3(0.05, 0.035, 0.0), gold);
+        c = mix(c, c * vec3(1.1, 1.0, 0.84), gold);
         c += vec3(1.0, 0.92, 0.78) * flash;
         c = mix(c, vec3(0.03, 0.025, 0.02), fade);
         outputColor = vec4(max(c, 0.0), inputColor.a);

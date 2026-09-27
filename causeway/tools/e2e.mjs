@@ -64,7 +64,7 @@ for (const name of pick) {
   let after = await st();
   check('one settlement for three clicks', after.history === before.history + 1);
   check('balance = before − stake + payout', after.balance === before.balance - 1000 + after.result.payout, JSON.stringify(after.result));
-  check('early cash-out wins (or the run fell at 1.00×)', after.result.won || after.result.crash === 100);
+  check('early cash-out wins, or the way fell before the click landed', after.result.won || after.result.crash <= 130, JSON.stringify(after.result));
   await shot('3-result');
 
   // Resize during a round, then let it fall.
@@ -75,10 +75,12 @@ for (const name of pick) {
   await page.waitForTimeout(500);
   await page.setViewportSize({ width: vp.width, height: vp.height });
   await shot('4-running');
+  // Wait for this run to settle (a new history entry); if it was an auto/early win, run again.
   let r = await st();
   let guard = 0;
-  while (r.phase !== 'result' || r.result.won) {
-    if (r.phase === 'result') {
+  for (;;) {
+    if (r.phase === 'result' && r.history > before.history) {
+      if (!r.result.won) break;
       before = r;
       await page.keyboard.press('Space');
     }
