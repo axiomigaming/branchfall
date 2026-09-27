@@ -29,14 +29,21 @@ export function milestoneApproach(m: number): number {
   return 0;
 }
 
-/** HUD heat 0..1 from the multiplier (hundredths): 0 at 1×, ~0.5 at 5×, 1 at 50× and beyond. */
+/** HUD heat 0..1 from the multiplier (hundredths): 0 at 1×, ½ at 5×, 1 at 25× and beyond. */
 export function heatOf(m: number): number {
-  return Math.min(1, Math.max(0, Math.log(m / 100) / Math.log(50)));
+  return Math.min(1, Math.max(0, Math.log(m / 100) / Math.log(25)));
 }
 
-/** Coarse colour tier for the multiplier (hundredths). */
-export function tierOf(m: number): 0 | 1 | 2 | 3 | 4 {
-  return m >= 5000 ? 4 : m >= 1000 ? 3 : m >= 500 ? 2 : m >= 200 ? 1 : 0;
+/**
+ * Presentation tier for a multiplier (hundredths), shared with the world:
+ * 0 below 2×, 1 for 2–5×, 2 for 5–10×, 3 for 10–25×, 4 from 25×.
+ * Live cues use the current multiplier; a result uses the multiplier it settled at
+ * (the cash-out multiplier for an escape — never the fall point).
+ */
+export type Tier = 0 | 1 | 2 | 3 | 4;
+export const TIER_BOUNDS = [200, 500, 1000, 2500] as const;
+export function tierOf(m: number): Tier {
+  return m >= 2500 ? 4 : m >= 1000 ? 3 : m >= 500 ? 2 : m >= 200 ? 1 : 0;
 }
 
 /** Short label for a milestone flare. */

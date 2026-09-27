@@ -39,8 +39,8 @@
 }
 
 /* ------------------------------------------------------------------ the multiplier */
-.mult-wrap { position: relative; }
-.mult {
+.hud .mult-wrap { position: relative; }
+.hud .mult {
   --heat: 0;
   position: relative;
   font-family: var(--f-num);
@@ -61,19 +61,19 @@
   transition: color 0.35s, transform 0.5s var(--ease-out), filter 0.4s;
   white-space: nowrap;
 }
-.mult-glow { display: inline-block; transform-origin: 50% 60%; }
-.mult .mi { display: inline-block; }
-.mult .mf { display: inline-block; }
-.mult .x { font-size: 0.5em; font-weight: 600; margin-left: 0.04em; color: var(--gold); vertical-align: 0.62em; }
+.hud .mult-glow { display: inline-block; transform-origin: 50% 60%; }
+.hud .mult .mi { display: inline-block; }
+.hud .mult .mf { display: inline-block; }
+.hud .mult .x { font-size: 0.5em; font-weight: 600; margin-left: 0.04em; color: var(--gold); vertical-align: 0.62em; }
 /* Past 10x the × heats too; past 50x the whole figure runs hot. */
-.mult[data-tier='3'] .x, .mult[data-tier='4'] .x { color: #ffb36a; }
-.mult[data-tier='4'] { color: #ffcf7e; }
+.hud .mult[data-tier='3'] .x, .hud .mult[data-tier='4'] .x { color: #ffb36a; }
+.hud .mult[data-tier='4'] { color: #ffcf7e; }
 .hud.lead .mult { color: var(--bone-2); transform: none; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.25), 0 6px 40px rgba(0, 0, 0, 0.45); }
 /* Cash-out sent: the figure lifts and turns to gold while the server answers. */
 .hud.cashing .mult { color: var(--gold-hi); transform: translateY(-6px) scale(calc(1.02 + var(--heat) * 0.09)); text-shadow: 0 2px 0 rgba(0, 0, 0, 0.25), 0 0 50px rgba(246, 200, 110, 0.55); }
 
 /* Milestone ring: a carved circle that breathes out once. */
-.ring {
+.hud .ring {
   position: absolute;
   left: 50%;
   top: 52%;
@@ -87,7 +87,7 @@
   opacity: 0;
   pointer-events: none;
 }
-.flare {
+.hud .flare {
   font-family: var(--f-display);
   font-size: 15px;
   letter-spacing: 0.5em;
@@ -96,10 +96,10 @@
   text-shadow: 0 0 18px rgba(246, 190, 90, 0.7), 0 1px 10px rgba(0, 0, 0, 0.8);
   opacity: 0;
 }
-.getready { font-family: var(--f-display); letter-spacing: 0.38em; padding-left: 0.38em; text-transform: uppercase; font-size: 13px; color: var(--gold-hi); text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7); animation: pulse 1.1s ease-in-out infinite; }
+.hud .getready { font-family: var(--f-display); letter-spacing: 0.38em; padding-left: 0.38em; text-transform: uppercase; font-size: 13px; color: var(--gold-hi); text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7); animation: pulse 1.1s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.45; } }
 
-.hud-sub {
+.hud .hud-sub {
   margin-top: 14px;
   display: flex;
   flex-wrap: wrap;
@@ -111,17 +111,17 @@
   color: var(--bone-2);
   text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
 }
-.hud-sub span { display: inline-flex; align-items: baseline; }
-.hud-sub b { font-weight: 600; font-size: 20px; color: var(--bone); margin-left: 7px; letter-spacing: 0.02em; text-transform: none; }
-.hud-sub .ret b { color: var(--gold-hi); min-width: 3.2em; text-align: left; }
-.hud-sub .auto b { color: var(--jade); }
+.hud .hud-sub span { display: inline-flex; align-items: baseline; }
+.hud .hud-sub b { font-weight: 600; font-size: 20px; color: var(--bone); margin-left: 7px; letter-spacing: 0.02em; text-transform: none; }
+.hud .hud-sub .ret b { color: var(--gold-hi); min-width: 3.2em; text-align: left; }
+.hud .hud-sub .auto b { color: var(--jade); }
 .hud.lead .hud-sub { opacity: 0.7; }
 
 /* ------------------------------------------------------------------ result plates */
 .result { animation: resultIn 0.7s var(--ease-out); }
 @keyframes resultIn { from { opacity: 0; } }
 .result .eyebrow { font-size: 14px; letter-spacing: 0.42em; padding-left: 0.42em; text-shadow: 0 1px 14px rgba(0, 0, 0, 0.8); font-weight: 600; }
-.result .big { position: relative; font-family: var(--f-num); font-weight: 800; font-size: clamp(76px, 11vw, 150px); line-height: 0.86; letter-spacing: -0.005em; font-variant-numeric: tabular-nums lining-nums; white-space: nowrap; }
+.result .big { --fit: calc((100vw - 32px) / (var(--chars, 6) * 0.42)); position: relative; font-family: var(--f-num); font-weight: 800; font-size: min(clamp(76px, 11vw, 150px), var(--fit)); line-height: 0.86; letter-spacing: -0.005em; font-variant-numeric: tabular-nums lining-nums; white-space: nowrap; }
 .result .line { margin-top: 16px; font-size: 16px; color: var(--bone-2); text-shadow: 0 1px 12px rgba(0, 0, 0, 0.75); display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 2px 8px; }
 .result .line b { font-size: 20px; color: var(--bone); font-weight: 600; }
 .result .line b.gold { color: var(--gold-hi); }
@@ -148,7 +148,7 @@
 @keyframes lateIn { from { opacity: 0; transform: translateY(6px); } }
 
 /* Escaped: a carved stamp, a warm lift, the payout counting up to the settled amount. */
-.stamp {
+.result .stamp {
   font-family: var(--f-display);
   text-transform: uppercase;
   font-size: 14px;
@@ -162,10 +162,10 @@
   transform: rotate(-2deg);
   animation: stampIn 0.5s cubic-bezier(0.3, 1.5, 0.5, 1) 0.18s both;
 }
-.stamp-note { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--bone-3); text-shadow: 0 1px 10px rgba(0, 0, 0, 0.8); animation: lateIn 0.5s var(--ease-out) 0.6s both; }
+.result .stamp-note { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--bone-3); text-shadow: 0 1px 10px rgba(0, 0, 0, 0.8); animation: lateIn 0.5s var(--ease-out) 0.6s both; }
 @keyframes stampIn { from { opacity: 0; transform: rotate(-2deg) scale(1.9); filter: blur(3px); } 60% { opacity: 1; filter: none; } }
 .result.won .big { color: var(--gold-hi); text-shadow: 0 2px 0 rgba(0, 0, 0, 0.28), 0 6px 34px rgba(0, 0, 0, 0.45), 0 0 44px rgba(246, 190, 90, 0.45); animation: liftIn 0.9s var(--ease-out) both; }
-.result.won .big .amount { position: relative; display: inline-block; }
+.result.won .big .payout-fig { position: relative; display: inline-block; }
 @keyframes liftIn { from { transform: translateY(10px) scale(0.96); filter: brightness(1.6); } 35% { filter: brightness(1.35); } }
 .result.won .hud-slot { transform: translateY(-9px); }
 .result.won .halo {
@@ -184,17 +184,27 @@
 }
 @keyframes haloOut { from { transform: translate(-50%, -50%) scale(0.5); opacity: 0.9; } }
 
+/* Scale with the settled multiplier (tiers: <2, 2-5, 5-10, 10-25, 25+). */
+.result.won[data-grade='0'] .halo { display: none; }
+.result.won[data-grade='0'] .big { text-shadow: 0 2px 0 rgba(0, 0, 0, 0.28), 0 6px 34px rgba(0, 0, 0, 0.45), 0 0 26px rgba(246, 190, 90, 0.28); }
+.result.won[data-grade='0'] .stamp { animation-duration: 0.35s; }
+.result.won[data-grade='1'] .halo { border-color: rgba(159, 230, 198, 0.35); }
+.result.won[data-grade='3'] .big, .result.won[data-grade='4'] .big { text-shadow: 0 2px 0 rgba(0, 0, 0, 0.28), 0 6px 34px rgba(0, 0, 0, 0.45), 0 0 60px rgba(246, 190, 90, 0.6); }
+.result.won .halo.h2 { border-color: rgba(246, 213, 142, 0.5); box-shadow: 0 0 40px rgba(246, 190, 90, 0.35); animation-delay: 0.4s; animation-duration: 1.6s; }
+.result.won[data-grade='4'] .stamp { color: var(--gold-hi); border-color: rgba(246, 213, 142, 0.8); background: rgba(40, 28, 10, 0.4); box-shadow: inset 0 0 0 3px rgba(10, 8, 5, 0.35), inset 0 0 0 4px rgba(246, 213, 142, 0.3), 0 0 30px rgba(246, 190, 90, 0.4); }
+.result.won[data-grade='4'] .big { animation-duration: 1.4s; }
+
 /* The way fell: the figure flashes hot, cracks along a fault and cools to a dull ember. */
 .result.lost .eyebrow { color: #ff9774; }
 .result.lost .big { color: #e9d2c8; }
-.crack { display: inline-block; }
-.crack .half { display: block; }
-.crack .half.a {
+.result .crack { display: inline-block; }
+.result .crack .half { display: block; }
+.result .crack .half.a {
   clip-path: polygon(0 0, 100% 0, 100% 45%, 88% 40%, 76% 51%, 63% 43%, 52% 56%, 39% 47%, 27% 58%, 14% 52%, 0 63%);
   transform: translate(-1px, -1px);
   animation: coolA 1.9s var(--ease-out) both;
 }
-.crack .half.b {
+.result .crack .half.b {
   position: absolute;
   inset: 0;
   clip-path: polygon(0 63%, 14% 52%, 27% 58%, 39% 47%, 52% 56%, 63% 43%, 76% 51%, 88% 40%, 100% 45%, 100% 100%, 0 100%);
@@ -202,7 +212,7 @@
   color: #d6bdb2;
   animation: coolB 1.9s var(--ease-out) both;
 }
-.crack .half { text-shadow: 0 2px 0 rgba(0, 0, 0, 0.3), 0 6px 34px rgba(0, 0, 0, 0.5), 0 0 26px rgba(239, 106, 69, 0.22); }
+.result .crack .half { text-shadow: 0 2px 0 rgba(0, 0, 0, 0.3), 0 6px 34px rgba(0, 0, 0, 0.5), 0 0 26px rgba(239, 106, 69, 0.22); }
 @keyframes coolA {
   from { transform: none; color: #fff0d0; text-shadow: 0 0 30px rgba(255, 120, 60, 0.95), 0 0 60px rgba(255, 90, 40, 0.6); }
   12% { transform: translate(0, 0); color: #ffb07a; }
@@ -215,8 +225,8 @@
   24% { transform: translate(3px, 5px) rotate(0.8deg); }
   45% { color: #f07a52; text-shadow: 0 0 26px rgba(239, 106, 69, 0.6); }
 }
-.crack .fault { position: absolute; inset: -4% -3%; width: 106%; height: 108%; overflow: visible; pointer-events: none; }
-.crack .fault polyline {
+.result .crack .fault { position: absolute; inset: -4% -3%; width: 106%; height: 108%; overflow: visible; pointer-events: none; }
+.result .crack .fault polyline {
   fill: none;
   stroke: rgba(255, 150, 100, 0.55);
   stroke-width: 1.5;
@@ -228,26 +238,32 @@
   filter: drop-shadow(0 0 4px rgba(255, 110, 60, 0.8));
   animation: fault 1.8s var(--ease-out) both;
 }
+/* A fall at 1x is over quickly; a fall from 10x up burns longer and stays warmer. */
+.result.lost[data-grade='0'] .crack .half, .result.lost[data-grade='0'] .crack .fault polyline { animation-duration: 1s; }
+.result.lost[data-grade='3'] .crack .half, .result.lost[data-grade='4'] .crack .half { animation-duration: 2.8s; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.3), 0 6px 34px rgba(0, 0, 0, 0.5), 0 0 34px rgba(239, 106, 69, 0.38); }
+.result.lost[data-grade='3'] .crack .fault polyline, .result.lost[data-grade='4'] .crack .fault polyline { animation-duration: 2.6s; opacity: 0.5; }
 @keyframes fault { from { stroke-dashoffset: 160; opacity: 1; stroke: #fff0d0; } 14% { stroke-dashoffset: 0; opacity: 1; } }
 
 /* ------------------------------------------------------------------ small screens */
 @media (max-width: 760px) {
   .hud, .result { --hud-top: 15vh; --slot-h: 24px; }
-  .mult, .ring, .result .big { font-size: clamp(64px, 21vw, 104px); }
-  .hud-sub { font-size: 11px; gap: 2px 16px; margin-top: 12px; }
-  .hud-sub b { font-size: 18px; margin-left: 5px; }
+  .hud .mult, .hud .ring { font-size: clamp(64px, 21vw, 104px); }
+  .result .big { font-size: min(clamp(64px, 21vw, 104px), var(--fit)); }
+  .hud .hud-sub { font-size: 11px; gap: 2px 16px; margin-top: 12px; }
+  .hud .hud-sub b { font-size: 18px; margin-left: 5px; }
   .result .line { font-size: 14px; margin-top: 12px; }
   .result .line b { font-size: 17px; }
-  .result .eyebrow, .stamp { font-size: 12px; }
+  .result .eyebrow, .result .stamp { font-size: 12px; }
 }
 /* Landscape phones: little height; sit the number just under the top bar and keep it compact. */
 @media (max-height: 520px) and (orientation: landscape) {
   .hud, .result { --hud-top: 0px; --slot-h: 20px; top: calc(var(--safe-t) + 78px); }
-  .mult, .ring, .result .big { font-size: clamp(48px, 17vh, 76px); }
-  .hud-sub { margin-top: 8px; font-size: 11px; }
-  .hud-sub b { font-size: 16px; }
+  .hud .mult, .hud .ring { font-size: clamp(48px, 17vh, 76px); }
+  .result .big { font-size: min(clamp(48px, 17vh, 76px), var(--fit)); }
+  .hud .hud-sub { margin-top: 8px; font-size: 11px; }
+  .hud .hud-sub b { font-size: 16px; }
   .result .line { margin-top: 6px; font-size: 13px; }
   .result .line b { font-size: 15px; }
   .result .verify { margin-top: 2px; min-height: 32px; }
-  .result .eyebrow, .stamp { font-size: 11px; }
+  .result .eyebrow, .result .stamp { font-size: 11px; }
 }

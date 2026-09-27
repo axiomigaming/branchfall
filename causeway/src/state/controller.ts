@@ -119,10 +119,12 @@ export class Controller {
     const st = useStore.getState();
     if (st.phase !== 'running' || !st.live) return;
     st.set({ phase: 'cashing' });
+    // Send first; the click and the buzz answer the press without delaying the request.
+    const req = this.service.cashout(st.live.id);
     this.audio.ui('cashout');
     this.buzz('press');
     try {
-      const r = await this.service.cashout(st.live.id);
+      const r = await req;
       this.settle(r.settled, r.balance, r.nextCommitment, r.settled.nonce + 1);
     } catch (e) {
       // Lost the race to the fall (or already settled by auto cash-out): the push carries the truth.
@@ -150,6 +152,8 @@ export class Controller {
       result: { round, won },
       history: [round, ...st.history.filter((h) => h.id !== round.id)].slice(0, 60),
     });
+    // Size the stinger: the cash-out multiplier for an escape (never the fall point), the fall point for a fall.
+    this.audio.outcome(won ? (round.cashoutMult ?? 100) : round.crash);
     if (won) {
       this.game.live.mult = (round.cashoutMult ?? 100) / 100;
       this.game.cashout();

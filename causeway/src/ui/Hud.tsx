@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { countUp, heatOf, milestoneCrossed, milestoneLabel, tierOf } from '../audio/feedback';
 import { formatCredits, formatMult } from '../engine/money';
 import { useStore } from '../state/store';
@@ -171,11 +171,11 @@ export function ResultPlate() {
   if (result.won) return <WonPlate key={r.id} stake={r.stake} payout={r.payout} mult={r.cashoutMult ?? 100} auto={r.auto} verify={verify} />;
   const m = `${formatMult(r.crash)}×`;
   return (
-    <div className="result lost" role="status" key={r.id}>
+    <div className="result lost" role="status" key={r.id} data-grade={tierOf(r.crash)}>
       <div className="hud-slot">
         <span className="eyebrow">The way fell</span>
       </div>
-      <div className="big num crack" aria-label={m}>
+      <div className="big num crack" aria-label={m} style={{ '--chars': m.length } as CSSProperties}>
         <span className="half a" aria-hidden="true">
           {m}
         </span>
@@ -199,6 +199,8 @@ function WonPlate({ stake, payout, mult, auto, verify }: { stake: number; payout
   const motion = useStore((s) => s.settings.motion);
   const bigRef = useRef<HTMLSpanElement>(null);
   const profit = payout - stake;
+  // Scaled by the multiplier the player left at: a 1.2x escape is modest, a 50x one is grand.
+  const grade = tierOf(mult);
 
   useEffect(() => {
     const el = bigRef.current;
@@ -206,7 +208,7 @@ function WonPlate({ stake, payout, mult, auto, verify }: { stake: number; payout
     if (!el || motion !== 'full') return () => clearTimeout(stampT);
     // Count from the stake up to the payout; lands exactly on the settled amount.
     const t0 = performance.now();
-    const dur = Math.min(1300, 650 + Math.log10(Math.max(10, payout / Math.max(1, stake))) * 450);
+    const dur = 600 + grade * 260;
     let raf = 0;
     const step = () => {
       const k = (performance.now() - t0) / dur;
@@ -218,10 +220,10 @@ function WonPlate({ stake, payout, mult, auto, verify }: { stake: number; payout
       cancelAnimationFrame(raf);
       clearTimeout(stampT);
     };
-  }, [ctl, motion, payout, stake]);
+  }, [ctl, motion, payout, stake, grade]);
 
   return (
-    <div className="result won" role="status">
+    <div className="result won" role="status" data-grade={grade}>
       <span className="sr">
         Escaped at {formatMult(mult)}×. Paid {formatCredits(payout)}, profit {formatCredits(profit)}.
       </span>
@@ -229,9 +231,10 @@ function WonPlate({ stake, payout, mult, auto, verify }: { stake: number; payout
         <span className="stamp">Escaped</span>
         {auto && <span className="stamp-note">auto cash-out</span>}
       </div>
-      <div className="big num" aria-hidden="true">
+      <div className="big num" aria-hidden="true" style={{ '--chars': formatCredits(payout).length + 1 } as CSSProperties}>
         <span className="halo" />
-        <span className="amount" ref={bigRef}>
+        {grade >= 3 && <span className="halo h2" />}
+        <span className="payout-fig" ref={bigRef}>
           +{formatCredits(payout)}
         </span>
       </div>

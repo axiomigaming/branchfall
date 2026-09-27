@@ -54,8 +54,8 @@ describe('heat and tiers', () => {
     expect(heatOf(5000)).toBe(1);
     expect(heatOf(1_000_000)).toBe(1);
   });
-  it('tiers step at the milestones', () => {
-    expect([100, 199, 200, 500, 1000, 5000].map(tierOf)).toEqual([0, 0, 1, 2, 3, 4]);
+  it('tiers step at the shared boundaries: <2, 2–5, 5–10, 10–25, 25+', () => {
+    expect([100, 199, 200, 499, 500, 999, 1000, 2499, 2500, 5000].map(tierOf)).toEqual([0, 0, 1, 1, 2, 2, 3, 3, 4, 4]);
   });
 });
 

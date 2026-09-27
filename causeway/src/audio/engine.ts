@@ -15,7 +15,7 @@
  * it depends on the hidden fall point.
  */
 import type { WorldSounds } from '../render/game';
-import { milestoneApproach } from './feedback';
+import { milestoneApproach, tierOf, type Tier } from './feedback';
 
 type Scene = 'title' | 'setup' | 'lead' | 'run' | 'escaped' | 'fallen';
 export type UiSound = 'hover' | 'tick' | 'press' | 'confirm' | 'bet' | 'cashout' | 'deny' | 'open' | 'close' | 'stamp';
@@ -78,6 +78,12 @@ export class AudioEngine implements WorldSounds {
   private riserFilter!: BiquadFilterNode;
   private riserToneGain!: GainNode;
   private riserOsc!: OscillatorNode;
+  /** Milestone cues ring through here so a settle can silence them at once. */
+  private cue!: GainNode;
+  /** The multiplier on screen (hundredths), fed per frame while running. */
+  private mult = 100;
+  /** Tier of the settled result, set just before crash()/escape() stage it. */
+  private grade: Tier = 0;
   private levels = { master: 0.8, music: 0.6, sfx: 0.85, muted: false };
   private lastHover = 0;
   private stepSide = 1;
@@ -126,6 +132,8 @@ export class AudioEngine implements WorldSounds {
     this.music.connect(this.master);
     this.sfx.connect(this.master);
     this.amb.connect(this.sfx);
+    this.cue = ctx.createGain();
+    this.cue.connect(this.sfx);
     // Two seconds of white noise, reused by every noisy voice.
     const len = ctx.sampleRate * 2;
     this.noise = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -540,6 +548,7 @@ export class AudioEngine implements WorldSounds {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
     const live = this.running && this.scene === 'run';
+    this.mult = live ? m : 100;
     const a = live ? milestoneApproach(m) : 0;
     const p = Math.max(0, (a - 0.55) / 0.45); // only the last stretch
     const shaped = p * p;
@@ -554,30 +563,56 @@ export class AudioEngine implements WorldSounds {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
     const semi = MILESTONE_BELL[Math.min(i, MILESTONE_BELL.length - 1)]!;
-    this.tone(t, 96, 0.9, 0.28, 'sine', this.sfx, 46, 0.004);
-    this.noiseHit(t, 0.9, 'highpass', 6500, 0.6, 0.03, this.music, undefined, 0.01);
-    this.bell(t, hz(semi + 24), 0.05, 2.2);
-    this.bell(t + 0.07, hz(semi + 31), 0.03, 1.8);
-    if (i >= 2) this.synth(t, hz(this.chord[0]! - 12), 1.6, 0.05, 700, this.music, { attack: 0.01, release: 1.2, toCutoff: 200, detune: 8 });
+    const k = 0.8 + Math.min(i, 5) * 0.08; // later marks ring a little fuller
+    this.tone(t, 96, 0.9, 0.26 * k, 'sine', this.cue, 46, 0.004);
+    this.noiseHit(t, 0.9, 'highpass', 6500, 0.6, 0.026 * k, this.cue, undefined, 0.01);
+    this.bell(t, hz(semi + 24), 0.045 * k, 2.2, this.cue);
+    this.bell(t + 0.07, hz(semi + 31), 0.028 * k, 1.8, this.cue);
+    if (i >= 2) this.synth(t, hz(this.chord[0]! - 12), 1.6, 0.045 * k, 700, this.cue, { attack: 0.01, release: 1.2, toCutoff: 200, detune: 8 });
+  }
+
+  /**
+   * The settled multiplier, just before the world stages the outcome: sets how big
+   * the stinger is. For an escape this is the cash-out multiplier (never the fall point).
+   */
+  outcome(mult: number): void {
+    this.grade = tierOf(mult);
+  }
+
+  /** Silence anything the live round left ringing (milestone bells, the riser). */
+  private settleCues(t: number, tc: number) {
+    this.cue.gain.cancelScheduledValues(t);
+    this.cue.gain.setValueAtTime(this.cue.gain.value, t);
+    this.cue.gain.setTargetAtTime(0, t, tc);
+    this.riserGain.gain.setTargetAtTime(0, t, tc);
+    this.riserToneGain.gain.setTargetAtTime(0, t, tc);
+    this.mult = 100;
   }
 
   crash(kind: string): void {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
+    const g = this.grade;
     this.crashAt = t;
     this.crashKind = kind;
     this.slamDone = false;
-    // The score drops out; the riser is cut dead.
+    // The score drops out; the riser and any milestone bell are cut dead.
     this.score.gain.cancelScheduledValues(t);
     this.score.gain.setValueAtTime(this.score.gain.value, t);
     this.score.gain.setTargetAtTime(0, t, 0.03);
-    this.riserGain.gain.setTargetAtTime(0, t, 0.02);
-    this.riserToneGain.gain.setTargetAtTime(0, t, 0.02);
-    // Common: a sub drop and a low, dark minor-second sting.
-    this.tone(t, 58, 2.4, 0.55, 'sine', this.sfx, 26, 0.004);
-    this.synth(t + 0.05, hz(-24), 3.4, 0.09, 1200, this.music, { attack: 0.02, release: 2.4, toCutoff: 140, detune: 9 });
-    this.synth(t + 0.05, hz(-23), 3.4, 0.06, 1000, this.music, { attack: 0.02, release: 2.4, toCutoff: 140, detune: 6 });
-    this.synth(t + 0.05, hz(-17), 3.2, 0.05, 900, this.music, { attack: 0.03, release: 2.2, toCutoff: 160 });
+    this.settleCues(t, 0.02);
+    // A sub drop and a low, dark minor-second sting; brief at 1×, a long toll from 10× up.
+    const len = 1.6 + g * 0.55;
+    this.tone(t, 58, 1.4 + g * 0.4, 0.4 + g * 0.05, 'sine', this.sfx, 26, 0.004);
+    this.synth(t + 0.05, hz(-24), len, 0.06 + g * 0.012, 1200, this.music, { attack: 0.02, release: len * 0.7, toCutoff: 140, detune: 9 });
+    if (g >= 1) this.synth(t + 0.05, hz(-23), len, 0.04 + g * 0.008, 1000, this.music, { attack: 0.02, release: len * 0.7, toCutoff: 140, detune: 6 });
+    if (g >= 2) this.synth(t + 0.05, hz(-17), len, 0.035 + g * 0.008, 900, this.music, { attack: 0.03, release: len * 0.65, toCutoff: 160 });
+    if (g >= 3) {
+      // A great deal was riding on it: a second, deeper toll and a long dark room.
+      this.drum(t + 0.32, 0.34, 40, this.music);
+      this.synth(t + 0.3, hz(-31), len + 1, 0.05, 600, this.music, { attack: 0.3, release: len, toCutoff: 90, detune: 5 });
+      this.noiseHit(t + 0.3, 2.8, 'lowpass', 400, 0.6, 0.08, this.music, 90, 0.4);
+    }
     if (kind === 'gate') {
       // The slab lets go above: a stone-on-stone grind falling in pitch (the slam is its impact).
       this.noiseHit(t, 0.8, 'bandpass', 900, 2.5, 0.16, this.sfx, 280, 0.15);
@@ -600,19 +635,31 @@ export class AudioEngine implements WorldSounds {
   escape(): void {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
+    const g = this.grade;
     // The riser resolves instead of cutting; the score gives way to a warm major lift.
-    this.riserGain.gain.setTargetAtTime(0, t, 0.3);
-    this.riserToneGain.gain.setTargetAtTime(0, t, 0.3);
+    this.settleCues(t, 0.25);
     this.score.gain.cancelScheduledValues(t);
     this.score.gain.setValueAtTime(this.score.gain.value, t);
     this.score.gain.setTargetAtTime(0, t, 0.25);
-    // D major (the Picardy third after all that minor): low to high, slow bloom.
-    this.tone(t, hz(-24), 3.6, 0.22, 'sine', this.music, undefined, 0.04);
-    for (const s of [-12, 0, 4, 7, 12]) this.synth(t + 0.02, hz(s), 3.8, 0.035, 1800, this.music, { attack: 0.35, release: 2.6, toCutoff: 900, detune: 7, type: 'triangle' });
-    // Bells climbing out.
-    for (const [i, s] of [12, 19, 24, 28, 31].entries()) this.bell(t + 0.06 + i * 0.085, hz(s + 12), 0.032 - i * 0.003, 2.4);
-    this.noiseHit(t, 1.6, 'highpass', 6000, 0.5, 0.025, this.sfx, undefined, 0.2);
-    this.noiseHit(t, 0.5, 'bandpass', 800, 0.9, 0.05, this.sfx, 3000, 0.08);
+    // D major (the Picardy third after all that minor). A small escape is a warm
+    // chord and two bells; from 5× it blooms; from 10× drums; from 25× a full cascade.
+    const len = 2.2 + g * 0.5;
+    const chord = g === 0 ? [0, 4, 7] : g === 1 ? [-12, 0, 4, 7] : [-12, 0, 4, 7, 12];
+    for (const s of chord) this.synth(t + 0.02, hz(s), len, 0.028 + g * 0.004, 1400 + g * 250, this.music, { attack: 0.3, release: len * 0.7, toCutoff: 900, detune: 7, type: 'triangle' });
+    if (g >= 1) this.tone(t, hz(-24), len, 0.14 + g * 0.03, 'sine', this.music, undefined, 0.04);
+    const bells = [12, 19, 24, 28, 31, 36, 40, 43].slice(0, 2 + g + (g >= 3 ? 1 : 0) + (g >= 4 ? 1 : 0));
+    for (const [i, s] of bells.entries()) this.bell(t + 0.06 + i * 0.085, hz(s + 12), Math.max(0.014, 0.032 - i * 0.0025), 1.8 + g * 0.3);
+    this.noiseHit(t, 1.2 + g * 0.2, 'highpass', 6000, 0.5, 0.018 + g * 0.004, this.sfx, undefined, 0.2);
+    this.noiseHit(t, 0.5, 'bandpass', 800, 0.9, 0.04 + g * 0.006, this.sfx, 3000, 0.08);
+    if (g >= 3) {
+      this.drum(t, 0.3, 48, this.music);
+      this.drum(t + 0.22, 0.22, 64, this.music);
+    }
+    if (g >= 4) {
+      // A long way out: a second, higher chord blooms under the bells.
+      for (const s of [16, 19, 24]) this.synth(t + 0.5, hz(s), len, 0.016, 2200, this.music, { attack: 0.6, release: len * 0.6, detune: 6 });
+      this.drum(t + 0.44, 0.26, 56, this.music);
+    }
   }
 
   ui(s: UiSound): void {
@@ -681,6 +728,9 @@ export class AudioEngine implements WorldSounds {
       this.score.gain.setTargetAtTime(1, t, 0.15);
     }
     if (s === 'lead' && prev !== 'lead') {
+      this.cue.gain.cancelScheduledValues(t);
+      this.cue.gain.setTargetAtTime(1, t, 0.05);
+      this.mult = 100;
       this.beat = 0;
       this.nextBeat = t + 0.02;
       this.setChord(CALM[0]!, t, 0.3);
@@ -748,47 +798,50 @@ export class AudioEngine implements WorldSounds {
       if (b === 3) this.drum(at, 0.16, 54, out);
       return;
     }
-    // Harmony: chord every two bars, every bar once it is driving hard.
-    const hr = I > 0.7 ? 1 : 2;
+    // Layers enter by the tier of the multiplier on screen (the same boundaries the
+    // world uses): <2x pulse and pluck; 2-5x bass and shaker; 5-10x strings, taiko,
+    // darker harmony; 10-25x octave bass, second string line; 25x+ everything, faster changes.
+    const T = tierOf(this.mult);
+    const hr = T >= 4 ? 1 : 2;
     if (b === 0 && bar % hr === 0) {
-      const prog = I > 0.5 ? DRIVEN : CALM;
+      const prog = T >= 2 ? DRIVEN : CALM;
       this.setChord(prog[Math.floor(bar / hr) % prog.length]!, at, 0.12);
-      if (I > 0.35) {
-        // Strings: a held line on the chord's fifth and third, two octaves up, swelling.
+      if (T >= 2) {
+        // Strings: a held line on the chord's fifth (and third), two octaves up, swelling.
         const len = step * 16 * hr;
         const g = 0.012 + 0.02 * I;
         this.synth(at, hz(this.chord[2]! + 24), len, g, 2200, out, { attack: len * 0.5, release: len * 0.4, detune: 6 });
-        if (I > 0.6) this.synth(at, hz(this.chord[1]! + 24), len, g * 0.7, 2000, out, { attack: len * 0.6, release: len * 0.35, detune: 5 });
+        if (T >= 3) this.synth(at, hz(this.chord[1]! + 24), len, g * 0.7, 2000, out, { attack: len * 0.6, release: len * 0.35, detune: 5 });
       }
     }
     const phraseEnd = bar % 4 === 3;
-    // Drums: heartbeat kick, busier as the multiplier climbs.
-    const kick = b === 0 || b === 8 || (I > 0.2 && b === 10) || (I > 0.5 && (b === 3 || b === 14)) || (I > 0.8 && b === 6);
+    // Drums: heartbeat kick, busier with each tier.
+    const kick = b === 0 || b === 8 || (T >= 1 && b === 10) || (T >= 3 && (b === 3 || b === 14)) || (T >= 4 && b === 6);
     if (kick) this.drum(at, 0.24 + I * 0.1, 50, out);
-    // Backbeat: a rim/clap, with a taiko under it later.
+    // Backbeat: a rim/clap, with a taiko under it from 5x.
     if (b === 4 || b === 12) {
       this.noiseHit(at, 0.08, 'bandpass', 1900, 1.2, 0.07 + I * 0.05, out);
       this.tone(at, 210, 0.08, 0.05 + I * 0.03, 'triangle', out, 150, 0.002);
-      if (I > 0.4) this.drum(at, 0.12 + I * 0.08, 92, out);
+      if (T >= 2) this.drum(at, 0.12 + I * 0.08, 92, out);
     }
-    // Shaker: sixteenths with accents, alternating a little left and right.
-    if (I > 0.12) {
+    // Shaker: sixteenths with accents.
+    if (T >= 1) {
       const acc = b % 4 === 2 ? 1 : b % 2 === 0 ? 0.6 : 0.35;
       this.noiseHit(at, 0.035, 'highpass', 6500, 0.7, (0.012 + I * 0.022) * acc, out);
     }
     // Taiko fill closing each phrase.
-    if (I > 0.35 && phraseEnd && b >= 12) this.drum(at, 0.14 + I * 0.1, 110 - (b - 12) * 12, out);
-    // Bass: eighths on the root, octave jumps on the offbeat once driving.
-    if (I > 0.28 && b % 2 === 0) {
-      const r = this.chord[0]! - 24 + (I > 0.6 && b % 4 === 2 ? 12 : 0);
+    if (T >= 2 && phraseEnd && b >= 12) this.drum(at, 0.14 + I * 0.1, 110 - (b - 12) * 12, out);
+    // Bass: eighths on the root, octave jumps on the offbeat from 10x.
+    if (T >= 1 && b % 2 === 0) {
+      const r = this.chord[0]! - 24 + (T >= 3 && b % 4 === 2 ? 12 : 0);
       this.synth(at, hz(r), step * 1.8, 0.07 + I * 0.03, 260 + I * 500, out, { attack: 0.005, release: step, toCutoff: 140 });
     }
-    // Ostinato: a marimba-like arpeggio over the chord, climbing in register.
-    const every = I > 0.45 ? 1 : 2;
+    // Ostinato: a marimba-like arpeggio over the chord, doubling in rate and climbing in register.
+    const every = T >= 2 ? 1 : 2;
     if (b % every === 0) {
       const c = this.chord;
       const tones = [c[0]!, c[1]!, c[2]!, c[0]! + 12, c[1]! + 12];
-      const n = tones[ARP[(this.beat / every) % ARP.length | 0]!]! + (I > 0.65 ? 24 : 12);
+      const n = tones[ARP[(this.beat / every) % ARP.length | 0]!]! + (T >= 3 ? 24 : 12);
       const g = (0.035 + I * 0.02) * (b % 4 === 0 ? 1 : 0.7);
       this.tone(at, hz(n), 0.28, g, 'sine', out, undefined, 0.002);
       this.tone(at, hz(n) * 4, 0.06, g * 0.3, 'sine', out, undefined, 0.001);
