@@ -180,9 +180,9 @@ export class Controller {
     }
   }
 
-  /** Haptic feedback on phones; off with reduced motion. Presentation only. */
+  /** Haptic feedback on phones; follows the Haptics setting. Presentation only. */
   buzz(kind: Haptic): void {
-    if (useStore.getState().settings.motion === 'reduced') return;
+    if (!useStore.getState().settings.haptics) return;
     haptic(kind);
   }
 

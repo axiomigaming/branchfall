@@ -9,6 +9,8 @@ export interface Settings {
   motion: 'full' | 'reduced';
   cameraShake: boolean;
   autoQuality: boolean;
+  /** Vibration on phones that support it. */
+  haptics: boolean;
 }
 
 const KEY = 'causeway.settings.v1';
@@ -24,6 +26,7 @@ export function defaultSettings(): Settings {
     motion: reduced ? 'reduced' : 'full',
     cameraShake: !reduced,
     autoQuality: true,
+    haptics: !reduced,
   };
 }
 

@@ -291,6 +291,14 @@ function Settings({ onClose }: { onClose: () => void }) {
             <span className="switch" />
           </button>
         </div>
+        {'vibrate' in navigator && (
+          <div className="setting-row">
+            <span>Vibration</span>
+            <button className="toggle" role="switch" aria-checked={st.haptics} onClick={() => setSettings({ haptics: !st.haptics })}>
+              <span className="switch" />
+            </button>
+          </div>
+        )}
       </div>
       <div className="sect">
         <h3>Controls</h3>
