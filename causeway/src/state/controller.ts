@@ -1,6 +1,7 @@
 import { multiplierAt } from '../engine/curve';
 import { payout } from '../engine/money';
 import type { AudioEngine } from '../audio/engine';
+import { haptic, type Haptic } from '../audio/feedback';
 import type { Game } from '../render/game';
 import type { RoundService } from '../service/RoundService';
 import { ServiceError } from '../service/RoundService';
@@ -111,6 +112,7 @@ export class Controller {
       this.game.lead();
       this.audio.setScene('lead');
       this.audio.ui('bet');
+      this.buzz('bet');
       // Flip to "running" exactly at the server's start time.
       const wait = Math.max(0, round.runStartsAt - this.service.serverNow());
       setTimeout(() => {
@@ -118,6 +120,7 @@ export class Controller {
         if (s.phase === 'lead' && s.live?.id === round.id) {
           s.set({ phase: 'running' });
           this.audio.setScene('run');
+          this.buzz('go');
         }
       }, wait);
     } catch (e) {
@@ -130,9 +133,12 @@ export class Controller {
     const st = useStore.getState();
     if (st.phase !== 'running' || !st.live) return;
     st.set({ phase: 'cashing' });
+    // Send first; the click and the buzz answer the press without delaying the request.
+    const req = this.service.cashout(st.live.id);
     this.audio.ui('cashout');
+    this.buzz('press');
     try {
-      const r = await this.service.cashout(st.live.id);
+      const r = await req;
       this.settle(r.settled, r.balance, r.nextCommitment, r.settled.nonce + 1);
     } catch (e) {
       // Lost the race to the fall (or already settled by auto cash-out): the push carries the truth.
@@ -160,14 +166,24 @@ export class Controller {
       result: { round, won },
       history: [round, ...st.history.filter((h) => h.id !== round.id)].slice(0, 60),
     });
+    // Size the stinger: the cash-out multiplier for an escape (never the fall point), the fall point for a fall.
+    this.audio.outcome(won ? (round.cashoutMult ?? 100) : round.crash);
     if (won) {
       this.game.live.mult = (round.cashoutMult ?? 100) / 100;
       this.game.cashout();
       this.audio.setScene('escaped');
+      this.buzz('cashout');
     } else {
       this.game.crash(round.crash, round.id);
       this.audio.setScene('fallen');
+      this.buzz('crash');
     }
+  }
+
+  /** Haptic feedback on phones; off with reduced motion. Presentation only. */
+  buzz(kind: Haptic): void {
+    if (useStore.getState().settings.motion === 'reduced') return;
+    haptic(kind);
   }
 
   async setClientSeed(seed: string): Promise<boolean> {

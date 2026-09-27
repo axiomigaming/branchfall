@@ -109,7 +109,7 @@ function stubGame() {
     },
   };
 }
-const audio = { unlock() {}, ui() {}, setScene() {} };
+const audio = { unlock() {}, ui() {}, setScene() {}, outcome() {} };
 
 async function setup(master: string, pred: (c: number) => boolean) {
   const clock = new Clock();

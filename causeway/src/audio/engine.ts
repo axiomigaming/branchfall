@@ -3,24 +3,54 @@
  * voice is built from oscillators and filtered noise; the public surface is the
  * one a sample-based implementation would keep (see WorldSounds in render/game).
  *
- * Buses: master → compressor → out; music and sfx (with ambience) each gain-staged
- * so the settings sliders map one-to-one.
+ * Signal flow
+ *   score voices → score (duck) ─┐
+ *   stingers ─────────────────────┼→ music ─┐
+ *   ambience → amb ─┐             │         ├→ master → shelf → compressor → out
+ *   sfx voices ─────┴→ sfx ───────┼─────────┘
+ *   music/sfx sends ──────────────┴→ room (convolver) → master
+ *
+ * The score builds with the multiplier on screen (tempo, layers, register, harmonic
+ * rhythm) and the tension riser follows the approach to the next milestone. None of
+ * it depends on the hidden fall point.
  */
 import type { WorldSounds } from '../render/game';
+import { milestoneApproach, tierOf, type Tier } from './feedback';
 
 type Scene = 'title' | 'setup' | 'lead' | 'run' | 'escaped' | 'fallen';
-export type UiSound = 'hover' | 'tick' | 'confirm' | 'bet' | 'cashout' | 'deny' | 'open' | 'close';
+export type UiSound = 'hover' | 'tick' | 'press' | 'confirm' | 'bet' | 'cashout' | 'deny' | 'open' | 'close' | 'stamp';
 
 const ROOT = 146.83; // D3
-const SCALE = [0, 3, 5, 7, 10, 12, 15, 17]; // D minor pentatonic-ish, two octaves
 const hz = (semi: number, base = ROOT) => base * Math.pow(2, semi / 12);
+
+/** Chords as semitones from D3. Calm progression i–VI–III–VII; driven one i–VI–iv–V. */
+const CALM = [
+  [0, 3, 7],
+  [-4, 0, 3],
+  [3, 7, 10],
+  [-2, 2, 5],
+];
+const DRIVEN = [
+  [0, 3, 7],
+  [-4, 0, 3],
+  [-7, -4, 0],
+  [-5, -1, 2],
+];
+/** Arpeggio order over chord tones (index into [r, 3rd, 5th, r+12, 3rd+12]). */
+const ARP = [0, 2, 3, 2, 1, 2, 4, 2];
+/** Bell pitch per milestone (semitones above D5), rising. */
+const MILESTONE_BELL = [0, 3, 7, 10, 12, 15];
 
 export class AudioEngine implements WorldSounds {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
   private music!: GainNode;
+  private score!: GainNode;
   private sfx!: GainNode;
   private amb!: GainNode;
+  private room!: ConvolverNode;
+  private musicSend!: GainNode;
+  private sfxSend!: GainNode;
   private noise!: AudioBuffer;
   private scene: Scene = 'title';
   private intensity = 0;
@@ -29,48 +59,121 @@ export class AudioEngine implements WorldSounds {
   private nextBeat = 0;
   private beat = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
-  private droneGain!: GainNode;
-  private droneFilter!: BiquadFilterNode;
+  // Pad (the drone that follows the harmony).
+  private padGain!: GainNode;
+  private padFilter!: BiquadFilterNode;
+  private padOsc: OscillatorNode[] = [];
+  private chord = CALM[0]!;
+  // Beds.
   private windGain!: GainNode;
   private windFilter!: BiquadFilterNode;
+  private whistleGain!: GainNode;
+  private whistleFilter!: BiquadFilterNode;
   private waterGain!: GainNode;
+  private insectGain!: GainNode;
   private rumbleGain!: GainNode;
+  private rumbleFilter!: BiquadFilterNode;
+  // Tension riser (follows the approach to the next milestone).
+  private riserGain!: GainNode;
+  private riserFilter!: BiquadFilterNode;
+  private riserToneGain!: GainNode;
+  private riserOsc!: OscillatorNode;
+  /** Milestone cues ring through here so a settle can silence them at once. */
+  private cue!: GainNode;
+  /** The multiplier on screen (hundredths), fed per frame while running. */
+  private mult = 100;
+  /** Tier of the settled result, set just before crash()/escape() stage it. */
+  private grade: Tier = 0;
   private levels = { master: 0.8, music: 0.6, sfx: 0.85, muted: false };
   private lastHover = 0;
+  private stepSide = 1;
+  private stepPan: StereoPannerNode[] = [];
+  private recentImpacts: number[] = [];
+  private crashAt = -10;
+  private crashKind = '';
+  private slamDone = true;
+  private birdTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Browsers only allow audio after a gesture. Safe to call repeatedly. */
   unlock(): void {
     if (this.ctx) {
-      if (this.ctx.state === 'suspended') void this.ctx.resume();
+      if (this.ctx.state === 'suspended' && !document.hidden) void this.ctx.resume();
       return;
     }
     const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (!AC) return;
     const ctx = new AC({ latencyHint: 'interactive' });
     this.ctx = ctx;
+    // Master chain: a gentle top shelf (synth noise gets bright), then a soft-knee
+    // compressor that glues rather than pumps, and a fast catch for the big hits.
     const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -14;
-    comp.ratio.value = 4;
-    comp.attack.value = 0.004;
-    comp.release.value = 0.2;
-    comp.connect(ctx.destination);
+    comp.threshold.value = -16;
+    comp.knee.value = 12;
+    comp.ratio.value = 3.5;
+    comp.attack.value = 0.006;
+    comp.release.value = 0.25;
+    const limit = ctx.createDynamicsCompressor();
+    limit.threshold.value = -3;
+    limit.knee.value = 0;
+    limit.ratio.value = 20;
+    limit.attack.value = 0.001;
+    limit.release.value = 0.1;
+    const shelf = ctx.createBiquadFilter();
+    shelf.type = 'highshelf';
+    shelf.frequency.value = 7000;
+    shelf.gain.value = -3;
     this.master = ctx.createGain();
-    this.master.connect(comp);
+    this.master.connect(shelf).connect(comp).connect(limit).connect(ctx.destination);
     this.music = ctx.createGain();
+    this.score = ctx.createGain();
     this.sfx = ctx.createGain();
     this.amb = ctx.createGain();
+    this.score.connect(this.music);
     this.music.connect(this.master);
     this.sfx.connect(this.master);
     this.amb.connect(this.sfx);
+    this.cue = ctx.createGain();
+    this.cue.connect(this.sfx);
     // Two seconds of white noise, reused by every noisy voice.
     const len = ctx.sampleRate * 2;
     this.noise = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    // A stone room: a short, dark, generated impulse. Everything sends a little.
+    this.room = ctx.createConvolver();
+    this.room.buffer = this.impulse(2.2, 2.6);
+    const roomOut = ctx.createGain();
+    roomOut.gain.value = 0.9;
+    this.room.connect(roomOut).connect(this.master);
+    this.musicSend = ctx.createGain();
+    this.musicSend.gain.value = 0.28;
+    this.sfxSend = ctx.createGain();
+    this.sfxSend.gain.value = 0.14;
+    // Keep the sub out of the room: reverberant lows are mud.
+    const roomHp = ctx.createBiquadFilter();
+    roomHp.type = 'highpass';
+    roomHp.frequency.value = 220;
+    roomHp.connect(this.room);
+    this.music.connect(this.musicSend).connect(roomHp);
+    this.sfx.connect(this.sfxSend).connect(roomHp);
+    for (const p of [-0.12, 0.12]) {
+      const sp = ctx.createStereoPanner();
+      sp.pan.value = p;
+      sp.connect(this.sfx);
+      this.stepPan.push(sp);
+    }
     this.buildBeds();
+    this.buildPad();
+    this.buildRiser();
     this.applyLevels();
     this.nextBeat = ctx.currentTime + 0.1;
     this.timer = setInterval(() => this.schedule(), 25);
+    // Background tabs: stop the clock rather than pile up (and save the battery).
+    document.addEventListener('visibilitychange', () => {
+      if (!this.ctx) return;
+      if (document.hidden) void this.ctx.suspend();
+      else void this.ctx.resume();
+    });
     this.setScene(this.scene);
   }
 
@@ -84,95 +187,175 @@ export class AudioEngine implements WorldSounds {
     const t = this.ctx.currentTime;
     const m = this.levels.muted ? 0 : this.levels.master;
     this.master.gain.setTargetAtTime(m, t, 0.05);
-    this.music.gain.setTargetAtTime(this.levels.music * 0.55, t, 0.05);
+    this.music.gain.setTargetAtTime(this.levels.music * 0.6, t, 0.05);
     this.sfx.gain.setTargetAtTime(this.levels.sfx, t, 0.05);
   }
 
+  private impulse(seconds: number, decay: number): AudioBuffer {
+    const ctx = this.ctx!;
+    const len = Math.floor(ctx.sampleRate * seconds);
+    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      let lp = 0;
+      for (let i = 0; i < len; i++) {
+        const k = i / len;
+        // Darker as it decays: a one-pole lowpass whose cutoff falls over the tail.
+        const a = 0.55 - 0.45 * k;
+        lp += a * ((Math.random() * 2 - 1) - lp);
+        const pre = i < ctx.sampleRate * 0.012 ? i / (ctx.sampleRate * 0.012) : 1;
+        d[i] = lp * Math.pow(1 - k, decay) * pre * 0.9;
+      }
+    }
+    return buf;
+  }
+
   // ------------------------------------------------------------------ beds
-  private loopNoise(): AudioBufferSourceNode {
+  private loopNoise(rate = 1): AudioBufferSourceNode {
     const s = this.ctx!.createBufferSource();
     s.buffer = this.noise;
     s.loop = true;
-    s.start();
+    s.playbackRate.value = rate;
+    s.start(0, Math.random() * 1.9);
     return s;
+  }
+
+  private lfo(freq: number, depth: number, target: AudioParam, type: OscillatorType = 'sine') {
+    const ctx = this.ctx!;
+    const o = ctx.createOscillator();
+    o.type = type;
+    o.frequency.value = freq;
+    const g = ctx.createGain();
+    g.gain.value = depth;
+    o.connect(g).connect(target);
+    o.start();
   }
 
   private buildBeds() {
     const ctx = this.ctx!;
-    // Water: low, lapping.
-    const w = this.loopNoise();
+    // Water: low lapping against the causeway, two slow swells out of phase.
+    const w = this.loopNoise(0.8);
     const wf = ctx.createBiquadFilter();
     wf.type = 'lowpass';
-    wf.frequency.value = 520;
+    wf.frequency.value = 480;
+    wf.Q.value = 0.4;
+    this.lfo(0.11, 160, wf.frequency);
     this.waterGain = ctx.createGain();
     this.waterGain.gain.value = 0.05;
-    const lfo = ctx.createOscillator();
-    lfo.frequency.value = 0.23;
-    const lg = ctx.createGain();
-    lg.gain.value = 0.03;
-    lfo.connect(lg).connect(this.waterGain.gain);
-    lfo.start();
-    w.connect(wf).connect(this.waterGain).connect(this.amb);
-    // Wind: rises with speed.
+    const lap = ctx.createGain();
+    lap.gain.value = 0.7;
+    this.lfo(0.23, 0.3, lap.gain);
+    w.connect(wf).connect(lap).connect(this.waterGain).connect(this.amb);
+    // Wind: a broad body plus a thin whistle, both gusting, both rising with speed.
     const n = this.loopNoise();
     this.windFilter = ctx.createBiquadFilter();
-    this.windFilter.type = 'bandpass';
-    this.windFilter.frequency.value = 500;
-    this.windFilter.Q.value = 0.7;
+    this.windFilter.type = 'lowpass';
+    this.windFilter.frequency.value = 420;
+    this.windFilter.Q.value = 0.6;
     this.windGain = ctx.createGain();
     this.windGain.gain.value = 0.02;
-    n.connect(this.windFilter).connect(this.windGain).connect(this.amb);
-    // Insects: a high shimmer, amplitude-modulated.
+    const gust = ctx.createGain();
+    gust.gain.value = 0.75;
+    this.lfo(0.07, 0.25, gust.gain);
+    n.connect(this.windFilter).connect(gust).connect(this.windGain).connect(this.amb);
+    const wh = this.loopNoise(1.3);
+    this.whistleFilter = ctx.createBiquadFilter();
+    this.whistleFilter.type = 'bandpass';
+    this.whistleFilter.frequency.value = 1100;
+    this.whistleFilter.Q.value = 5;
+    this.lfo(0.17, 160, this.whistleFilter.frequency);
+    this.whistleGain = ctx.createGain();
+    this.whistleGain.gain.value = 0.004;
+    const whPan = ctx.createStereoPanner();
+    this.lfo(0.05, 0.6, whPan.pan);
+    wh.connect(this.whistleFilter).connect(this.whistleGain).connect(whPan).connect(this.amb);
+    // Insects: a high shimmer, amplitude-modulated, out in the trees.
     const ins = this.loopNoise();
     const inf = ctx.createBiquadFilter();
     inf.type = 'bandpass';
     inf.frequency.value = 6200;
-    inf.Q.value = 6;
+    inf.Q.value = 7;
     const ing = ctx.createGain();
     ing.gain.value = 0.0;
-    const am = ctx.createOscillator();
-    am.frequency.value = 31;
-    const amg = ctx.createGain();
-    amg.gain.value = 0.012;
-    am.connect(amg).connect(ing.gain);
-    am.start();
-    ins.connect(inf).connect(ing).connect(this.amb);
+    this.lfo(31, 0.01, ing.gain);
+    this.insectGain = ctx.createGain();
+    this.insectGain.gain.value = 1;
+    ins.connect(inf).connect(ing).connect(this.insectGain).connect(this.amb);
     // Rumble: the ruins under strain; follows intensity.
-    const r = this.loopNoise();
-    const rf = ctx.createBiquadFilter();
-    rf.type = 'lowpass';
-    rf.frequency.value = 110;
+    const r = this.loopNoise(0.5);
+    this.rumbleFilter = ctx.createBiquadFilter();
+    this.rumbleFilter.type = 'lowpass';
+    this.rumbleFilter.frequency.value = 90;
+    this.rumbleFilter.Q.value = 0.9;
     this.rumbleGain = ctx.createGain();
     this.rumbleGain.gain.value = 0;
-    r.connect(rf).connect(this.rumbleGain).connect(this.sfx);
-    // Drone for the score.
-    this.droneFilter = ctx.createBiquadFilter();
-    this.droneFilter.type = 'lowpass';
-    this.droneFilter.frequency.value = 380;
-    this.droneFilter.Q.value = 0.8;
-    this.droneGain = ctx.createGain();
-    this.droneGain.gain.value = 0;
-    this.droneFilter.connect(this.droneGain).connect(this.music);
-    for (const [f, det] of [
-      [ROOT / 2, -6],
-      [ROOT / 2, 7],
-      [hz(7, ROOT / 2), 0],
-    ] as const) {
-      const o = ctx.createOscillator();
-      o.type = 'sawtooth';
-      o.frequency.value = f;
-      o.detune.value = det;
-      const g = ctx.createGain();
-      g.gain.value = 0.18;
-      o.connect(g).connect(this.droneFilter);
-      o.start();
-    }
-    // Birds, now and then.
+    r.connect(this.rumbleFilter).connect(this.rumbleGain).connect(this.sfx);
+    // Birds, now and then, when nothing is chasing us.
     const bird = () => {
-      if (this.ctx && (this.scene === 'title' || this.scene === 'setup' || this.scene === 'escaped')) this.birdCall();
-      setTimeout(bird, 2500 + Math.random() * 6000);
+      if (this.ctx && this.ctx.state === 'running' && (this.scene === 'title' || this.scene === 'setup' || this.scene === 'escaped')) this.birdCall();
+      this.birdTimer = setTimeout(bird, 2500 + Math.random() * 6000);
     };
-    setTimeout(bird, 1800);
+    this.birdTimer = setTimeout(bird, 1800);
+  }
+
+  /** The harmonic drone: five persistent voices that glide to each new chord. */
+  private buildPad() {
+    const ctx = this.ctx!;
+    this.padFilter = ctx.createBiquadFilter();
+    this.padFilter.type = 'lowpass';
+    this.padFilter.frequency.value = 380;
+    this.padFilter.Q.value = 0.7;
+    this.lfo(0.09, 60, this.padFilter.frequency);
+    this.padGain = ctx.createGain();
+    this.padGain.gain.value = 0;
+    this.padFilter.connect(this.padGain).connect(this.music);
+    const voices: [OscillatorType, number, number][] = [
+      ['sawtooth', -8, 0.16], // root, an octave down
+      ['sawtooth', 7, 0.16], // root, an octave down, detuned
+      ['triangle', 0, 0.2], // third
+      ['sawtooth', 4, 0.1], // fifth
+      ['sine', 0, 0.28], // sub root
+    ];
+    for (const [type, det, g] of voices) {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.detune.value = det;
+      const gn = ctx.createGain();
+      gn.gain.value = g;
+      o.connect(gn).connect(this.padFilter);
+      o.start();
+      this.padOsc.push(o);
+    }
+    this.voiceChord(this.chord, ctx.currentTime, 0.01);
+  }
+
+  private voiceChord(c: number[], at: number, glide: number) {
+    const [r, third, fifth] = c as [number, number, number];
+    const f = [hz(r - 12), hz(r - 12), hz(third), hz(fifth), hz(r - 24)];
+    this.padOsc.forEach((o, i) => o.frequency.setTargetAtTime(f[i]!, at, glide));
+  }
+
+  private buildRiser() {
+    const ctx = this.ctx!;
+    const n = this.loopNoise();
+    this.riserFilter = ctx.createBiquadFilter();
+    this.riserFilter.type = 'bandpass';
+    this.riserFilter.frequency.value = 500;
+    this.riserFilter.Q.value = 2.2;
+    this.riserGain = ctx.createGain();
+    this.riserGain.gain.value = 0;
+    n.connect(this.riserFilter).connect(this.riserGain).connect(this.score);
+    // A bowed tone under the noise, rising a fifth across the approach.
+    this.riserOsc = ctx.createOscillator();
+    this.riserOsc.type = 'sawtooth';
+    this.riserOsc.frequency.value = hz(12);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 1400;
+    this.riserToneGain = ctx.createGain();
+    this.riserToneGain.gain.value = 0;
+    this.riserOsc.connect(lp).connect(this.riserToneGain).connect(this.score);
+    this.riserOsc.start();
   }
 
   private birdCall() {
@@ -190,7 +373,7 @@ export class AudioEngine implements WorldSounds {
       o.frequency.setValueAtTime(base * (1 + Math.random() * 0.2), st);
       o.frequency.exponentialRampToValueAtTime(base * (0.7 + Math.random() * 0.6), st + 0.07);
       g.gain.setValueAtTime(0, st);
-      g.gain.linearRampToValueAtTime(0.018, st + 0.01);
+      g.gain.linearRampToValueAtTime(0.014, st + 0.01);
       g.gain.exponentialRampToValueAtTime(0.0001, st + 0.08);
       o.connect(g).connect(pan);
       o.start(st);
@@ -199,7 +382,7 @@ export class AudioEngine implements WorldSounds {
   }
 
   // ------------------------------------------------------------------ voices
-  private noiseHit(at: number, dur: number, type: BiquadFilterType, freq: number, q: number, gain: number, dest: AudioNode = this.sfx, sweepTo?: number) {
+  private noiseHit(at: number, dur: number, type: BiquadFilterType, freq: number, q: number, gain: number, dest: AudioNode = this.sfx, sweepTo?: number, attack = 0) {
     const ctx = this.ctx!;
     const s = ctx.createBufferSource();
     s.buffer = this.noise;
@@ -209,11 +392,14 @@ export class AudioEngine implements WorldSounds {
     if (sweepTo) f.frequency.exponentialRampToValueAtTime(sweepTo, at + dur);
     f.Q.value = q;
     const g = ctx.createGain();
-    g.gain.setValueAtTime(gain, at);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    if (attack > 0) {
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(gain, at + attack);
+    } else g.gain.setValueAtTime(gain, at);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + Math.max(dur, attack + 0.01));
     s.connect(f).connect(g).connect(dest);
     s.start(at, Math.random() * 1.5);
-    s.stop(at + dur + 0.02);
+    s.stop(at + Math.max(dur, attack + 0.01) + 0.02);
   }
 
   private tone(at: number, freq: number, dur: number, gain: number, type: OscillatorType = 'sine', dest: AudioNode = this.sfx, toFreq?: number, attack = 0.005) {
@@ -231,47 +417,111 @@ export class AudioEngine implements WorldSounds {
     o.stop(at + dur + 0.02);
   }
 
+  /** A filtered sawtooth note (bass, strings, brass). */
+  private synth(at: number, freq: number, dur: number, gain: number, cutoff: number, dest: AudioNode, opts: { attack?: number; release?: number; toCutoff?: number; detune?: number; type?: OscillatorType } = {}) {
+    const ctx = this.ctx!;
+    const attack = opts.attack ?? 0.01;
+    const release = opts.release ?? dur * 0.5;
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.setValueAtTime(cutoff, at);
+    if (opts.toCutoff) f.frequency.exponentialRampToValueAtTime(opts.toCutoff, at + dur);
+    f.Q.value = 0.8;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(gain, at + attack);
+    g.gain.setTargetAtTime(0.0001, at + Math.max(attack, dur - release), release / 4);
+    f.connect(g).connect(dest);
+    const dets = opts.detune ? [-opts.detune, opts.detune] : [0];
+    for (const det of dets) {
+      const o = ctx.createOscillator();
+      o.type = opts.type ?? 'sawtooth';
+      o.frequency.value = freq;
+      o.detune.value = det;
+      o.connect(f);
+      o.start(at);
+      o.stop(at + dur + 0.05);
+    }
+  }
+
+  /** Inharmonic bell: three sine partials with staggered decays. */
+  private bell(at: number, freq: number, gain: number, dur = 1.8, dest: AudioNode = this.music) {
+    this.tone(at, freq, dur, gain, 'sine', dest, undefined, 0.003);
+    this.tone(at, freq * 2.76, dur * 0.45, gain * 0.35, 'sine', dest, undefined, 0.002);
+    this.tone(at, freq * 5.4, dur * 0.2, gain * 0.14, 'sine', dest, undefined, 0.002);
+  }
+
+  // ------------------------------------------------------------------ world hooks
   footstep(strength: number, surface: 'stone' | 'wood'): void {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    const k = 0.5 + strength * 0.5;
+    const k = 0.45 + strength * 0.55;
+    this.stepSide = -this.stepSide;
+    const out = this.stepPan[this.stepSide > 0 ? 1 : 0]!;
+    const v = 0.9 + Math.random() * 0.2;
     if (surface === 'wood') {
-      this.tone(t, 150 + Math.random() * 20, 0.09, 0.14 * k, 'triangle', this.sfx, 90);
-      this.noiseHit(t, 0.06, 'bandpass', 900, 2, 0.12 * k);
+      // A hollow plank: a resonant knock with a short ring, and now and then a creak.
+      this.tone(t, 170 * v, 0.12, 0.13 * k, 'triangle', out, 120);
+      this.noiseHit(t, 0.12, 'bandpass', 420 * v, 7, 0.16 * k, out);
+      this.noiseHit(t, 0.025, 'bandpass', 2400, 1.2, 0.06 * k, out);
+      if (Math.random() < 0.14) {
+        const c = t + 0.04;
+        this.synth(c, 260 + Math.random() * 90, 0.22, 0.012, 900, out, { attack: 0.04, type: 'sawtooth', toCutoff: 600 });
+      }
     } else {
-      this.tone(t, 95, 0.06, 0.1 * k, 'sine', this.sfx, 60);
-      this.noiseHit(t, 0.05 + 0.03 * Math.random(), 'bandpass', 1600 + Math.random() * 900, 1.2, 0.09 * k);
-      // Grit.
-      this.noiseHit(t + 0.012, 0.04, 'highpass', 4500, 0.7, 0.03 * k);
+      // Leather on stone: a soft body thump, a dry scuff and a little grit.
+      this.tone(t, 110 * v, 0.07, 0.11 * k, 'sine', out, 55);
+      this.noiseHit(t, 0.035 + 0.02 * Math.random(), 'bandpass', 1500 * v + Math.random() * 700, 1.1, 0.08 * k, out);
+      this.noiseHit(t + 0.01, 0.05, 'highpass', 5200, 0.7, 0.022 * k, out);
     }
   }
 
   impact(size: number, water: boolean): void {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    const k = Math.min(1.3, 0.3 + size);
+    // Voice limiting: in a collapse dozens of bodies land at once.
+    this.recentImpacts = this.recentImpacts.filter((x) => t - x < 0.25);
+    if (this.recentImpacts.length >= 6) return;
+    this.recentImpacts.push(t);
+    const crowd = 1 / Math.sqrt(this.recentImpacts.length);
+    const k = Math.min(1.3, 0.3 + size) * crowd;
     if (water) {
-      this.noiseHit(t, 0.5 + k * 0.4, 'lowpass', 3000, 0.5, 0.18 * k, this.sfx, 400);
-      this.noiseHit(t, 0.12, 'bandpass', 1200, 1.5, 0.12 * k);
-      for (let i = 0; i < 3; i++) this.tone(t + 0.05 + i * 0.04 + Math.random() * 0.05, 500 + Math.random() * 400, 0.06, 0.03 * k, 'sine', this.sfx, 1400);
-    } else {
-      this.tone(t, 70, 0.5 + k * 0.4, 0.5 * k, 'sine', this.sfx, 32);
-      this.noiseHit(t, 0.35 + k * 0.3, 'lowpass', 1400, 0.6, 0.35 * k, this.sfx, 180);
-      // Crumbling tail.
-      for (let i = 0; i < 6 * k; i++) this.noiseHit(t + 0.05 + Math.random() * 0.6, 0.05, 'bandpass', 900 + Math.random() * 2500, 2, 0.05 * k);
+      // Splash body falling in pitch, a low whump, then a few plops.
+      this.noiseHit(t, 0.5 + k * 0.5, 'lowpass', 4200, 0.6, 0.16 * k, this.sfx, 420);
+      this.noiseHit(t, 0.1, 'bandpass', 1300, 1.4, 0.1 * k);
+      this.tone(t, 90, 0.3, 0.2 * k, 'sine', this.sfx, 48);
+      for (let i = 0; i < 3; i++) this.tone(t + 0.08 + i * 0.05 + Math.random() * 0.08, 380 + Math.random() * 300, 0.05, 0.025 * k, 'sine', this.sfx, 1100);
+      return;
     }
+    // The gate's landing is the slam that ends the run: make it the heaviest sound in the game.
+    const slam = !this.slamDone && this.crashKind === 'gate' && t - this.crashAt < 3;
+    if (slam) {
+      this.slamDone = true;
+      this.tone(t, 64, 1.8, 0.75, 'sine', this.sfx, 28, 0.002);
+      this.tone(t, 128, 0.5, 0.25, 'triangle', this.sfx, 60, 0.002);
+      this.noiseHit(t, 0.9, 'lowpass', 2600, 0.7, 0.55, this.sfx, 120);
+      this.noiseHit(t, 0.05, 'bandpass', 900, 0.8, 0.4);
+      for (let i = 0; i < 10; i++) this.noiseHit(t + 0.08 + Math.random() * 0.9, 0.05, 'bandpass', 1000 + Math.random() * 3000, 2, 0.05);
+      return;
+    }
+    // Stone: a sub thump, a crack, a gritty body and a crumbling tail.
+    this.tone(t, 72, 0.45 + k * 0.4, 0.45 * k, 'sine', this.sfx, 32);
+    this.noiseHit(t, 0.03, 'bandpass', 1100 + Math.random() * 600, 1, 0.22 * k);
+    this.noiseHit(t, 0.3 + k * 0.3, 'lowpass', 1500, 0.6, 0.3 * k, this.sfx, 160);
+    for (let i = 0; i < Math.round(5 * k); i++) this.noiseHit(t + 0.05 + Math.random() * 0.6, 0.045, 'bandpass', 900 + Math.random() * 2500, 2, 0.04 * k);
   }
 
   tremor(strength: number): void {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    this.noiseHit(t, 1.6, 'lowpass', 160, 0.8, 0.25 + strength * 0.25, this.sfx, 60);
-    for (let i = 0; i < 5; i++) this.noiseHit(t + 0.2 + Math.random() * 1.0, 0.04, 'bandpass', 2000 + Math.random() * 2000, 3, 0.03);
+    this.noiseHit(t, 1.8, 'lowpass', 150, 0.9, 0.22 + strength * 0.22, this.sfx, 55, 0.25);
+    this.tone(t, 41, 1.5, 0.1 + strength * 0.12, 'sine', this.sfx, 33, 0.3);
+    for (let i = 0; i < 4 + strength * 5; i++) this.noiseHit(t + 0.2 + Math.random() * 1.1, 0.04, 'bandpass', 2000 + Math.random() * 2500, 3, 0.022);
   }
 
   whoosh(): void {
     if (!this.ctx) return;
-    this.noiseHit(this.ctx.currentTime, 0.7, 'bandpass', 300, 1.2, 0.12, this.sfx, 2400);
+    this.noiseHit(this.ctx.currentTime, 0.7, 'bandpass', 280, 1.2, 0.1, this.sfx, 2200, 0.25);
   }
 
   run(intensity: number, running: boolean, speed: number): void {
@@ -280,30 +530,136 @@ export class AudioEngine implements WorldSounds {
     this.running = running;
     this.speed = speed;
     const t = this.ctx.currentTime;
-    this.windGain.gain.setTargetAtTime(0.015 + speed * 0.006, t, 0.3);
-    this.windFilter.frequency.setTargetAtTime(380 + speed * 90, t, 0.3);
-    this.rumbleGain.gain.setTargetAtTime(running ? Math.max(0, intensity - 0.3) * 0.22 : 0, t, 0.5);
-    this.droneFilter.frequency.setTargetAtTime(running ? 320 + intensity * 1500 : 260, t, 0.4);
+    this.windGain.gain.setTargetAtTime(0.016 + speed * 0.0045, t, 0.35);
+    this.windFilter.frequency.setTargetAtTime(360 + speed * 70, t, 0.35);
+    this.whistleGain.gain.setTargetAtTime(0.003 + speed * speed * 0.00009, t, 0.4);
+    this.rumbleGain.gain.setTargetAtTime(running ? Math.max(0, intensity - 0.3) * 0.26 : 0, t, 0.5);
+    this.rumbleFilter.frequency.setTargetAtTime(80 + intensity * 50, t, 0.5);
+    this.padFilter.frequency.setTargetAtTime(running ? 320 + intensity * 1400 : 260, t, 0.4);
+    this.insectGain.gain.setTargetAtTime(running ? Math.max(0, 1 - intensity * 1.6) : 1, t, 0.8);
+    if (!running) this.climb(100);
+  }
+
+  /**
+   * The tension riser, from the multiplier on screen (hundredths). Swells across
+   * the last stretch before each milestone and resets on arrival. Call per frame.
+   */
+  climb(m: number): void {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const live = this.running && this.scene === 'run';
+    this.mult = live ? m : 100;
+    const a = live ? milestoneApproach(m) : 0;
+    const p = Math.max(0, (a - 0.55) / 0.45); // only the last stretch
+    const shaped = p * p;
+    this.riserGain.gain.setTargetAtTime(shaped * 0.05, t, live ? 0.12 : 0.05);
+    this.riserFilter.frequency.setTargetAtTime(500 + shaped * 3800, t, 0.12);
+    this.riserToneGain.gain.setTargetAtTime(shaped * 0.018, t, live ? 0.15 : 0.05);
+    this.riserOsc.frequency.setTargetAtTime(hz(12 + 7 * p), t, 0.12);
+  }
+
+  /** A milestone reached (index into MILESTONES): a low bloom, a bell, air. */
+  milestone(i: number): void {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const semi = MILESTONE_BELL[Math.min(i, MILESTONE_BELL.length - 1)]!;
+    const k = 0.8 + Math.min(i, 5) * 0.08; // later marks ring a little fuller
+    this.tone(t, 96, 0.9, 0.26 * k, 'sine', this.cue, 46, 0.004);
+    this.noiseHit(t, 0.9, 'highpass', 6500, 0.6, 0.026 * k, this.cue, undefined, 0.01);
+    this.bell(t, hz(semi + 24), 0.045 * k, 2.2, this.cue);
+    this.bell(t + 0.07, hz(semi + 31), 0.028 * k, 1.8, this.cue);
+    if (i >= 2) this.synth(t, hz(this.chord[0]! - 12), 1.6, 0.045 * k, 700, this.cue, { attack: 0.01, release: 1.2, toCutoff: 200, detune: 8 });
+  }
+
+  /**
+   * The settled multiplier, just before the world stages the outcome: sets how big
+   * the stinger is. For an escape this is the cash-out multiplier (never the fall point).
+   */
+  outcome(mult: number): void {
+    this.grade = tierOf(mult);
+  }
+
+  /** Silence anything the live round left ringing (milestone bells, the riser). */
+  private settleCues(t: number, tc: number) {
+    this.cue.gain.cancelScheduledValues(t);
+    this.cue.gain.setValueAtTime(this.cue.gain.value, t);
+    this.cue.gain.setTargetAtTime(0, t, tc);
+    this.riserGain.gain.setTargetAtTime(0, t, tc);
+    this.riserToneGain.gain.setTargetAtTime(0, t, tc);
+    this.mult = 100;
   }
 
   crash(kind: string): void {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    this.tone(t, 55, 2.2, 0.7, 'sine', this.sfx, 28);
-    this.noiseHit(t, 1.8, 'lowpass', 2200, 0.5, 0.5, this.sfx, 90);
-    if (kind === 'gate') this.tone(t + 0.35, 42, 1.4, 0.8, 'sine', this.sfx, 25);
-    // Score: cut, then a low sting.
-    this.tone(t + 0.1, hz(-12 + 1), 3.2, 0.12, 'sawtooth', this.music, hz(-13), 0.04);
-    this.tone(t + 0.1, hz(-12 + 7), 3.2, 0.08, 'sawtooth', this.music, hz(-12 + 6), 0.04);
+    const g = this.grade;
+    this.crashAt = t;
+    this.crashKind = kind;
+    this.slamDone = false;
+    // The score drops out; the riser and any milestone bell are cut dead.
+    this.score.gain.cancelScheduledValues(t);
+    this.score.gain.setValueAtTime(this.score.gain.value, t);
+    this.score.gain.setTargetAtTime(0, t, 0.03);
+    this.settleCues(t, 0.02);
+    // A sub drop and a low, dark minor-second sting; brief at 1×, a long toll from 10× up.
+    const len = 1.6 + g * 0.55;
+    this.tone(t, 58, 1.4 + g * 0.4, 0.4 + g * 0.05, 'sine', this.sfx, 26, 0.004);
+    this.synth(t + 0.05, hz(-24), len, 0.06 + g * 0.012, 1200, this.music, { attack: 0.02, release: len * 0.7, toCutoff: 140, detune: 9 });
+    if (g >= 1) this.synth(t + 0.05, hz(-23), len, 0.04 + g * 0.008, 1000, this.music, { attack: 0.02, release: len * 0.7, toCutoff: 140, detune: 6 });
+    if (g >= 2) this.synth(t + 0.05, hz(-17), len, 0.035 + g * 0.008, 900, this.music, { attack: 0.03, release: len * 0.65, toCutoff: 160 });
+    if (g >= 3) {
+      // A great deal was riding on it: a second, deeper toll and a long dark room.
+      this.drum(t + 0.32, 0.34, 40, this.music);
+      this.synth(t + 0.3, hz(-31), len + 1, 0.05, 600, this.music, { attack: 0.3, release: len, toCutoff: 90, detune: 5 });
+      this.noiseHit(t + 0.3, 2.8, 'lowpass', 400, 0.6, 0.08, this.music, 90, 0.4);
+    }
+    if (kind === 'gate') {
+      // The slab lets go above: a stone-on-stone grind falling in pitch (the slam is its impact).
+      this.noiseHit(t, 0.8, 'bandpass', 900, 2.5, 0.16, this.sfx, 280, 0.15);
+      this.synth(t, 70, 0.8, 0.05, 500, this.sfx, { attack: 0.1, type: 'square', toCutoff: 180 });
+      this.noiseHit(t, 0.04, 'bandpass', 2400, 1, 0.12);
+    } else if (kind === 'chasm') {
+      // The causeway cracks under the feet, then the slabs go: a long collapsing roar.
+      this.noiseHit(t, 0.05, 'highpass', 1800, 0.7, 0.35);
+      this.noiseHit(t + 0.02, 0.25, 'bandpass', 700, 1.5, 0.25, this.sfx, 300);
+      this.noiseHit(t + 0.05, 2.6, 'lowpass', 1400, 0.6, 0.4, this.sfx, 80, 0.2);
+      for (let i = 0; i < 14; i++) this.noiseHit(t + 0.1 + Math.random() * 1.6, 0.06, 'bandpass', 600 + Math.random() * 2600, 2, 0.05);
+    } else {
+      // Rockfall: the cliff lets go overhead — a rising roar from above before the hits land.
+      this.noiseHit(t, 1.2, 'lowpass', 300, 0.8, 0.35, this.sfx, 1600, 0.6);
+      this.noiseHit(t + 0.02, 0.05, 'bandpass', 1600, 1, 0.18);
+      for (let i = 0; i < 10; i++) this.noiseHit(t + 0.2 + Math.random() * 1.2, 0.05, 'bandpass', 1400 + Math.random() * 2600, 2.5, 0.045);
+    }
   }
 
   escape(): void {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    // A warm major lift over the drone's root, then a bright chime.
-    for (const s of [0, 4, 7, 12]) this.tone(t + 0.02, hz(s), 2.8, 0.06, 'triangle', this.music, undefined, 0.25);
-    for (const [i, s] of [24, 31, 36].entries()) this.tone(t + 0.08 + i * 0.07, hz(s), 1.6, 0.045, 'sine', this.sfx);
-    this.noiseHit(t, 1.2, 'highpass', 6000, 0.5, 0.03, this.sfx);
+    const g = this.grade;
+    // The riser resolves instead of cutting; the score gives way to a warm major lift.
+    this.settleCues(t, 0.25);
+    this.score.gain.cancelScheduledValues(t);
+    this.score.gain.setValueAtTime(this.score.gain.value, t);
+    this.score.gain.setTargetAtTime(0, t, 0.25);
+    // D major (the Picardy third after all that minor). A small escape is a warm
+    // chord and two bells; from 5× it blooms; from 10× drums; from 25× a full cascade.
+    const len = 2.2 + g * 0.5;
+    const chord = g === 0 ? [0, 4, 7] : g === 1 ? [-12, 0, 4, 7] : [-12, 0, 4, 7, 12];
+    for (const s of chord) this.synth(t + 0.02, hz(s), len, 0.028 + g * 0.004, 1400 + g * 250, this.music, { attack: 0.3, release: len * 0.7, toCutoff: 900, detune: 7, type: 'triangle' });
+    if (g >= 1) this.tone(t, hz(-24), len, 0.14 + g * 0.03, 'sine', this.music, undefined, 0.04);
+    const bells = [12, 19, 24, 28, 31, 36, 40, 43].slice(0, 2 + g + (g >= 3 ? 1 : 0) + (g >= 4 ? 1 : 0));
+    for (const [i, s] of bells.entries()) this.bell(t + 0.06 + i * 0.085, hz(s + 12), Math.max(0.014, 0.032 - i * 0.0025), 1.8 + g * 0.3);
+    this.noiseHit(t, 1.2 + g * 0.2, 'highpass', 6000, 0.5, 0.018 + g * 0.004, this.sfx, undefined, 0.2);
+    this.noiseHit(t, 0.5, 'bandpass', 800, 0.9, 0.04 + g * 0.006, this.sfx, 3000, 0.08);
+    if (g >= 3) {
+      this.drum(t, 0.3, 48, this.music);
+      this.drum(t + 0.22, 0.22, 64, this.music);
+    }
+    if (g >= 4) {
+      // A long way out: a second, higher chord blooms under the bells.
+      for (const s of [16, 19, 24]) this.synth(t + 0.5, hz(s), len, 0.016, 2200, this.music, { attack: 0.6, release: len * 0.6, detune: 6 });
+      this.drum(t + 0.44, 0.26, 56, this.music);
+    }
   }
 
   ui(s: UiSound): void {
@@ -311,88 +667,184 @@ export class AudioEngine implements WorldSounds {
     const t = this.ctx.currentTime;
     switch (s) {
       case 'hover':
-        if (t - this.lastHover < 0.06) return;
+        if (t - this.lastHover < 0.07) return;
         this.lastHover = t;
-        this.tone(t, 2600, 0.025, 0.012);
+        this.noiseHit(t, 0.018, 'bandpass', 3400, 3, 0.02);
         break;
       case 'tick':
-        this.tone(t, 1900, 0.03, 0.03, 'triangle');
+        this.tone(t, 1800, 0.035, 0.028, 'triangle');
+        this.noiseHit(t, 0.012, 'bandpass', 5000, 2, 0.02);
+        break;
+      case 'press':
+        this.tone(t, 420, 0.06, 0.05, 'sine', this.sfx, 260);
+        this.noiseHit(t, 0.02, 'bandpass', 2500, 1.5, 0.03);
         break;
       case 'open':
-        this.tone(t, 660, 0.12, 0.03, 'sine', this.sfx, 990);
+        this.tone(t, 587, 0.14, 0.028, 'sine', this.sfx, 880, 0.01);
+        this.noiseHit(t, 0.18, 'bandpass', 1400, 1, 0.012, this.sfx, 3200, 0.05);
         break;
       case 'close':
-        this.tone(t, 880, 0.1, 0.025, 'sine', this.sfx, 520);
+        this.tone(t, 880, 0.12, 0.022, 'sine', this.sfx, 520, 0.008);
         break;
       case 'confirm':
-        this.tone(t, 392, 0.2, 0.05, 'triangle');
-        this.tone(t + 0.06, 587, 0.25, 0.04, 'triangle');
+        this.bell(t, hz(19), 0.035, 0.9, this.sfx);
+        this.bell(t + 0.07, hz(26), 0.028, 1.0, this.sfx);
         break;
       case 'bet':
-        this.tone(t, 180, 0.18, 0.12, 'sine', this.sfx, 90);
-        this.noiseHit(t, 0.1, 'bandpass', 1500, 1, 0.06);
+        // A token set on stone: a low knock, a dry click, and a quiet low bell.
+        this.tone(t, 190, 0.2, 0.14, 'sine', this.sfx, 85, 0.002);
+        this.noiseHit(t, 0.05, 'bandpass', 1700, 1.3, 0.08);
+        this.bell(t + 0.02, hz(12), 0.03, 1.2, this.sfx);
         break;
       case 'cashout':
-        this.tone(t, 1175, 0.35, 0.07, 'sine');
-        this.tone(t + 0.03, 1760, 0.3, 0.05, 'sine');
+        // Bright and immediate: the press itself must feel answered before the server replies.
+        this.bell(t, hz(31), 0.045, 1.0, this.sfx);
+        this.bell(t + 0.045, hz(36), 0.035, 1.1, this.sfx);
+        this.noiseHit(t, 0.35, 'bandpass', 900, 1, 0.05, this.sfx, 4200, 0.03);
+        break;
+      case 'stamp':
+        this.tone(t, 140, 0.25, 0.14, 'sine', this.sfx, 70, 0.002);
+        this.noiseHit(t, 0.06, 'lowpass', 1600, 0.8, 0.1);
         break;
       case 'deny':
-        this.tone(t, 220, 0.14, 0.06, 'square', this.sfx, 180);
+        this.tone(t, 196, 0.16, 0.05, 'triangle', this.sfx, 165);
+        this.tone(t + 0.09, 185, 0.16, 0.04, 'triangle', this.sfx, 155);
         break;
     }
   }
 
   setScene(s: Scene): void {
+    const prev = this.scene;
     this.scene = s;
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    const drone = s === 'run' ? 0.5 : s === 'lead' ? 0.35 : s === 'fallen' ? 0 : s === 'escaped' ? 0.15 : 0.18;
-    this.droneGain.gain.setTargetAtTime(drone, t, s === 'fallen' ? 0.08 : 0.6);
+    const pad = s === 'run' ? 0.42 : s === 'lead' ? 0.3 : s === 'fallen' ? 0 : s === 'escaped' ? 0.12 : 0.16;
+    this.padGain.gain.setTargetAtTime(pad, t, s === 'fallen' ? 0.06 : 0.6);
     this.waterGain.gain.setTargetAtTime(s === 'run' ? 0.03 : 0.06, t, 1);
-    if (s === 'lead') this.nextBeat = Math.max(this.nextBeat, t);
+    if (s === 'lead' || s === 'run' || s === 'setup' || s === 'title') {
+      // Bring the score back (it is cut at the fall / cash-out).
+      this.score.gain.cancelScheduledValues(t);
+      this.score.gain.setValueAtTime(Math.max(0.0001, this.score.gain.value), t);
+      this.score.gain.setTargetAtTime(1, t, 0.15);
+    }
+    if (s === 'lead' && prev !== 'lead') {
+      this.cue.gain.cancelScheduledValues(t);
+      this.cue.gain.setTargetAtTime(1, t, 0.05);
+      this.mult = 100;
+      this.beat = 0;
+      this.nextBeat = t + 0.02;
+      this.setChord(CALM[0]!, t, 0.3);
+    }
+    if (s === 'run' && prev !== 'run') {
+      // Go: a big low drum and a lift of air on the downbeat; the groove starts from bar one.
+      this.beat = 0;
+      this.nextBeat = t + 0.01;
+      this.drum(t, 0.4, 52, this.score);
+      this.noiseHit(t, 0.6, 'bandpass', 500, 0.9, 0.06, this.score, 3500, 0.02);
+    }
+    if (s === 'escaped') this.score.gain.setTargetAtTime(0.8, t + 2.8, 1.2);
+    if (s === 'setup' || s === 'title') this.setChord(CALM[0]!, t, 1.5);
+  }
+
+  private setChord(c: number[], at: number, glide: number) {
+    this.chord = c;
+    this.voiceChord(c, at, glide);
   }
 
   // ------------------------------------------------------------------ score
   private schedule() {
     const ctx = this.ctx;
     if (!ctx || ctx.state !== 'running') return;
+    // After a stall (tab throttled), skip ahead instead of firing a burst of old notes.
+    if (this.nextBeat < ctx.currentTime - 0.05) this.nextBeat = ctx.currentTime + 0.02;
     const ahead = ctx.currentTime + 0.12;
     const I = this.intensity;
-    const bpm = 92 + 44 * I;
+    const bpm = 96 + 40 * I;
     const step = 60 / bpm / 4; // sixteenths
     while (this.nextBeat < ahead) {
       const at = this.nextBeat;
       const b = this.beat % 16;
-      if (this.scene === 'run' || this.scene === 'lead') this.musicStep(at, b, I);
-      else if ((this.scene === 'setup' || this.scene === 'title') && b === 0 && this.beat % 64 === 0) {
-        // Sparse, patient: a single low frame-drum and a held note.
-        this.drum(at, 0.12, 70);
-        this.tone(at, hz(SCALE[Math.floor(Math.random() * 4)]!), 3.5, 0.025, 'triangle', this.music, undefined, 0.6);
-      }
+      const bar = Math.floor(this.beat / 16);
+      if (this.scene === 'run' || this.scene === 'lead') this.musicStep(at, b, bar, I, step);
+      else if (this.scene === 'setup' || this.scene === 'title' || this.scene === 'escaped') this.ambientStep(at, b, bar);
       this.nextBeat += step;
       this.beat++;
     }
   }
 
-  private drum(at: number, gain: number, freq: number) {
-    this.tone(at, freq * 1.8, 0.35, gain, 'sine', this.music, freq, 0.002);
-    this.noiseHit(at, 0.06, 'lowpass', 900, 0.5, gain * 0.35, this.music);
+  /** Between runs: patient, spacious — a low drum now and then, a held chord that drifts. */
+  private ambientStep(at: number, b: number, bar: number) {
+    if (b !== 0) return;
+    if (bar % 4 === 0) {
+      this.drum(at, 0.09, 64, this.score);
+      const c = CALM[(bar / 4) % CALM.length]!;
+      this.setChord(c, at, 1.8);
+      if (this.scene !== 'escaped') for (const s of c) this.synth(at, hz(s + 12), 5.5, 0.012, 1100, this.score, { attack: 1.6, release: 3, type: 'triangle', detune: 5 });
+    }
+    if (bar % 4 === 2 && Math.random() < 0.6) this.bell(at, hz(this.chord[Math.floor(Math.random() * 3)]! + 24), 0.012, 2.4, this.score);
   }
 
-  private musicStep(at: number, b: number, I: number) {
-    const lead = this.scene === 'lead';
-    // Heartbeat kick pattern; busier as the way gets worse.
-    const kick = b === 0 || b === 8 || (I > 0.25 && b === 10) || (I > 0.55 && (b === 4 || b === 14));
-    if (kick) this.drum(at, 0.22 + I * 0.1, 58);
-    if (!lead && (b === 4 || b === 12)) this.drum(at, 0.1 + I * 0.08, 140);
-    if (!lead && I > 0.15 && b % 2 === 1) this.noiseHit(at, 0.03, 'highpass', 7000, 0.7, 0.02 + I * 0.03, this.music);
-    // Ostinato: plucked pentatonic, climbing register with intensity.
-    if (!lead && (b % 4 === 2 || (I > 0.45 && b % 2 === 0))) {
-      const idx = (this.beat / 2 + Math.floor(I * 3)) % SCALE.length;
-      const oct = I > 0.6 ? 12 : 0;
-      this.tone(at, hz(SCALE[Math.floor(idx)]! + oct), 0.22, 0.05 + I * 0.03, 'triangle', this.music, undefined, 0.003);
+  /** A frame drum / taiko: pitch-dropping body plus a soft skin slap. */
+  private drum(at: number, gain: number, freq: number, dest: AudioNode = this.score) {
+    this.tone(at, freq * 2.2, 0.4, gain, 'sine', dest, freq, 0.002);
+    this.noiseHit(at, 0.05, 'lowpass', 1200, 0.5, gain * 0.3, dest);
+  }
+
+  private musicStep(at: number, b: number, bar: number, I: number, step: number) {
+    const out = this.score;
+    if (this.scene === 'lead') {
+      // Coiled: a heartbeat, nothing else.
+      if (b === 0) this.drum(at, 0.26, 54, out);
+      if (b === 3) this.drum(at, 0.16, 54, out);
+      return;
     }
-    // High strings: a rising tension note every bar past halfway.
-    if (!lead && I > 0.4 && b === 0) this.tone(at, hz(19 + Math.round(I * 5)), 2.2, 0.018 + 0.02 * I, 'sawtooth', this.music, undefined, 0.8);
+    // Layers enter by the tier of the multiplier on screen (the same boundaries the
+    // world uses): <2x pulse and pluck; 2-5x bass and shaker; 5-10x strings, taiko,
+    // darker harmony; 10-25x octave bass, second string line; 25x+ everything, faster changes.
+    const T = tierOf(this.mult);
+    const hr = T >= 4 ? 1 : 2;
+    if (b === 0 && bar % hr === 0) {
+      const prog = T >= 2 ? DRIVEN : CALM;
+      this.setChord(prog[Math.floor(bar / hr) % prog.length]!, at, 0.12);
+      if (T >= 2) {
+        // Strings: a held line on the chord's fifth (and third), two octaves up, swelling.
+        const len = step * 16 * hr;
+        const g = 0.012 + 0.02 * I;
+        this.synth(at, hz(this.chord[2]! + 24), len, g, 2200, out, { attack: len * 0.5, release: len * 0.4, detune: 6 });
+        if (T >= 3) this.synth(at, hz(this.chord[1]! + 24), len, g * 0.7, 2000, out, { attack: len * 0.6, release: len * 0.35, detune: 5 });
+      }
+    }
+    const phraseEnd = bar % 4 === 3;
+    // Drums: heartbeat kick, busier with each tier.
+    const kick = b === 0 || b === 8 || (T >= 1 && b === 10) || (T >= 3 && (b === 3 || b === 14)) || (T >= 4 && b === 6);
+    if (kick) this.drum(at, 0.24 + I * 0.1, 50, out);
+    // Backbeat: a rim/clap, with a taiko under it from 5x.
+    if (b === 4 || b === 12) {
+      this.noiseHit(at, 0.08, 'bandpass', 1900, 1.2, 0.07 + I * 0.05, out);
+      this.tone(at, 210, 0.08, 0.05 + I * 0.03, 'triangle', out, 150, 0.002);
+      if (T >= 2) this.drum(at, 0.12 + I * 0.08, 92, out);
+    }
+    // Shaker: sixteenths with accents.
+    if (T >= 1) {
+      const acc = b % 4 === 2 ? 1 : b % 2 === 0 ? 0.6 : 0.35;
+      this.noiseHit(at, 0.035, 'highpass', 6500, 0.7, (0.012 + I * 0.022) * acc, out);
+    }
+    // Taiko fill closing each phrase.
+    if (T >= 2 && phraseEnd && b >= 12) this.drum(at, 0.14 + I * 0.1, 110 - (b - 12) * 12, out);
+    // Bass: eighths on the root, octave jumps on the offbeat from 10x.
+    if (T >= 1 && b % 2 === 0) {
+      const r = this.chord[0]! - 24 + (T >= 3 && b % 4 === 2 ? 12 : 0);
+      this.synth(at, hz(r), step * 1.8, 0.07 + I * 0.03, 260 + I * 500, out, { attack: 0.005, release: step, toCutoff: 140 });
+    }
+    // Ostinato: a marimba-like arpeggio over the chord, doubling in rate and climbing in register.
+    const every = T >= 2 ? 1 : 2;
+    if (b % every === 0) {
+      const c = this.chord;
+      const tones = [c[0]!, c[1]!, c[2]!, c[0]! + 12, c[1]! + 12];
+      const n = tones[ARP[(this.beat / every) % ARP.length | 0]!]! + (T >= 3 ? 24 : 12);
+      const g = (0.035 + I * 0.02) * (b % 4 === 0 ? 1 : 0.7);
+      this.tone(at, hz(n), 0.28, g, 'sine', out, undefined, 0.002);
+      this.tone(at, hz(n) * 4, 0.06, g * 0.3, 'sine', out, undefined, 0.001);
+    }
   }
 }
