@@ -755,7 +755,7 @@ def build_boot_L(bm, part):
             co.y = -0.08 + (co.y + 0.08) * 0.5
         co.x *= 1 - 0.1 * smooth((co.y - 0.07) / 0.07)
     ellipsoid((0.112, 0.06, 0.012), (0.056, 0.146, 0.012), seg=16, rings=6, shape=sole_shape)(bm)
-    rounded_box((0.08, 0.056, 0.026), (0.112, -0.04, 0.014), 0.008, 2)(bm)
+    rounded_box((0.078, 0.05, 0.026), (0.112, -0.022, 0.014), 0.008, 2)(bm)
 
 
 for s, sx in (("L", 1), ("R", -1)):
