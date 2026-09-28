@@ -178,22 +178,23 @@ function Setup() {
           </div>
           <div className="run-cell">
             {broke ? (
-              <button className="btn btn-gold run-btn" onClick={() => void ctl?.refill()} onMouseEnter={() => ctl?.audio.ui('hover')}>
+              <button className="btn btn-cta cta-sun run-btn" onClick={() => void ctl?.refill()} onMouseEnter={() => ctl?.audio.ui('hover')}>
                 <span className="btn-label">Refill</span>
-                <span className="gem-sep" aria-hidden />
+                <span className="sep" aria-hidden />
                 <small className="btn-sub">Demo credits</small>
               </button>
             ) : (
               <button
-                className={`btn btn-gold run-btn${busy ? ' busy' : ''}${won ? ' won' : ''}`}
+                className={`btn btn-cta cta-go run-btn${busy ? ' busy' : ''}${won ? ' won' : ''}`}
                 onClick={() => void ctl?.run()}
                 onMouseEnter={() => ctl?.audio.ui('hover')}
                 disabled={s.stake > s.balance}
                 aria-busy={busy}
                 aria-label={busy ? 'Placing your stake' : `${s.phase === 'result' ? 'Run again' : 'Run'} with a stake of ${formatCredits(s.stake)}`}
               >
+                {busy && <span className="spinner" aria-hidden />}
                 <span className="btn-label">{busy ? 'Placing' : s.phase === 'result' ? 'Run again' : 'Run'}</span>
-                <span className="gem-sep" aria-hidden />
+                <span className="sep" aria-hidden />
                 <small className="btn-sub num">
                   {formatCredits(s.stake)}
                   <i>CR</i>
@@ -243,7 +244,7 @@ function CashOut() {
     <>
       <button
         ref={btnRef}
-        className={`btn cash${lead ? ' lead' : ''}${phase === 'cashing' ? ' pressed' : ''}`}
+        className={`btn btn-cta cta-sun cash${lead ? ' lead' : ''}${phase === 'cashing' ? ' pressed' : ''}`}
         onPointerDown={(e) => {
           // Pointer-down, not click: the tap is the decision.
           if (e.button === 0) void ctl?.cashout();

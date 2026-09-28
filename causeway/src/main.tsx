@@ -1,10 +1,5 @@
-import '@fontsource/marcellus/400';
-import '@fontsource/big-shoulders-display/600';
-import '@fontsource/big-shoulders-display/700';
-import '@fontsource/big-shoulders-display/800';
-import '@fontsource/instrument-sans/400';
-import '@fontsource/instrument-sans/500';
-import '@fontsource/instrument-sans/600';
+// Archivo on its width and weight axes: the whole type system is this one family.
+import '@fontsource-variable/archivo/wdth.css';
 import './ui/styles.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
