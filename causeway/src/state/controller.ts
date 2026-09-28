@@ -170,7 +170,7 @@ export class Controller {
     this.audio.outcome(won ? (round.cashoutMult ?? 100) : round.crash);
     if (won) {
       this.game.live.mult = (round.cashoutMult ?? 100) / 100;
-      this.game.cashout();
+      this.game.cashout(round.id);
       this.audio.setScene('escaped');
       this.buzz('cashout');
     } else {

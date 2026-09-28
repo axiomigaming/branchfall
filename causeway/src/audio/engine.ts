@@ -493,15 +493,9 @@ export class AudioEngine implements WorldSounds {
       for (let i = 0; i < 3; i++) this.tone(t + 0.08 + i * 0.05 + Math.random() * 0.08, 380 + Math.random() * 300, 0.05, 0.025 * k, 'sine', this.sfx, 1100);
       return;
     }
-    // The gate's landing is the slam that ends the run: make it the heaviest sound in the game.
-    const slam = !this.slamDone && this.crashKind === 'gate' && t - this.crashAt < 3;
-    if (slam) {
-      this.slamDone = true;
-      this.tone(t, 64, 1.8, 0.75, 'sine', this.sfx, 28, 0.002);
-      this.tone(t, 128, 0.5, 0.25, 'triangle', this.sfx, 60, 0.002);
-      this.noiseHit(t, 0.9, 'lowpass', 2600, 0.7, 0.55, this.sfx, 120);
-      this.noiseHit(t, 0.05, 'bandpass', 900, 0.8, 0.4);
-      for (let i = 0; i < 10; i++) this.noiseHit(t + 0.08 + Math.random() * 0.9, 0.05, 'bandpass', 1000 + Math.random() * 3000, 2, 0.05);
+    // Fallback for worlds without the slam() hook: the first stone impact after a gate is the slam.
+    if (!this.slamDone && this.crashKind === 'gate' && t - this.crashAt < 3) {
+      this.slam(1);
       return;
     }
     // Stone: a sub thump, a crack, a gritty body and a crumbling tail.
@@ -509,6 +503,19 @@ export class AudioEngine implements WorldSounds {
     this.noiseHit(t, 0.03, 'bandpass', 1100 + Math.random() * 600, 1, 0.22 * k);
     this.noiseHit(t, 0.3 + k * 0.3, 'lowpass', 1500, 0.6, 0.3 * k, this.sfx, 160);
     for (let i = 0; i < Math.round(5 * k); i++) this.noiseHit(t + 0.05 + Math.random() * 0.6, 0.045, 'bandpass', 900 + Math.random() * 2500, 2, 0.04 * k);
+  }
+
+  /** The landing that ends the run (gate slab, the first boulder): the heaviest sound in the game. */
+  slam(size: number): void {
+    if (!this.ctx) return;
+    this.slamDone = true;
+    const t = this.ctx.currentTime;
+    const k = Math.max(0.4, Math.min(1.2, size));
+    this.tone(t, 64, 1.4 + 0.6 * k, 0.75 * k, 'sine', this.sfx, 28, 0.002);
+    this.tone(t, 128, 0.5, 0.25 * k, 'triangle', this.sfx, 60, 0.002);
+    this.noiseHit(t, 0.9, 'lowpass', 2600, 0.7, 0.55 * k, this.sfx, 120);
+    this.noiseHit(t, 0.05, 'bandpass', 900, 0.8, 0.4 * k);
+    for (let i = 0; i < Math.round(10 * k); i++) this.noiseHit(t + 0.08 + Math.random() * 0.9, 0.05, 'bandpass', 1000 + Math.random() * 3000, 2, 0.05);
   }
 
   tremor(strength: number): void {
