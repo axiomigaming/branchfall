@@ -98,6 +98,7 @@ export class Game {
     this.renderer.info.autoReset = false;
     this.rig = new CameraRig(canvas.clientWidth / Math.max(1, canvas.clientHeight));
     this.rig.constrain = (p) => this.corridor(p);
+    this.rig.occlude = (a, b) => this.occluder(a, b);
   }
 
   static async create(canvas: HTMLCanvasElement, quality: QualityLevel, onProgress: (p: number, label: string) => void): Promise<Game> {
@@ -376,6 +377,71 @@ export class Game {
 
   /** Keep a camera position inside the open corridor: between the walls (below their tops) and above the floor. */
   private cframe = { pos: new THREE.Vector3(), yaw: 0 };
+  // ------------------------------------------------------------------ camera occlusion
+  private occl = {
+    rc: new THREE.Raycaster(),
+    mesh: new THREE.Mesh(undefined, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide })),
+    hits: [] as THREE.Intersection[],
+    ray: new THREE.Ray(),
+    local: new THREE.Ray(),
+    hit: new THREE.Vector3(),
+    dir: new THREE.Vector3(),
+    cache: new WeakMap<object, { geo: THREE.BufferGeometry; world: THREE.Matrix4; inv: THREE.Matrix4 }[]>(),
+  };
+
+  /** Solid near-path props of a section (walls, pillars, arches, stelae — not leaves, not far scenery). */
+  private solids(sec: { root: THREE.Object3D; layout: { props: { piece: string; m: THREE.Matrix4 }[] } }) {
+    let list = this.occl.cache.get(sec);
+    if (list) return list;
+    list = [];
+    const p = new THREE.Vector3();
+    for (const pl of sec.layout.props) {
+      const geo = this.kit.geo.get(pl.piece);
+      const mat = this.kit.matOf.get(pl.piece);
+      if (!geo || !mat || mat === 'leaf') continue;
+      if (Math.abs(p.setFromMatrixPosition(pl.m).x) > 7.5) continue;
+      if (!geo.boundingBox) geo.computeBoundingBox();
+      const world = sec.root.matrix.clone().multiply(pl.m);
+      list.push({ geo, world, inv: world.clone().invert() });
+    }
+    this.occl.cache.set(sec, list);
+    return list;
+  }
+
+  /**
+   * Distance from `from` to the first solid prop on the segment to `to`, or null when clear. Broad
+   * phase: each prop's local bounding box; narrow phase: an exact raycast of that one piece.
+   */
+  private occluder(from: THREE.Vector3, to: THREE.Vector3): number | null {
+    if (!this.track) return null;
+    const o = this.occl;
+    const len = o.dir.copy(to).sub(from).length();
+    if (len < 1e-3) return null;
+    o.dir.divideScalar(len);
+    o.ray.set(from, o.dir);
+    let best: number | null = null;
+    for (const sec of this.track.sections) {
+      if (sec.s0 > this.s + 25 || sec.s0 + sec.len < this.s - 25) continue;
+      for (const e of this.solids(sec)) {
+        o.local.copy(o.ray).applyMatrix4(e.inv);
+        if (!o.local.intersectBox(e.geo.boundingBox!, o.hit)) continue;
+        o.hit.applyMatrix4(e.world);
+        if (o.hit.distanceTo(from) > len) continue;
+        o.mesh.geometry = e.geo;
+        o.mesh.matrixWorld.copy(e.world);
+        o.rc.set(from, o.dir);
+        o.rc.far = len;
+        o.hits.length = 0;
+        o.mesh.raycast(o.rc, o.hits);
+        for (const h of o.hits) if (best === null || h.distance < best) best = h.distance;
+      }
+    }
+    return best;
+  }
+
+  /** QA: pin the camera in the runner's frame (along, lat, up, look height, fov) after the rig. */
+  debugPin: { along: number; lat: number; up: number; lookUp: number; fov: number } | null = null;
+
   private corridor(p: THREE.Vector3): void {
     if (!this.track || !this.runner) return;
     const rp = this.runner.root.position;
@@ -774,6 +840,16 @@ export class Game {
     this.rig.motionScale = this.motion === 'full' ? 1 : 0.25;
     this.rig.update(rawDt * (this.stage === 'crash' || this.stage === 'cashout' ? Math.max(this.timeScale, 0.55) : 1), rp, this.runner.root.rotation.y, this.stage === 'run' ? I : 0);
     const cam = this.rig.camera;
+    if (this.debugPin) {
+      const d = this.debugPin;
+      const ry = this.runner.root.rotation.y;
+      const fx = -Math.sin(ry);
+      const fz = -Math.cos(ry);
+      cam.position.set(rp.x + fx * d.along + Math.cos(ry) * d.lat, rp.y + d.up, rp.z + fz * d.along - Math.sin(ry) * d.lat);
+      cam.lookAt(rp.x, rp.y + d.lookUp, rp.z);
+      cam.fov = d.fov;
+      cam.updateProjectionMatrix();
+    }
 
     // Sun follows the runner so its shadow box stays tight.
     this.sun.target.position.copy(rp);

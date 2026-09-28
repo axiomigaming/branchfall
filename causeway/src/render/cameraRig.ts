@@ -99,6 +99,20 @@ export class CameraRig {
   focus = new THREE.Vector3();
   /** Keeps a camera position inside the open corridor (walls, floor). Set by the game. */
   constrain: (p: THREE.Vector3) => void = () => {};
+  /** Distance from `a` to the first solid obstacle toward `b`, or null. Set by the game. */
+  occlude: (a: THREE.Vector3, b: THREE.Vector3) => number | null = () => null;
+  // Occlusion response: swing the orbit toward the clear side, else pull in along the sight line.
+  private swing = 0;
+  private swingTarget = 0;
+  private pull = 1;
+  private pullTarget = 1;
+  private occT = 0;
+  private blockedT = 0;
+  private clearT = 0;
+  private rawTarget = new THREE.Vector3();
+  private runnerAt = new THREE.Vector3();
+  private cand = new THREE.Vector3();
+  private eye = new THREE.Vector3();
 
   constructor(aspect: number) {
     this.camera = new THREE.PerspectiveCamera(55, aspect, 0.1, 2400);
@@ -113,12 +127,16 @@ export class CameraRig {
     if (m === this.mode) return;
     this.mode = m;
     this.modeT = 0;
+    this.swingTarget = 0;
+    this.pullTarget = 1;
   }
 
   /** Snap to the current target (after a teleport such as a new round). */
   snap(runnerPos: THREE.Vector3, runnerYaw: number): void {
     this.yaw = runnerYaw;
     this.lastYaw = runnerYaw;
+    this.swing = this.swingTarget = 0;
+    this.pull = this.pullTarget = 1;
     const fov = this.computeTarget(runnerPos, runnerYaw, 0, 1 / 60, true);
     this.pos.copy(this.targetPos);
     this.look.copy(this.targetLook);
@@ -238,8 +256,84 @@ export class CameraRig {
         break;
       }
     }
-    this.constrain(this.targetPos);
+    this.rawTarget.copy(this.targetPos);
+    this.runnerAt.copy(runnerPos);
+    this.constrain(this.rawTarget);
+    this.applyClearance(this.targetPos, this.swing, this.pull);
     return fov;
+  }
+
+  /** Rotate the target about the runner by `swing`, pull it toward the chest by `pull`, keep it in the corridor. */
+  private applyClearance(out: THREE.Vector3, swing: number, pull: number): THREE.Vector3 {
+    const r = this.runnerAt;
+    const dx = out.x - r.x;
+    const dz = out.z - r.z;
+    const c = Math.cos(swing);
+    const sn = Math.sin(swing);
+    out.x = r.x + dx * c + dz * sn;
+    out.z = r.z - dx * sn + dz * c;
+    if (pull < 1) {
+      this.eye.set(r.x, r.y + 1.3, r.z);
+      out.sub(this.eye).multiplyScalar(pull).add(this.eye);
+    }
+    this.constrain(out);
+    return out;
+  }
+
+  /** The nearest obstacle between the runner's chest/head and `p`, as a fraction of the way (or null). */
+  private blockedAt(p: THREE.Vector3): number | null {
+    const r = this.runnerAt;
+    let best: number | null = null;
+    for (const h of [1.25, 1.62]) {
+      this.eye.set(r.x, r.y + h, r.z);
+      const len = this.eye.distanceTo(p);
+      const d = this.occlude(this.eye, p);
+      if (d !== null && d < len - 0.15) best = Math.min(best ?? 1, d / len);
+    }
+    return best;
+  }
+
+  /**
+   * Keep the runner in sight: every few frames test the sight lines from chest and head to the
+   * camera target. Blocked for a moment → swing the orbit to the nearest clear angle (settled shots)
+   * or pull in in front of the obstacle; clear for a while → ease back. Hysteresis stops jitter.
+   */
+  private clearance(dt: number): void {
+    this.occT -= dt;
+    const run = this.mode === 'run' || this.mode === 'lead';
+    if (this.occT <= 0 && this.mode !== 'title') {
+      const step = run ? 0.25 : 0.1;
+      this.occT = step;
+      const cur = this.applyClearance(this.cand.copy(this.rawTarget), this.swingTarget, 1);
+      const hit = this.blockedAt(cur);
+      if (hit === null) {
+        this.blockedT = 0;
+        this.clearT += step;
+        if (this.clearT > 0.5) this.pullTarget = 1;
+        if (this.swingTarget !== 0 && this.clearT > 1.0 && this.blockedAt(this.applyClearance(this.cand.copy(this.rawTarget), 0, 1)) === null) this.swingTarget = 0;
+      } else {
+        this.clearT = 0;
+        this.blockedT += step;
+        if (this.blockedT >= 0.1) {
+          let found = false;
+          if (!run) {
+            for (const d of [0.35, -0.35, 0.7, -0.7, 1.05, -1.05, 1.4, -1.4]) {
+              const a = this.swingTarget + d;
+              if (Math.abs(a) > 1.6) continue;
+              if (this.blockedAt(this.applyClearance(this.cand.copy(this.rawTarget), a, 1)) === null) {
+                this.swingTarget = a;
+                this.pullTarget = 1;
+                found = true;
+                break;
+              }
+            }
+          }
+          if (!found) this.pullTarget = Math.max(0.3, Math.min(this.pullTarget, hit - 0.12));
+        }
+      }
+    }
+    this.swing = damp(this.swing, this.swingTarget, 2.2, dt);
+    this.pull = damp(this.pull, this.pullTarget, this.pullTarget < this.pull ? 6 : 1.2, dt);
   }
 
   /**
@@ -355,6 +449,7 @@ export class CameraRig {
     this.t += dt;
     this.modeT += dt;
     const fov = this.computeTarget(runnerPos, runnerYaw, intensity, dt);
+    this.clearance(dt);
     const running = this.mode === 'run';
     const stiff = running ? 7.5 : this.mode === 'title' ? 1.2 : this.mode === 'lead' ? 2.4 : 3.2;
     dampV(this.pos, this.targetPos, stiff, dt);
@@ -364,6 +459,12 @@ export class CameraRig {
       const along = this.tmp.copy(this.targetPos).sub(this.pos).dot(this.fwd);
       const hold = 30 * (0.12 + 0.88 * ease(this.modeT / 0.9));
       this.pos.addScaledVector(this.fwd, along * (1 - Math.exp(-dt * hold)));
+    }
+    if (this.mode === 'cashout' || this.mode === 'crash') {
+      // Settled shots: keep up with a runner still carrying speed (a big escape's run-out) along the
+      // route, so the figure never shrinks into the distance while the springs catch up.
+      const along = this.tmp.copy(this.targetPos).sub(this.pos).dot(this.fwd);
+      this.pos.addScaledVector(this.fwd, along * (1 - Math.exp(-dt * 6)));
     }
     dampV(this.look, this.targetLook, stiff * 1.4, dt);
     this.constrain(this.pos);
