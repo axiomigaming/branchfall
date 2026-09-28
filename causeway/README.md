@@ -157,7 +157,10 @@ Chromium; compare builds by relative numbers (SwiftShader is slow).
 `start`, `corridor`, `bridge` (plank, rope-railed and waterfall-gorge styles),
 `arcade`, `gate`, `tall`, `plaza` (turning), `stairsDown`, `stairsUp`, `cliff`
 (with waterfall), `ruins`, `avenue` (colossal guardians standing in the water) and
-`gorge` (cliff walls with waterfalls, ending at a golden face gate or an idol).
+`gorge` (cliff walls with waterfalls, ending at a golden face gate or an idol), `boardwalk`
+(weathered planks over water, boulders and a mossy bank), `tunnel` (a vine-hung
+vaulted passage with light at the exit; rockfall and chasm only) and `statues`
+(guardians on plinths, a lintel gate and ruined facades at the vanishing point).
 Each has several seeded variants merged per material at load (a few draw calls
 each), mirrored at random, dressed with ferns, moss, roots, relief walls, fallen
 colossi and lily pads, with islands, palms, towers and cliffs out over the water.
