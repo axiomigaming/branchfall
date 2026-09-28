@@ -121,11 +121,31 @@ in `blender/` with headless Blender (`pip install bpy==4.2.0 "numpy<2"`):
 
 ### Section library
 
-`start`, `corridor`, `bridge`, `arcade`, `gate`, `tall`, `plaza` (turning),
-`stairsDown`, `stairsUp`, `cliff` (with waterfall) and `ruins`. Each has several
-seeded variants merged per material at load (a few draw calls each), mirrored
-at random, with islands, palms, towers and cliffs scattered over the water.
+`start`, `corridor`, `bridge` (plank, rope-railed and waterfall-gorge styles),
+`arcade`, `gate`, `tall`, `plaza` (turning), `stairsDown`, `stairsUp`, `cliff`
+(with waterfall), `ruins` and `avenue` (colossal guardians standing in the water).
+Each has several seeded variants merged per material at load (a few draw calls
+each), mirrored at random, dressed with ferns, moss, roots, relief walls, fallen
+colossi and lily pads, with islands, palms, towers and cliffs out over the water.
 Pacing rules keep elevation within one flight of stairs and avoid repeats.
+
+### Presentation by multiplier
+
+Everything below depends only on the **current** multiplier while running, or on
+the **settled** multiplier and round id afterwards — never on the hidden fall point.
+
+| Tier | Multiplier | Run | Score | HUD |
+| --- | --- | --- | --- | --- |
+| 0 | < 2× | composed run | kick + arpeggio | bone |
+| 1 | 2–5× | run → sprint | + bass, shaker | warming |
+| 2 | 5–10× | sprint, glances back | + strings, taiko | gold |
+| 3 | 10–25× | sprint → dash | + octave bass | hot gold |
+| 4 | 25×+ | desperate dash | chord change every bar | full heat |
+
+Milestones flare at 2, 5, 10, 25, 50 and 100×. A fall stages one of two variants
+per hazard (chasm, gate, rockfall), a cash-out one of four escapes (look back,
+cheer, salute, leap); both scale their slow motion, camera and effects with the
+settled multiplier. An escape never shows or sounds how close the fall was.
 
 ## Quality and performance
 

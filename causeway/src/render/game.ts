@@ -477,11 +477,7 @@ export class Game {
   }
 
   // ------------------------------------------------------------------ crash staging
-  /**
-   * A tile's true span along the route, from its world matrix. (Track's recorded sNear/sFar can be a
-   * tile off for half-turned tiles when the Euler decomposition lands on (π, 0, π); measuring the
-   * tile's centre directly avoids collapsing the slab under the runner's feet.)
-   */
+  /** A tile's span along the route, measured from its world matrix (independent of Track's bookkeeping). */
   private tileSpan(t: { world: THREE.Matrix4; sNear: number; sFar: number }): [number, number] {
     const e = t.world.elements;
     const o = new THREE.Vector3(e[12], e[13], e[14]);
@@ -513,14 +509,12 @@ export class Game {
   /** Drop every collapsible tile that starts at or beyond `edge` (up to `to`); returns them for debris. */
   private collapseFrom(edge: number, to: number): { piece: string; world: THREE.Matrix4 }[] {
     const out: { piece: string; world: THREE.Matrix4 }[] = [];
-    const tiles = (this.track as unknown as { tiles: { hide(t: unknown): void } }).tiles;
     for (const sec of this.track.sections) {
       for (const t of sec.tiles) {
         if (!this.collapsible(t)) continue;
         const n = this.tileSpan(t)[0];
         if (n < edge - 0.3 || n > to) continue;
-        t.alive = false;
-        tiles.hide(t);
+        this.track.hideTile(t);
         out.push({ piece: t.piece, world: t.world });
       }
     }
