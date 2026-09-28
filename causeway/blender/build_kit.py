@@ -12,11 +12,12 @@ sys.path.insert(0, os.path.dirname(__file__))
 import bpy
 from mathutils import Vector
 
-from common import reset, bake_group, ensure_uvs, export_glb, textured_material, OUT, CACHE
+from common import reset, bake_group, ensure_uvs_packed, export_glb, textured_material, OUT, CACHE
 import kit_geo as K
 import materials as M
 import foliage as F
 import setpieces as S
+import stage as G
 
 FAST = "--fast" in sys.argv
 Q = 4 if FAST else 1
@@ -33,7 +34,7 @@ log("rendering foliage atlas")
 leaf_img = F.render_atlas(2048 // (2 if FAST else 1))
 
 groups = {"stoneA": [], "stoneB": [], "floor": [], "rock": [], "wood": [], "bark": [], "leaf": [], "statue": [], "flora": [],
-          "relief": []}
+          "relief": [], "cliff": [], "gold": []}
 
 # ---- stone A: walls
 for i, (h, ruin) in enumerate([(1.3, 0.35), (1.6, 0.55), (1.15, 0.7), (1.8, 0.4)]):
@@ -123,6 +124,27 @@ groups["leaf"].append(F.vines("vines_2", 682, width=5.0, n=12, length=(2.2, 5.0)
 groups["leaf"].append(F.bush("fern_0", 690, radius=0.6, cells=("fern",), n=8))
 groups["leaf"].append(F.bush("fern_1", 691, radius=0.85, cells=("fern", "broad"), n=10))
 
+# ---- round 3 stage: cliffs that close in on the path, temples, a golden face gate, big trees
+for i, (h, ln) in enumerate([(18, 24), (23, 24), (27, 28)]):
+    r, v, t = G.cliff_set(f"cliff_wall_{i}", 900 + i, length=ln, height=h)
+    groups["cliff"].append(r)
+    groups["leaf"].append(v)
+    groups["bark"].append(t)
+# Temples share the statuary atlas (mid-distance pieces; packed tight, there is room).
+groups["statue"] += [G.temple_prang("temple_0", 930), G.temple_pagoda("temple_1", 931)]
+s_, g_ = G.face_gate("face_gate_0", 950)
+groups["statue"].append(s_)
+groups["gold"].append(g_)
+s_, g_ = G.idol("idol_0", 940)
+groups["statue"].append(s_)
+groups["gold"].append(g_)
+for i in range(2):
+    t, c = G.tree_big(f"tree_big_{i}", 920 + i, height=13 + 3 * i)
+    groups["bark"].append(t)
+    groups["leaf"].append(c)
+    groups["leaf"].append(G.shrub_mass(f"shrub_mass_{i}", 925 + i, w=3.5 + 1.5 * i, h=1.5 + 0.6 * i, n=28 + 10 * i))
+groups["floor"].append(G.floor_medallion("floor_medallion_0", 960))
+
 # Spread pieces out so baked AO only sees each piece itself.
 all_objs = [o for g in groups.values() for o in g]
 for i, o in enumerate(all_objs):
@@ -137,6 +159,8 @@ mats = {
     "bark": (M.bark("bark"), 1024),
     "statue": (M.stone("statue", moss=0.5, glyphs=False), 2048),
     "flora": (M.flora("flora"), 1024),
+    "cliff": (M.cliff("cliff"), 2048),
+    "gold": (M.gold("gold"), 1024),
 }
 # The gate and stelae carry carved glyphs: give them their own small atlas.
 glyph_objs = [o for o in groups["stoneB"] if o.name.startswith(("gate_", "stele_"))]
@@ -149,7 +173,8 @@ for key, (mat, size) in mats.items():
     if not objs:
         continue
     log(f"uv + bake {key} ({len(objs)} objects, {size // Q}px)")
-    ensure_uvs(objs, margin=0.004 if size >= 4096 else 0.006)
+    # Margins in texels of the shipped (optimized, halved) atlas stay at 3–4 px.
+    ensure_uvs_packed(objs, size // Q, margin_px=max(2, (8 if size >= 4096 else 6 if size >= 2048 else 4) // Q))
     bake_group(objs, mat, key, size // Q, ao_samples=6 if FAST else 20, ao_strength=0.6 if key != "rock" else 0.7)
 
 leaf_mat = textured_material("leaf", leaf_img, None, None, alpha=True)

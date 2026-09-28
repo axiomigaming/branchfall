@@ -209,6 +209,28 @@ def ensure_uvs(objs, margin=0.003, angle=60):
     bpy.ops.object.mode_set(mode="OBJECT")
 
 
+def ensure_uvs_packed(objs, size, margin_px=5, angle=60):
+    """Like ensure_uvs, but the island margin is a fixed number of texels of the final atlas.
+
+    Blender's default (SCALED) margin grows with the island count: on groups of hundreds of dressed
+    blocks it left most of a 4K atlas empty and every face a few texels wide. FRACTION keeps the
+    gaps at `margin_px` texels, so the islands fill the atlas.
+    """
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in objs:
+        o.select_set(True)
+        if not o.data.uv_layers:
+            o.data.uv_layers.new(name="UVMap")
+    bpy.context.view_layer.objects.active = objs[0]
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(angle_limit=math.radians(angle), island_margin=0.0, correct_aspect=True, scale_to_bounds=False)
+    bpy.ops.uv.select_all(action="SELECT")
+    bpy.ops.uv.average_islands_scale()
+    bpy.ops.uv.pack_islands(margin_method="FRACTION", margin=margin_px / size, rotate=True, shape_method="CONCAVE")
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+
 def bake_group(objs, mat, name, size, ao_samples=24, ao_strength=0.55, flat_ao=False):
     """Bake the procedural `mat` on `objs` into an atlas, then swap in a textured PBR material.
 

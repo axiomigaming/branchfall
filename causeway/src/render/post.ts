@@ -102,7 +102,7 @@ class SunShaftsEffect extends Effect {
         }
         acc /= float(${samples});
         float r = length(vec2((uv.x - sunPos.x) * aspectRatio, uv.y - sunPos.y));
-        float fall = exp(-r * 1.6);
+        float fall = exp(-r * 2.1);
         outputColor = vec4(inputColor.rgb + acc * tint * strength * fall, inputColor.a);
       }`,
       {
@@ -111,7 +111,67 @@ class SunShaftsEffect extends Effect {
           ['sunPos', new THREE.Uniform(new THREE.Vector2(0.5, 0.6))],
           ['strength', new THREE.Uniform(0)],
           ['aspectRatio', new THREE.Uniform(1.6)],
-          ['tint', new THREE.Uniform(new THREE.Vector3(1.0, 0.8, 0.55))],
+          ['tint', new THREE.Uniform(new THREE.Vector3(1.0, 0.84, 0.6))],
+        ]),
+      },
+    );
+  }
+}
+
+/**
+ * Ambient occlusion from the depth buffer alone (no normal pass, no extra draw calls): view-space
+ * positions are rebuilt from depth, the normal from the nearer neighbour on each axis, and a short
+ * spiral of taps measures how much the surrounding geometry closes over each point. It darkens the
+ * seams where stones meet the floor, the undersides of ledges and the feet of walls in the water.
+ * Fades out with distance, and never touches the sky.
+ */
+class DepthAOEffect extends Effect {
+  constructor(samples: number) {
+    super(
+      'DepthAO',
+      /* glsl */ `
+      uniform vec2 projInfo;
+      uniform float aoRadius;
+      uniform float aoStrength;
+      vec3 aoPos(vec2 p) {
+        float z = getViewZ(readDepth(p));
+        return vec3((p * 2.0 - 1.0) * projInfo * (-z), z);
+      }
+      float ign3(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+      void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
+        if (depth > 0.9999 || aoStrength < 0.001) { outputColor = inputColor; return; }
+        vec3 P = aoPos(uv);
+        float dist = -P.z;
+        float fade = 1.0 - smoothstep(35.0, 80.0, dist);
+        if (fade < 0.01) { outputColor = inputColor; return; }
+        vec3 px = aoPos(uv + vec2(texelSize.x, 0.0)) - P;
+        vec3 nx = P - aoPos(uv - vec2(texelSize.x, 0.0));
+        vec3 py = aoPos(uv + vec2(0.0, texelSize.y)) - P;
+        vec3 ny = P - aoPos(uv - vec2(0.0, texelSize.y));
+        vec3 dx = abs(px.z) < abs(nx.z) ? px : nx;
+        vec3 dy = abs(py.z) < abs(ny.z) ? py : ny;
+        vec3 N = normalize(cross(dx, dy));
+        if (dot(N, P) > 0.0) N = -N;
+        float rPx = clamp(aoRadius / (dist * projInfo.y) * resolution.y * 0.5, 2.0, 70.0);
+        float a0 = ign3(gl_FragCoord.xy) * 6.2831853;
+        float occ = 0.0;
+        for (int i = 0; i < ${samples}; i++) {
+          float t = (float(i) + 0.5) / float(${samples});
+          float a = a0 + t * 15.4; // ~2.5 turns of spiral
+          vec2 o = vec2(cos(a), sin(a)) * t * rPx * texelSize;
+          vec3 v = aoPos(uv + o) - P;
+          float l = length(v);
+          occ += max(dot(N, v / max(l, 1e-4)) - 0.12, 0.0) * (1.0 - smoothstep(aoRadius * 0.7, aoRadius * 1.8, l));
+        }
+        occ = clamp(occ / float(${samples}) * 1.9, 0.0, 1.0);
+        outputColor = vec4(inputColor.rgb * (1.0 - occ * aoStrength * fade), inputColor.a);
+      }`,
+      {
+        attributes: EffectAttribute.DEPTH,
+        uniforms: new Map<string, THREE.Uniform>([
+          ['projInfo', new THREE.Uniform(new THREE.Vector2(1, 1))],
+          ['aoRadius', new THREE.Uniform(0.9)],
+          ['aoStrength', new THREE.Uniform(0.75)],
         ]),
       },
     );
@@ -136,9 +196,10 @@ class GradeEffect extends Effect {
         vec3 c = inputColor.rgb;
         float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
         c = mix(vec3(l), c, saturation + gold * 0.15 - cold * 0.6);
-        // Split tone: shadows lean cool teal, highlights honey; midtones stay clean.
-        float hl = smoothstep(0.15, 0.75, l);
-        c *= mix(vec3(0.95, 1.0, 1.05), vec3(1.05, 1.0, 0.92), hl);
+        // Split tone: shadows lean cool teal-blue, highlights sunlit honey; midtones stay clean.
+        // The separation is what makes sunlit stone read warm against shade and sky.
+        float hl = smoothstep(0.12, 0.7, l);
+        c *= mix(vec3(0.93, 0.99, 1.07), vec3(1.07, 1.0, 0.88), hl);
         // A soft S-curve around mid grey rather than a straight contrast stretch.
         vec3 k = clamp(c, 0.0, 1.0);
         vec3 s = k * k * (3.0 - 2.0 * k);
@@ -157,9 +218,9 @@ class GradeEffect extends Effect {
       }`,
       {
         uniforms: new Map<string, THREE.Uniform>([
-          ['saturation', new THREE.Uniform(1.14)],
-          ['contrast', new THREE.Uniform(1.04)],
-          ['tint', new THREE.Uniform(new THREE.Vector3(1.02, 1.0, 0.96))],
+          ['saturation', new THREE.Uniform(1.24)],
+          ['contrast', new THREE.Uniform(1.07)],
+          ['tint', new THREE.Uniform(new THREE.Vector3(1.01, 1.0, 0.97))],
           ['danger', new THREE.Uniform(0)],
           ['cold', new THREE.Uniform(0)],
           ['gold', new THREE.Uniform(0)],
@@ -186,6 +247,7 @@ export class Post {
   readonly composer: EffectComposer;
   private blur: SpeedBlurEffect | null = null;
   private shafts: SunShaftsEffect | null = null;
+  private ao: DepthAOEffect | null = null;
   private sun: THREE.Object3D | null = null;
   private sunV = new THREE.Vector3();
   private grade = new GradeEffect();
@@ -208,7 +270,9 @@ export class Post {
     this.composer.removeAllPasses();
     this.composer.addPass(this.renderPass);
     this.shafts = q.godRays > 0 ? new SunShaftsEffect(q.godRays) : null;
-    if (this.shafts) this.composer.addPass(new EffectPass(this.camera, this.shafts));
+    this.ao = q.ao > 0 ? new DepthAOEffect(q.ao) : null;
+    const lightFx = [this.ao, this.shafts].filter((e): e is DepthAOEffect | SunShaftsEffect => e !== null);
+    if (lightFx.length) this.composer.addPass(new EffectPass(this.camera, ...lightFx));
     this.blur = q.speedBlur ? new SpeedBlurEffect(q.bloom ? 12 : 7) : null;
     if (this.blur) this.composer.addPass(new EffectPass(this.camera, this.blur));
     this.bloom = q.bloom ? new BloomEffect({ mipmapBlur: true, luminanceThreshold: 0.82, luminanceSmoothing: 0.25, intensity: 0.85, radius: 0.72 }) : null;
@@ -261,11 +325,15 @@ export class Post {
     const y = this.sunV.y * 0.5 + 0.5;
     const off = Math.max(0, Math.max(Math.abs(x - 0.5), Math.abs(y - 0.5)) - 0.5);
     u.get('sunPos')!.value.set(x, y);
-    u.get('strength')!.value = behind ? 0 : 1.0 * Math.max(0, 1 - off * 2.2);
+    u.get('strength')!.value = behind ? 0 : 1.2 * Math.max(0, 1 - off * 2.0);
   }
 
   render(dt: number): void {
     this.updateShafts();
+    if (this.ao) {
+      const pm = (this.camera as THREE.PerspectiveCamera).projectionMatrix.elements;
+      this.ao.uniforms.get('projInfo')!.value.set(1 / pm[0]!, 1 / pm[5]!);
+    }
     this.composer.render(dt);
   }
 }

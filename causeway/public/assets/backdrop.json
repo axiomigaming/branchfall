@@ -1,21 +1,21 @@
 {
   "sunDirBlender": [
-    0.91178,
-    0.33186,
-    0.24192
+    0.5329,
+    0.63508,
+    0.55919
   ],
   "sunPixel": [
-    1820,
-    1183
+    1479,
+    1410
   ],
   "sunUV": [
-    0.44446,
-    0.57788
+    0.36121,
+    0.68872
   ],
   "size": [
     4096,
     2048
   ],
-  "sunElevationDeg": 14.0,
+  "sunElevationDeg": 34.0,
   "cameraForward": "+X at image centre"
 }

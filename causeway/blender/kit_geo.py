@@ -8,7 +8,8 @@ from mathutils import Vector, noise
 
 from common import add_block, finish_obj, hexcol, jitter_color
 
-SAND = [hexcol(h) for h in ("#b98d5f", "#a97f53", "#c89e6e", "#9c7449", "#b48857", "#a88663", "#c29663")]
+# Warm, saturated sandstone (round 3: the beige read dusty; the references are red-orange and cream).
+SAND = [hexcol(h) for h in ("#c4814d", "#b37043", "#d39560", "#a5653d", "#c07c4e", "#b88660", "#d09058")]
 TERRA = [hexcol(h) for h in ("#a3634a", "#ae7057", "#94583f", "#b67b5e", "#8b5543", "#a36d57")]
 WOOD = [hexcol(h) for h in ("#8a6547", "#7a5a40", "#96714f", "#6d4f38")]
 

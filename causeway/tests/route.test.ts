@@ -56,4 +56,29 @@ describe('route generation', () => {
       }
     }
   });
+
+  it('keeps cliffs, temples and idols off the causeway; the face gate straddles it', () => {
+    let gates = 0;
+    let cliffs = 0;
+    for (const t of SECTION_TYPES) {
+      for (let i = 0; i < 4; i++) {
+        const l = buildLayout(t, `${t}#${i}`, { foliage: 1, scenery: 1 });
+        for (const p of l.props) {
+          const x = Math.abs(new THREE.Vector3().setFromMatrixPosition(p.m).x);
+          if (/^cliff_wall_\d$/.test(p.piece)) {
+            cliffs++;
+            expect(x).toBeGreaterThanOrEqual(7.4);
+          }
+          if (/^(temple_|idol_)\d$/.test(p.piece)) expect(x).toBeGreaterThanOrEqual(7.5);
+          if (p.piece === 'face_gate_0') {
+            gates++;
+            expect(x).toBeLessThan(1e-6);
+            expect(l.type).toBe('gorge');
+          }
+        }
+      }
+    }
+    expect(gates).toBeGreaterThan(0);
+    expect(cliffs).toBeGreaterThan(10);
+  });
 });
