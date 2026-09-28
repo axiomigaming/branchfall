@@ -25,8 +25,8 @@ FAST = "--fast" in sys.argv
 sc = reset()
 rng = random.Random(11)
 
-SUN_EL = 24.0
-SUN_AZ = 50.0  # degrees from +X toward +Y (the run direction is +Y): ahead and to the right, in frame
+SUN_EL = 34.0  # high enough that the low walls leave the causeway floor in sun
+SUN_AZ = 50.0  # degrees from +X toward +Y (the run direction is +Y): ahead and to the right
 SUN_ROT = 90.0 - SUN_AZ  # Nishita: dir = (sin r·cos e, cos r·cos e, sin e)
 
 # ---------------------------------------------------------------- world

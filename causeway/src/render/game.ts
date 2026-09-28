@@ -123,8 +123,8 @@ export class Game {
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     scene.environment = pmrem.fromEquirectangular(kit.env).texture;
     // A blue sky fills the shade (cool), the sunlit sandstone bounces warm light back into it.
-    scene.environmentIntensity = 0.62;
-    scene.add(new THREE.HemisphereLight(0xfff0dc, 0x9a5c36, 0.38));
+    scene.environmentIntensity = 0.55;
+    scene.add(new THREE.HemisphereLight(0xffeeda, 0x9a5c36, 0.55));
     pmrem.dispose();
     // World art: height fog with sun in-scattering (replaces three's fog chunks before compile).
     installAtmosphere(scene, kit.sunDir);
