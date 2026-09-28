@@ -327,9 +327,12 @@ function Settings({ onClose }: { onClose: () => void }) {
 // ------------------------------------------------------------------ menu & how-to
 function Menu({ onClose }: { onClose: () => void }) {
   const set = useStore((s) => s.set);
+  const phase = useStore((s) => s.phase);
   const ctl = useCtl();
+  // The menu opens mid-run too (on phones it holds fairness and settings); the run carries on.
+  const live = phase === 'running' || phase === 'lead' || phase === 'cashing' || phase === 'placing';
   return (
-    <Sheet title="Paused" eyebrow="Causeway" onClose={onClose}>
+    <Sheet title={live ? 'Menu' : 'Paused'} eyebrow="Causeway" onClose={onClose}>
       <nav className="menu">
         <button onClick={onClose}>
           Resume <span>Esc</span>
@@ -346,8 +349,8 @@ function Menu({ onClose }: { onClose: () => void }) {
         <button onClick={() => set({ modal: 'settings' })}>
           Settings <span>Sound, picture, motion</span>
         </button>
-        <button onClick={() => ctl?.toTitle()}>
-          Leave to title <span>Balance is kept</span>
+        <button onClick={() => ctl?.toTitle()} disabled={live}>
+          Leave to title <span>{live ? 'After this run' : 'Balance is kept'}</span>
         </button>
       </nav>
     </Sheet>
