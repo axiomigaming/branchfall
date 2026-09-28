@@ -45,10 +45,10 @@ export function Hud() {
         f.animate(
           full
             ? [
-                { opacity: 0, letterSpacing: '0.1em', transform: 'translateY(6px)' },
-                { opacity: 1, letterSpacing: '0.5em', transform: 'none', offset: 0.18 },
-                { opacity: 1, letterSpacing: '0.56em', offset: 0.7 },
-                { opacity: 0, letterSpacing: '0.62em' },
+                { opacity: 0, letterSpacing: '0.02em', transform: 'translateY(6px) scale(0.9)' },
+                { opacity: 1, letterSpacing: '0.12em', transform: 'none', offset: 0.18 },
+                { opacity: 1, letterSpacing: '0.16em', offset: 0.7 },
+                { opacity: 0, letterSpacing: '0.2em' },
               ]
             : [{ opacity: 0 }, { opacity: 1, offset: 0.1 }, { opacity: 1, offset: 0.8 }, { opacity: 0 }],
           { duration: 1700, easing: 'ease-out', fill: 'both' },
