@@ -114,7 +114,7 @@ in `blender/` with headless Blender (`pip install bpy==4.2.0 "numpy<2"`):
 | Script | Makes |
 | --- | --- |
 | `build_kit.py` | The ruin kit: dry-stone walls, slab floors, stairs, pillars, arches, towers, a carved gate, rubble, rocks, plank bridges; palms, jungle trees, bushes, vines and grass as cards. Procedural materials (sandstone, terracotta, rock, wood, bark) are baked with Cycles into colour / normal / ORM atlases with AO; leaves are modelled and rendered into an alpha atlas. → `kit.glb` |
-| `build_runner.py` | The runner: skin-modifier body, painted clothing regions, pack and bedroll, armature with automatic weights, and keyed `run` / `idle` / `ready` / `fall` / `win` actions. → `runner.glb` |
+| `build_runner.py` | The runner: sculpted body (`char_*.py`), untucked short-sleeved shirt over a blue-grey undershirt sleeve, dark green trousers, a compact satchel; shirt-tail and sleeve spring bones; gaits solved by stance IK in `runner_anim.py` (no foot skate: the runtime cadence is speed / stride length), plus idles, falls and escapes. → `runner.glb` |
 | `build_backdrop.py` | The far world as an equirectangular Cycles render: Nishita sky, terraced cliffs, karst towers, jungle, distant temples and open water, plus an HDR for image-based lighting and the measured sun direction. → `backdrop.webp`, `env.hdr`, `backdrop.json` |
 
 `python3 blender/build_kit.py --fast` bakes at quarter resolution for look-dev.

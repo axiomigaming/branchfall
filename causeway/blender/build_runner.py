@@ -1,10 +1,11 @@
 """The runner: sculpted, dressed, rigged, baked, animated and exported → public/assets/runner.glb.
 
 An original character (not a likeness of anyone): a field archaeologist in his thirties, heroic
-7.5-head proportions, in a sun-bleached khaki shirt worn open at the collar with the sleeves
-rolled below the elbow, olive canvas trousers bloused over laced leather field boots, a belt with a
-canteen and a pouch, a rust neckerchief, and a worn leather rucksack with a bedroll and a coil of
-rope — a strong, readable silhouette from behind, which is where the chase camera sees him.
+7.5-head proportions, cropped hair, in a sun-bleached khaki short-sleeved shirt worn open at the
+collar and untucked, a blue-grey undershirt sleeve showing to the elbow, dark green canvas trousers
+bloused over laced leather field boots, a rust neckerchief, and a compact leather satchel on a
+cross-body strap. From behind — where the chase camera sees him — the back, the shoulders and the
+arms read, and the shirt tail and sleeves move (spring bones: hem.*, sleeve.*).
 
 Pipeline (see char_*.py):
   1. Sculpt: anatomy from overlapping masses (metaballs), a head from a displaced surface with real
@@ -49,11 +50,13 @@ SKIN = hexcol("#b98b6f")
 SKIN_RED = hexcol("#b8796a")
 SKIN_TAN = hexcol("#a87a5d")
 LIP = hexcol("#8a4a42")
-SHIRT = hexcol("#c8b489")
-SHIRT_DARK = hexcol("#b29d72")
+SHIRT = hexcol("#cdbc8e")
+SHIRT_DARK = hexcol("#b3a077")
+UNDER = hexcol("#7c8c98")
+UNDER_DARK = hexcol("#66747f")
 BUTTON = hexcol("#3a2b20")
-TROUSER = hexcol("#4b4e37")
-TROUSER_WORN = hexcol("#5d5d45")
+TROUSER = hexcol("#2f3b2b")
+TROUSER_WORN = hexcol("#3e4a37")
 BOOT = hexcol("#5a3924")
 BOOT_WORN = hexcol("#7a5438")
 SOLE = hexcol("#241b15")
@@ -204,10 +207,17 @@ def shirt_paint(c, n):
     # Sun-bleached on the shoulders, sweat and dust darker at the back and the waist.
     t = 0.5 + 0.5 * noise.noise(c * 6)
     col = lerpc(SHIRT, SHIRT_DARK, 0.35 * t)
-    col = lerpc(col, SHIRT_DARK, 0.5 * smooth((1.12 - c.z) / 0.12))
-    col = lerpc(col, hexcol("#d6c69d"), 0.5 * smooth((c.z - 1.42) / 0.06))
-    dirt = 0.4 * smooth((1.08 - c.z) / 0.1) + 0.3 * smooth((-c.y - 0.08) / 0.05) * bell(c.z, 1.3, 0.1)
+    col = lerpc(col, SHIRT_DARK, 0.35 * smooth((1.0 - c.z) / 0.08))
+    col = lerpc(col, hexcol("#dccda6"), 0.55 * smooth((c.z - 1.38) / 0.08))
+    # Sweat darkens a patch down the spine between the shoulder blades.
+    col = lerpc(col, SHIRT_DARK, 0.45 * smooth((-c.y - 0.1) / 0.04) * bell(c.x, 0.0, 0.05) * bell(c.z, 1.3, 0.09))
+    dirt = 0.3 * smooth((0.98 - c.z) / 0.07) + 0.2 * smooth((-c.y - 0.08) / 0.05) * bell(c.z, 1.25, 0.1)
     return col, ((0.9, 1.0, 0.0, 0.0), (0.0, 0.0, dirt, 0.0))
+
+
+def under_paint(c, n):
+    t = 0.5 + 0.5 * noise.noise(c * 9)
+    return lerpc(UNDER, UNDER_DARK, 0.4 * t), ((0.85, 0.7, 0.0, 0.0), (0.0, 0.0, 0.1, 0.0))
 
 
 def trouser_paint(c, n):
@@ -251,11 +261,9 @@ def build_model():
     shirt = C.shell(body, "shirt_hi", C.shirt_zone, C.shirt_disp)
     trousers = C.shell(body, "trousers_hi", C.trouser_zone, C.trouser_disp)
     skin = C.shell(body, "skin_hi", C.skin_zone, lambda c, n: c, smooth=0)
+    under = C.shell(body, "under_hi", C.under_zone, C.under_disp)
     SB = S.bvh_of(shirt)
     TB = S.bvh_of(trousers)
-    tmp = S.join([S.duplicate(shirt, "w1"), S.duplicate(trousers, "w2")], "waist")
-    WB = S.bvh_of(tmp)
-    bpy.data.objects.remove(tmp)
 
     # Pieces: (hi, low tris or None = same mesh, paint, weights, uv weight, flap)
     P = []
@@ -268,19 +276,20 @@ def build_model():
         add(F.eyeball(sx), None, eye_paint(sx), "head", uvw=2.5)
         add(F.hand_mass(sx), 1000, hand_paint, "hand", uvw=1.5)
     add(skin, 1300, skin_paint, "transfer", uvw=1.3, sym=True)
-    add(shirt, 3900, shirt_paint, "transfer", flap=True, sym=True, bake_solid=0.0025)
+    add(shirt, 4300, shirt_paint, "shirt", flap=True, sym=True, bake_solid=0.0025)
+    add(under, 700, under_paint, "shirt", flap=True, sym=True, bake_solid=0.0015)
     add(trousers, 2500, trouser_paint, "transfer", flap=False, sym=True, bake_solid=0.0025)
     add(C.collar(BB, SB), 600, shirt_paint, "transfer")
     band, buttons, revs = C.placket(SB)
-    add(band, None, shirt_paint, "transfer")
+    add(band, None, shirt_paint, "shirt")
     for b in buttons:
-        add(b, None, flat(BUTTON, ch(0.35)), "transfer")
+        add(b, None, flat(BUTTON, ch(0.35)), "shirt")
     for r in revs:
         add(r, None, shirt_paint, "transfer")
     for o in C.chest_pockets(SB):
-        add(o, 160, shirt_paint, "transfer")
+        add(o, 160, shirt_paint, "shirt")
     for o in C.rolled_cuffs(BB):
-        add(o, 280, shirt_paint, "transfer")
+        add(o, 240, shirt_paint, "shirt")
     for o in C.cargo_pocket(TB, 1):
         add(o, 160, trouser_paint, "transfer")
     for sx in (1, -1):
@@ -290,30 +299,12 @@ def build_model():
         add(sole, 300, flat(SOLE, ch(0.8, dirt=0.8)), ("boot", s))
         add(tongue, 160, boot_paint, ("boot", s))
         add(lace, 380, flat(LACE, ch(0.7, leather=0.5, dirt=0.3)), ("boot", s))
-    for o in G.belt(WB):
-        metal = o.name.startswith("buckle")
-        add(o, 100 if metal else None, flat(BRASS if metal else BELT, CH_METAL if metal else CH_LEATHER), "hips")
-    for o in G.canteen(WB):
-        add(o, 360 if o.name == "canteen" else 120, flat(STEEL if "cap" in o.name else (LEATHER_DARK if "tab" in o.name else CANVAS),
-                                                   CH_METAL if "cap" in o.name else (CH_LEATHER if "tab" in o.name else CH_CANVAS)), "canteen")
-    for o in G.pouch(WB):
-        add(o, None, flat(BRASS if "stud" in o.name else LEATHER, CH_METAL if "stud" in o.name else CH_LEATHER), "hips")
-    for o in G.pack():
+    for o in G.satchel(SB):
         nm = o.name
-        if nm.startswith("rope"):
-            pnt = flat(ROPE, CH_ROPE)
-        elif "buckle" in nm:
-            pnt = flat(BRASS, CH_METAL)
-        elif "strap" in nm:
-            pnt = flat(STRAP, CH_LEATHER)
-        else:
-            pnt = pack_paint
-        add(o, 1300 if nm == "pack" else (260 if nm == "pack_flap" else (150 if nm.startswith("rope") else None)), pnt, "pack")
-    for o in G.bedroll():
-        add(o, 480 if o.name == "bedroll" else 120, flat(ROLL, CH_CANVAS) if o.name == "bedroll" else flat(STRAP, CH_LEATHER), "bedroll")
-    for o in G.straps(SB):
-        metal = "buckle" in o.name or "clip" in o.name
-        add(o, 120 if metal else 260, flat(BRASS if metal else STRAP, CH_METAL if metal else CH_LEATHER), "transfer")
+        metal = "buckle" in nm
+        add(o, 700 if nm == "satchel" else (100 if metal else 160), flat(BRASS, CH_METAL) if metal else (flat(STRAP, CH_LEATHER) if "strap" in nm else pack_paint), "pack")
+    for o in G.satchel_strap(SB):
+        add(o, 420, flat(STRAP, CH_LEATHER), "shirt")
     band, knot, tails = G.neckerchief(BB)
     add(band, None, flat(SCARF, CH_CLOTH), "neck")
     add(knot, None, flat(hexcol("#7a2b1d"), CH_CLOTH), "neck")
@@ -367,12 +358,14 @@ def build_model():
     hair.data.materials.append(hair_mat)
     mesh = S.join([mesh, hair], "runner_mesh")
     finish_skin(mesh, rig)
+    strip_arm_weights(mesh)
     print("runner tris:", S.tri_count(mesh), flush=True)
     return rig, mesh
 
 
 # ------------------------------------------------------------------ rig
-SECONDARY = ["pack", "bedroll", "canteen", "scarf.0", "scarf.1", "scarf.2", "fingers.L", "fingers.R"]
+HEM = (("hem.F", 0.0), ("hem.L", 90.0), ("hem.B", 180.0), ("hem.R", -90.0))
+SECONDARY = ["pack", "scarf.0", "scarf.1", "scarf.2", "fingers.L", "fingers.R", "sleeve.L", "sleeve.R"] + [h for h, _ in HEM]
 
 
 def build_rig():
@@ -410,10 +403,17 @@ def build_rig():
         bone(f"shin.{s}", V[f"knee.{s}"], V[f"ankle.{s}"], f"thigh.{s}", True)
         bone(f"foot.{s}", V[f"ankle.{s}"], V[f"toe.{s}"] + Vector((0, -0.05, 0.0)), f"shin.{s}", True)
         bone(f"toe.{s}", V[f"toe.{s}"] + Vector((0, -0.05, 0.0)), V[f"toe.{s}"] + Vector((0, 0.04, 0)), f"foot.{s}", True)
-    bone("pack", (0, -0.15, 1.43), (0, -0.2, 1.08), "chest")
-    bone("bedroll", (0, -0.16, 1.462), (0, -0.3, 1.462), "pack")
-    cb = G.CANTEEN_HANG
-    bone("canteen", cb, cb + Vector((0, 0, -0.12)), "hips")
+    # The satchel swings from its strap rings on the hips.
+    sc = G.SATCHEL_C
+    bone("pack", sc + Vector((0, 0.02, 0.09)), sc + Vector((0, 0.02, -0.08)), "hips")
+    # Shirt-tail spring bones round the waist, hinged just under the ribs; sleeve bones at the shoulder.
+    for name, deg in HEM:
+        a = math.radians(deg)
+        d = Vector((math.sin(a), math.cos(a), 0))
+        bone(name, Vector((0, 0, 1.075)) + d * 0.12, Vector((0, 0, 0.9)) + d * 0.15, "hips")
+    for s in "LR":
+        p, _ = C.arm_at(s, C.SLEEVE_T)
+        bone(f"sleeve.{s}", V[f"shoulder.{s}"], p, f"upper_arm.{s}")
     SP = G.SCARF_PTS
     bone("scarf.0", SP[0], SP[1], "neck")
     bone("scarf.1", SP[1], SP[2], "scarf.0", True)
@@ -509,6 +509,86 @@ def chain_weights(pts, bones):
     return w
 
 
+def cloth_weights(ob):
+    """Blend the loose parts of the shirt onto its spring bones: the untucked tail onto hem.* (by the
+    direction round the waist), the open end of each short sleeve onto sleeve.*."""
+    for name in [h for h, _ in HEM] + ["sleeve.L", "sleeve.R"]:
+        if name not in ob.vertex_groups:
+            ob.vertex_groups.new(name=name)
+    for v in ob.data.vertices:
+        co = v.co
+        arm, t, d, *_ = C.arm_info(co)
+        add = {}
+        if arm and (d < 0.05 or co.z > 1.1):
+            # Only the loose linen sleeve itself (not the snug undershirt below it).
+            w = 0.6 * smooth((t - 0.2) / 0.3) * (1 - smooth((t - C.SLEEVE_T) / 0.03))
+            if w > 0:
+                add[f"sleeve.{C.side(co)}"] = w
+        else:
+            w = smooth((1.08 - co.z) / 0.16)
+            if w > 0:
+                a = math.atan2(co.x, co.y)
+                ks = [(h, max(0.0, math.cos(a - math.radians(deg))) ** 2) for h, deg in HEM]
+                tot = sum(k for _, k in ks) or 1.0
+                for h, k in ks:
+                    if k > 1e-3:
+                        add[h] = w * k / tot
+        if not add:
+            continue
+        keep = 1.0 - sum(add.values())
+        for ge in v.groups:
+            ge.weight *= keep
+        for h, w in add.items():
+            ob.vertex_groups[h].add([v.index], w, "ADD")
+
+
+ARM_CHAIN = ("upper_arm.", "forearm.", "hand.", "fingers.", "sleeve.")
+
+
+def strip_arm_weights(mesh):
+    """The torso and the shirt tail follow the spine, the hips and the cloth bones, never the arm that
+    hangs beside them (bone heat on the fused body leaks forearm weight into the flanks, and a swinging
+    arm would drag a sheet of shirt with it)."""
+    names = {g.index: g.name for g in mesh.vertex_groups}
+    hips = mesh.vertex_groups.get("hips") or mesh.vertex_groups.new(name="hips")
+    fixed = 0
+    moved = 0
+    for v in mesh.data.vertices:
+        co = v.co
+        # Below the linen sleeve's hem the arm is the snug undershirt: it follows the arm bones.
+        if 0.84 < co.z < 1.5 and abs(co.x) > 0.15:
+            arm, t, d, *_ = C.arm_info(co)
+            if arm and t > C.SLEEVE_T + 0.03:
+                s_ = C.side(co)
+                for ge in v.groups:
+                    if names[ge.group] == f"sleeve.{s_}" and ge.weight > 0:
+                        w = ge.weight
+                        ge.weight = 0.0
+                        k = smooth((t - 0.8) / 0.25)
+                        mesh.vertex_groups[f"upper_arm.{s_}"].add([v.index], w * (1 - k), "ADD")
+                        mesh.vertex_groups[f"forearm.{s_}"].add([v.index], w * k, "ADD")
+                        moved += 1
+        if abs(co.x) > 0.2 or not (0.84 < co.z < 1.24):
+            continue
+        arm, t, d, *_ = C.arm_info(co)
+        if arm and (d < 0.05 or co.z > 1.1):
+            continue
+        bad = [ge for ge in v.groups if names[ge.group].startswith(ARM_CHAIN) and not (names[ge.group].startswith("upper_arm.") and co.z > 1.18)]
+        if not bad:
+            continue
+        lost = sum(ge.weight for ge in bad)
+        for ge in bad:
+            ge.weight = 0.0
+        rest = sum(ge.weight for ge in v.groups)
+        if rest > 1e-4:
+            for ge in v.groups:
+                ge.weight *= (rest + lost) / rest
+        else:
+            hips.add([v.index], 1.0, "REPLACE")
+        fixed += 1
+    print("arm weights stripped from torso verts:", fixed, "undershirt verts off the sleeve bones:", moved, flush=True)
+
+
 def weigh(ob, how, proxy):
     if how == "transfer":
         for g in proxy.vertex_groups:
@@ -522,6 +602,9 @@ def weigh(ob, how, proxy):
         m.layers_vgroup_select_src = "ALL"
         m.layers_vgroup_select_dst = "NAME"
         S.apply_mods(ob)
+    elif how == "shirt":
+        weigh(ob, "transfer", proxy)
+        cloth_weights(ob)
     elif how == "headneck":
         set_weights(ob, lambda co: {"head": smooth((co.z - 1.53) / 0.05), "neck": 1 - smooth((co.z - 1.53) / 0.05)})
     elif how == "hand":
@@ -783,6 +866,7 @@ if REUSE and os.path.exists(MODEL_BLEND):
     for o in list(bpy.data.objects):
         if o not in (rig, mesh):
             bpy.data.objects.remove(o)
+    strip_arm_weights(mesh)
     im = bpy.data.images.get("runner_orm")
     if im and im.size[0] > 1024:
         im.scale(im.size[0] // 2, im.size[1] // 2)

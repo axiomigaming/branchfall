@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { Kit } from './assets';
+import { Rng } from '../engine/rng';
 
 /**
  * Animation states. `run` is locomotion: the `run`, `sprint` and `dash` clips
@@ -25,7 +26,13 @@ export type RunnerAnim =
 
 type Foot = 'L' | 'R';
 const GAITS = ['run', 'sprint', 'dash'] as const;
-const IDLES = ['idle', 'idle_b'] as const;
+/**
+ * Ground covered per stride cycle (m) while a foot is planted, per gait clip. The clips are solved in
+ * blender/runner_anim.py so the stance foot slides back exactly D per stance (S = D / ts); setting the
+ * cadence to speed / S keeps the planted foot still on the floor. Keep in step with the clip builder.
+ */
+const STRIDE: Record<(typeof GAITS)[number], number> = { run: 2.93, sprint: 3.4, dash: 3.9 };
+const IDLES = ['idle', 'idle_b', 'idle_c'] as const;
 const ONE_SHOT = new Set<string>(['start', 'fall_start', 'fall_chasm', 'fall_chasm_b', 'fall_gate', 'fall_gate_b', 'fall_rock', 'fall_rock_b', 'win', 'win_cheer', 'win_salute', 'win_leap']);
 /** Foot plants inside one-shot clips (seconds, foot, strength 0..1). Skids read heavier. */
 const EVENTS: Record<string, [number, Foot, number][]> = {
@@ -42,6 +49,9 @@ const EVENTS: Record<string, [number, Foot, number][]> = {
   win_salute: [[0.27, 'R', 0.4], [0.5, 'L', 0.25], [0.93, 'R', 0.2], [1.13, 'L', 0.2], [1.33, 'R', 0.2]],
   win_leap: [[0.17, 'R', 0.6], [0.3, 'L', 0.8], [0.9, 'L', 1], [0.93, 'R', 0.8]],
 };
+
+/** Spring-driven cloth bones (three strips the dots from the Blender names). */
+const CLOTH = ['hemF', 'hemL', 'hemB', 'hemR', 'sleeveL', 'sleeveR'];
 
 const smoothstep = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -92,7 +102,7 @@ interface FootLock {
 
 /**
  * The runner's body: clip blending, a speed-locked gait, footfalls, and a
- * procedural layer on top: pack, bedroll, canteen and neckerchief springs,
+ * procedural layer on top: satchel, shirt-tail, sleeve and neckerchief springs,
  * breathing that follows exertion, a look-at for the head, and planted feet
  * (two-bone IK) whenever a one-shot clip stops or turns the runner, so boots
  * don't skate as the world brakes under them. Where they are is the caller's business.
@@ -146,15 +156,29 @@ export class Runner {
   private hipAcc = new THREE.Vector3();
   private hasPrev = false;
   private springs = {
-    pack: new Spring(90, 9),
-    packSide: new Spring(80, 8),
-    roll: new Spring(140, 10),
-    rollSide: new Spring(110, 8),
-    canteen: new Spring(70, 5),
-    canteenSide: new Spring(60, 4.5),
+    pack: new Spring(70, 6),
+    packSide: new Spring(60, 5),
     scarf: [new Spring(60, 5), new Spring(45, 3.5), new Spring(35, 2.5)],
     scarfSide: [new Spring(50, 4), new Spring(40, 3), new Spring(30, 2)],
+    /** Shirt tail: front, left, back, right (swing about the waist), and each one's sideways sway. */
+    hem: [new Spring(120, 7), new Spring(110, 6), new Spring(95, 5), new Spring(110, 6)],
+    hemSide: [new Spring(90, 6), new Spring(80, 5), new Spring(80, 5), new Spring(80, 5)],
+    sleeve: [new Spring(160, 9), new Spring(160, 9)],
+    sleeveOut: [new Spring(140, 8), new Spring(140, 8)],
   };
+  /** Upper-arm swing angle last frame (for the sleeves' lag), per side. */
+  private armPrev = [0, 0];
+  private armVel = [0, 0];
+  /** Per-stride variation: cosmetic, seeded, never tied to the round. */
+  private vary = new Rng(0x5eed);
+  private varyA = [0, 0, 0, 0, 0];
+  private varyB = [0, 0, 0, 0, 0];
+  private varyT = 1;
+  /** A catch step (stairs): time since it began, and which way the grade goes. */
+  private catchT = -1;
+  private catchDir = 1;
+  private speedPrev = 0;
+  private accel = 0;
   private t = 0;
   private speed = 0;
   private q = new THREE.Quaternion();
@@ -200,7 +224,7 @@ export class Runner {
     const legacyFall = this.actions.get('fall');
     if (legacyFall) for (const k of ['fall_chasm', 'fall_gate', 'fall_rock']) if (!this.actions.has(k)) this.actions.set(k, legacyFall);
     // three sanitises node names ('upper_arm.L' → 'upper_armL').
-    for (const n of ['hips', 'spine', 'chest', 'neck', 'head', 'upper_armL', 'upper_armR', 'shoulderL', 'shoulderR', 'pack', 'bedroll', 'canteen', 'scarf0', 'scarf1', 'scarf2'])
+    for (const n of ['hips', 'spine', 'chest', 'neck', 'head', 'upper_armL', 'upper_armR', 'forearmL', 'forearmR', 'shoulderL', 'shoulderR', 'pack', 'scarf0', 'scarf1', 'scarf2', ...CLOTH])
       this.bones[n] = this.body.getObjectByName(n) as THREE.Bone | undefined;
     for (const s of ['L', 'R'] as const) {
       const f = this.feet[s];
@@ -208,7 +232,7 @@ export class Runner {
       f.shin = this.body.getObjectByName(`shin${s}`) as THREE.Bone | undefined;
       f.foot = this.body.getObjectByName(`foot${s}`) as THREE.Bone | undefined;
     }
-    for (const n of ['pack', 'bedroll', 'canteen', 'scarf0', 'scarf1', 'scarf2']) {
+    for (const n of ['pack', 'scarf0', 'scarf1', 'scarf2', ...CLOTH]) {
       const b = this.bones[n];
       if (b) this.rest.set(b, b.quaternion.clone());
     }
@@ -330,12 +354,13 @@ export class Runner {
         this.phase = 0;
       }
     }
-    // Idle variety: the two idle clips take turns.
+    // Idle variety: the idle clips take turns (settle, look around, shake out for the run).
     if (this.current === 'idle' && this.actions.has('idle_b')) {
       this.idleT += dt;
       const a = this.actions.get(this.idleClip)!;
       if (this.idleT > a.getClip().duration - 0.5) {
-        this.idleClip = this.idleClip === 'idle' ? 'idle_b' : 'idle';
+        const have = IDLES.filter((n) => this.actions.has(n));
+        this.idleClip = have[(have.indexOf(this.idleClip as (typeof IDLES)[number]) + 1) % have.length]!;
         const b = this.actions.get(this.idleClip)!;
         b.reset();
         b.play();
@@ -344,17 +369,25 @@ export class Runner {
       }
     }
 
-    // Gait: cadence rises with speed; the run tier blends run → sprint → dash on one stride phase.
-    const cadence = THREE.MathUtils.clamp(1.35 + 0.1 * (speed - 5), 1.05, 2.3);
-    this.cadence = cadence;
-    const prevPhase = this.phase;
-    if (this.current === 'run') this.phase = (this.phase + dt * cadence) % 1;
+    // Gait: the run tier blends run → sprint → dash on one stride phase, and the cadence is set so the
+    // planted foot keeps pace with the floor (speed / stride length of the blend). Turnover tops out
+    // near an elite sprinter's (~5 steps/s), a touch higher in the desperate dash.
     this.driveS += (this.drive - this.driveS) * (1 - Math.exp(-dt * 1.5));
     const d = this.driveS;
     const hasDash = this.actions.has('dash');
     const wDash = hasDash ? smoothstep(2.8, 3.9, d) : 0;
     const wRun = 1 - smoothstep(0.5, 2.0, d);
     const mix: Record<string, number> = { run: wRun, sprint: Math.max(0, 1 - wRun - wDash), dash: wDash };
+    const stride = STRIDE.run * mix.run! + STRIDE.sprint * mix.sprint! + STRIDE.dash * mix.dash!;
+    const cadence = THREE.MathUtils.clamp(speed / stride, 1.1, 2.4 + 0.06 * d);
+    this.cadence = cadence;
+    const prevPhase = this.phase;
+    if (this.current === 'run') this.phase = (this.phase + dt * cadence) % 1;
+    if (dt > 0) {
+      const a = (speed - this.speedPrev) / dt;
+      this.accel += (THREE.MathUtils.clamp(a, -12, 12) - this.accel) * (1 - Math.exp(-dt * 4));
+    }
+    this.speedPrev = speed;
     for (const k of GAITS) {
       const a = this.actions.get(k);
       if (!a) continue;
@@ -411,8 +444,10 @@ export class Runner {
       }
     }
 
-    // Stairs: lean into a climb, sit back on a descent; bank into turns.
-    const lean = this.lean + THREE.MathUtils.clamp(this.slope, -0.5, 0.5) * 0.35;
+    // Stairs: lean into a climb, sit back on a descent; bank into turns. Accelerating, the body tips
+    // forward from the ankles (the drive phase of a sprint start); easing off, it straightens.
+    const drivePhase = this.current === 'run' || this.current === 'start' ? THREE.MathUtils.clamp(this.accel * 0.022, -0.05, 0.16) : 0;
+    const lean = this.lean + drivePhase + THREE.MathUtils.clamp(this.slope, -0.5, 0.5) * 0.35;
     this.body.rotation.z = THREE.MathUtils.lerp(this.body.rotation.z, this.roll, 1 - Math.exp(-dt * 6));
     this.body.rotation.x = THREE.MathUtils.lerp(this.body.rotation.x, lean, 1 - Math.exp(-dt * 4));
 
@@ -425,9 +460,50 @@ export class Runner {
     this.plantFeet(dt);
   }
 
-  /** Additive beats on top of the gait: a glance back, a stumble and recover. */
+  /** A catch step at the lip of a flight of stairs: a check, eyes down to the steps, arms out a touch. */
+  catchStep(dir: number): void {
+    if (this.current !== 'run' || this.catchT >= 0 || this.stumbleT >= 0) return;
+    this.catchT = 0;
+    this.catchDir = dir >= 0 ? 1 : -1;
+  }
+
+  /** Additive beats on top of the gait: a glance back, a stumble and recover, a catch step. */
   private overlays(dt: number): void {
     const b = this.bones;
+    if (this.current === 'run') {
+      // No two strides alike: every stride eases toward fresh small offsets (head carriage, trunk
+      // twist and side bend, one arm a touch wider or higher).
+      this.varyT += dt * this.cadence;
+      if (this.varyT >= 1) {
+        this.varyT = 0;
+        this.varyA = this.varyB;
+        this.varyB = this.varyB.map(() => this.vary.range(-1, 1));
+      }
+      const u = smoothstep(0, 1, this.varyT);
+      const v = this.varyA.map((a, i) => a + (this.varyB[i]! - a) * u);
+      const w = Math.min(1, this.speed / 6);
+      this.rotate(b.head, 0.02 * v[0]! * w, 0.03 * v[1]! * w, 0.025 * v[2]! * w);
+      this.rotate(b.chest, 0, 0.025 * v[3]! * w, 0.02 * v[2]! * w);
+      this.rotate(b.upper_armL, -0.05 * v[4]! * w, 0, 0.03 * v[3]! * w);
+      this.rotate(b.upper_armR, 0.04 * v[4]! * w, 0, -0.03 * v[1]! * w);
+    }
+    if (this.catchT >= 0) {
+      this.catchT += dt;
+      const t = this.catchT;
+      const e = t < 0.1 ? smoothstep(0, 0.1, t) : 1 - smoothstep(0.1, 0.55, t);
+      const up = this.catchDir;
+      // Climbing: the chest pitches in and the knees come up; descending: sit back, arms out.
+      this.rotate(b.spine, -0.1 * e * up, 0, 0);
+      this.rotate(b.neck, -0.14 * e, 0, 0);
+      this.rotate(b.head, -0.1 * e, 0, 0);
+      this.rotate(b.upper_armL, 0, 0, 0.25 * e * (up < 0 ? 1.6 : 1));
+      this.rotate(b.upper_armR, 0, 0, -0.25 * e * (up < 0 ? 1.6 : 1));
+      if (this.stumbleT < 0) this.body.position.y = -0.035 * e;
+      if (t > 0.6) {
+        this.catchT = -1;
+        if (this.stumbleT < 0) this.body.position.y = 0;
+      }
+    }
     if (this.glanceT >= 0) {
       this.glanceT += dt;
       const t = this.glanceT;
@@ -514,7 +590,7 @@ export class Runner {
     b.updateMatrixWorld(true);
   }
 
-  /** Pack, bedroll and canteen bounce, the neckerchief streams in the wind of the run. */
+  /** The satchel bounces, the shirt moves (see cloth), the neckerchief streams in the wind of the run. */
   private secondary(dt: number): void {
     const chest = this.bones.chest;
     for (const [b, q] of this.rest) b.quaternion.copy(q);
@@ -549,17 +625,11 @@ export class Runner {
     const s = this.springs;
     const run = Math.min(1, this.speed / 9);
 
-    // The pack lags the torso: it sags on each landing and swings as the chest twists.
-    const pack = s.pack.step(0, -a.y * 0.9 + a.z * 0.6, dt, -0.12, 0.2);
-    const packSide = s.packSide.step(0, a.x * 0.5, dt, -0.08, 0.08);
-    const roll = s.roll.step(0, a.y * 1.2, dt, -0.2, 0.25);
-    const rollSide = s.rollSide.step(0, a.x * 1.1, dt, -0.2, 0.2);
+    // The satchel rides the hip: it lags each landing and swings as the pelvis turns.
+    const pack = s.pack.step(0, -ha.y * 0.5 + ha.z * 0.5, dt, -0.3, 0.35);
+    const packSide = s.packSide.step(0, -ha.x * 0.6, dt, -0.25, 0.25);
     this.rotate(this.bones.pack, pack, 0, packSide);
-    this.rotate(this.bones.bedroll, roll, 0, rollSide);
-    // The canteen hangs from the belt: a pendulum on the hips.
-    const cx = s.canteen.step(0, ha.z * 0.9 - ha.y * 0.3, dt, -0.5, 0.5);
-    const cz = s.canteenSide.step(0, -ha.x * 0.9, dt, -0.4, 0.4);
-    this.rotate(this.bones.canteen, cx, 0, cz);
+    this.cloth(dt, a, ha, run);
 
     // Neckerchief: lifted by the airflow, fluttering faster and wider with speed, lagging the body.
     const w = this.t * (9 + this.speed * 1.6);
@@ -569,6 +639,57 @@ export class Runner {
       const x = s.scarf[i]!.step(lift + flutter, a.y * (0.25 + 0.2 * i) + a.z * 0.15, dt, -0.15, 0.9);
       const z = s.scarfSide[i]!.step(run * 0.1 * Math.sin(w * 0.7 + i * 0.9), -a.x * 0.3, dt, -0.5, 0.5);
       this.rotate(this.bones[`scarf${i}`], x, 0, z);
+    }
+  }
+
+  /**
+   * The shirt in motion. The untucked tail is four hinged panels round the waist: the airflow lifts
+   * the back one and sets it fluttering, harder with speed; each knee drive pushes the front and that
+   * side's panel up and out; landings and the pelvis's swing make them all lag and bounce. The short
+   * sleeves lag the arm swing and flare a little in the wind. Every panel is a damped spring.
+   */
+  private cloth(dt: number, a: THREE.Vector3, ha: THREE.Vector3, run: number): void {
+    const s = this.springs;
+    const t = this.t;
+    const running = this.current === 'run' || this.current === 'start' ? 1 : 0.35;
+    const air = run * running;
+    const w = 11 + this.speed * 1.9;
+    const flut = (i: number) => Math.sin(w * t + i * 1.7) * 0.6 + Math.sin(w * 1.93 * t + i * 0.6) * 0.4;
+    // Knee drive per side from the stride phase (peaks at ~0.75 of each leg's own cycle).
+    const ph = this.phase;
+    const kneeL = this.current === 'run' ? Math.max(0, Math.cos(2 * Math.PI * (ph - 0.72))) ** 2 : 0;
+    const kneeR = this.current === 'run' ? Math.max(0, Math.cos(2 * Math.PI * (ph + 0.5 - 0.72))) ** 2 : 0;
+    const drive = 0.12 + 0.05 * this.driveS;
+    // Down-pointing bones: −X swings the tail forward, +X back; ±Z (mirrored per side) swings it out.
+    const hemTargets = [
+      -drive * Math.max(kneeL, kneeR) * air + 0.02 * air * flut(0),
+      -drive * 0.6 * kneeL * air + 0.03 * air + 0.04 * air * flut(1),
+      0.05 * air + 0.05 * air * air + 0.07 * air * flut(2),
+      -drive * 0.6 * kneeR * air + 0.03 * air + 0.04 * air * flut(3),
+    ];
+    const hemForce = [ha.z * 0.35 + ha.y * 0.25, ha.z * 0.3 - ha.y * 0.2, ha.z * 0.4 - ha.y * 0.4, ha.z * 0.3 - ha.y * 0.2];
+    const names = ['hemF', 'hemL', 'hemB', 'hemR'];
+    for (let i = 0; i < 4; i++) {
+      const x = s.hem[i]!.step(hemTargets[i]!, hemForce[i]!, dt, -0.45, 0.4);
+      const outSign = i === 1 ? 1 : i === 3 ? -1 : 0;
+      const side = s.hemSide[i]!.step(outSign * (0.03 * air + 0.03 * air * flut(i + 4)), -ha.x * 0.35, dt, -0.25, 0.25);
+      this.rotate(this.bones[names[i]!], x, 0, side);
+    }
+    // Sleeves: lag the swing of the upper arm (its pitch in the body's frame), flare in the wind.
+    for (let k = 0; k < 2; k++) {
+      const arm = k === 0 ? this.bones.upper_armL : this.bones.upper_armR;
+      const sleeve = this.bones[k === 0 ? 'sleeveL' : 'sleeveR'];
+      if (!arm || !sleeve || dt <= 0) continue;
+      arm.updateWorldMatrix(true, false);
+      const dir = this.v3.set(0, 1, 0).applyQuaternion(arm.getWorldQuaternion(this.q2)).applyQuaternion(this.inv);
+      const pitch = Math.atan2(-dir.z, -dir.y);
+      let vel = (pitch - this.armPrev[k]!) / dt;
+      if (!Number.isFinite(vel) || Math.abs(vel) > 60) vel = 0;
+      this.armVel[k]! += (vel - this.armVel[k]!) * Math.min(1, dt * 20);
+      this.armPrev[k] = pitch;
+      const lagX = s.sleeve[k]!.step(THREE.MathUtils.clamp(0.012 * this.armVel[k]!, -0.09, 0.09), 0, dt, -0.12, 0.12);
+      const out = s.sleeveOut[k]!.step((k === 0 ? 1 : -1) * (0.02 * air + 0.015 * air * flut(k + 8)), 0, dt, -0.1, 0.1);
+      this.rotate(sleeve, lagX, 0, out);
     }
   }
 
@@ -655,6 +776,10 @@ export class Runner {
       this.feet[s].w = 0;
     }
     const s = this.springs;
-    for (const sp of [s.pack, s.packSide, s.roll, s.rollSide, s.canteen, s.canteenSide, ...s.scarf, ...s.scarfSide]) sp.reset();
+    for (const sp of [s.pack, s.packSide, ...s.scarf, ...s.scarfSide, ...s.hem, ...s.hemSide, ...s.sleeve, ...s.sleeveOut]) sp.reset();
+    this.catchT = -1;
+    this.accel = 0;
+    this.speedPrev = 0;
+    this.armVel = [0, 0];
   }
 }
