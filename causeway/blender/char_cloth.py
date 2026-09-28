@@ -92,7 +92,7 @@ def skin_zone(c, n=None):
         return SLEEVE_T - 0.12 < t < 2.02
     if in_neck(c, 0.02):
         return True
-    return in_v(c, 0.015)
+    return in_v(c, 0.03)
 
 
 def trouser_zone(c, n=None):
@@ -198,7 +198,7 @@ def neck_ring(body_bvh, a, z, off):
 def collar(body_bvh, shirt_bvh):
     """A soft collar: a stand around the neck, the leaves turned down over it, open at the throat."""
     NA, NV = 44, 8
-    a0 = 0.42
+    a0 = 0.55
     grid = []
     for i in range(NA + 1):
         a = a0 + (2 * math.pi - 2 * a0) * i / NA   # from the front-left, round the back, to the front-right
@@ -219,7 +219,7 @@ def collar(body_bvh, shirt_bvh):
             base, _ = neck_ring(body_bvh, a, 1.45, 0.0045)
         base.z -= 0.012 + 0.004 * front
         base += d * 0.004
-        top = base + Vector((0, 0, 0.042 - 0.012 * front)) - d * 0.003
+        top = base + Vector((0, 0, 0.032 - 0.01 * front)) - d * 0.003
         L = 0.052 + 0.028 * front
         row = []
         for j in range(NV + 1):
@@ -235,8 +235,8 @@ def collar(body_bvh, shirt_bvh):
                 loc, nrm, _, _ = shirt_bvh.find_nearest(p)
                 if loc is not None and (loc - p).length < 0.05:
                     depth = (p - loc).dot(nrm)
-                    if depth < 0.0035:
-                        p = p + nrm * (0.0035 - depth)
+                    if depth < 0.0055:
+                        p = p + nrm * (0.0055 - depth)
             row.append(p)
         grid.append(row)
     bm = bmesh.new()

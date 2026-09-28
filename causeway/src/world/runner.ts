@@ -174,6 +174,14 @@ export class Runner {
         o.castShadow = true;
         o.receiveShadow = true;
         o.frustumCulled = false;
+        // Hair cards are alpha-tested (sorting-free, depth-writing); the glTF comes through as blended.
+        const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial;
+        if (m.name === 'M_hair') {
+          m.transparent = false;
+          m.alphaTest = 0.45;
+          m.depthWrite = true;
+          m.side = THREE.DoubleSide;
+        } else if (m.name === 'M_runner') m.side = THREE.FrontSide;
       }
     });
     this.root.add(this.body);
@@ -556,7 +564,7 @@ export class Runner {
     // Neckerchief: lifted by the airflow, fluttering faster and wider with speed, lagging the body.
     const w = this.t * (9 + this.speed * 1.6);
     for (let i = 0; i < 3; i++) {
-      const lift = run * (i === 0 ? 0.28 : 0.12) + 0.02;
+      const lift = run * (i === 0 ? 0.22 : 0.1) + 0.02;
       const flutter = run * (0.12 + 0.1 * i) * Math.sin(w - i * 1.3) + run * 0.05 * Math.sin(w * 2.3 + i);
       const x = s.scarf[i]!.step(lift + flutter, a.y * (0.25 + 0.2 * i) + a.z * 0.15, dt, -0.15, 0.9);
       const z = s.scarfSide[i]!.step(run * 0.1 * Math.sin(w * 0.7 + i * 0.9), -a.x * 0.3, dt, -0.5, 0.5);
