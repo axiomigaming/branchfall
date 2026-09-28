@@ -24,7 +24,7 @@ const PROTECT = /* glsl */ `
   uniform vec2 protectSize;
   float protectMask(vec2 p) {
     vec2 q = (p - protectPos) / protectSize;
-    return smoothstep(0.8, 1.3, length(q));
+    return smoothstep(0.75, 1.7, length(q));
   }`;
 
 /**
@@ -219,7 +219,7 @@ class LensEffect extends Effect {
               gd.x *= aspectRatio;
               float h = hexDist(gd) / gs[i];
               float disc = smoothstep(1.0, 0.86, h) * (0.45 + 0.55 * smoothstep(0.3, 0.98, h));
-              add += gc[i] * disc * 0.055;
+              add += gc[i] * disc * 0.035;
             }
             // A halo ring at a fixed radius around the frame centre on the sun's side.
             vec2 hc = uv - (sunPos + axis * 1.0);
@@ -403,7 +403,7 @@ class GradeEffect extends Effect {
         float hl = smoothstep(0.1, 0.75, l);
         float deep = smoothstep(0.12, 0.0, l);
         c *= mix(vec3(1.03, 0.99, 0.95), vec3(1.06, 1.01, 0.9), hl);
-        c = mix(c, c * vec3(0.9, 1.0, 1.06), deep * 0.6);
+        c = mix(c, c * vec3(0.94, 1.0, 1.03), deep * 0.35);
         float cream = smoothstep(0.62, 0.98, l);
         c = mix(c, vec3(l) * vec3(1.04, 0.99, 0.88) + (c - vec3(l)) * 0.55, cream * 0.5);
         // A soft S-curve around mid grey rather than a straight contrast stretch.
@@ -424,9 +424,9 @@ class GradeEffect extends Effect {
       }`,
       {
         uniforms: new Map<string, THREE.Uniform>([
-          ['saturation', new THREE.Uniform(1.18)],
+          ['saturation', new THREE.Uniform(1.1)],
           ['contrast', new THREE.Uniform(1.08)],
-          ['tint', new THREE.Uniform(new THREE.Vector3(1.01, 1.0, 0.97))],
+          ['tint', new THREE.Uniform(new THREE.Vector3(1.025, 0.995, 0.95))],
           ['danger', new THREE.Uniform(0)],
           ['cold', new THREE.Uniform(0)],
           ['gold', new THREE.Uniform(0)],
