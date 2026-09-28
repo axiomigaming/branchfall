@@ -5,8 +5,12 @@ import { WATER_Y } from './water';
  * Aerial perspective for every fogged material: exponential height fog (thick over the
  * water, thinning with altitude, integrated along the view ray so towers rise out of it)
  * and in-scattering toward the sun, so the haze glows gold looking into the light and
- * stays cooler looking away. It replaces three's fog chunks, so it must be installed
- * before any program compiles.
+ * stays cooler looking away. A second, thin layer hugs the water: mist lying on it that
+ * thickens with distance and wreathes the feet of the walls. It replaces three's fog
+ * chunks, so it must be installed before any program compiles.
+ *
+ * The sun direction and the mist are live uniforms shared by every program (plain objects,
+ * which three's uniform cloning passes by reference), so the light can turn with the route.
  */
 export interface AtmosphereOptions {
   /** Warm haze away from the sun. */
@@ -16,28 +20,63 @@ export interface AtmosphereOptions {
   density: number;
   /** Per-metre falloff of density with height above the water. */
   falloff: number;
+  /** Mist on the water: density at the surface (per metre) and its scale height (metres). */
+  mistDensity: number;
+  mistHeight: number;
 }
 
 export const ATMOSPHERE: AtmosphereOptions = {
   // Cool blue-green haze away from the sun (aerial perspective: depth layers fade toward the sky),
   // warm gold looking into the light.
-  color: 0x8fb0bb,
-  sunColor: 0xf3d09a,
-  density: 0.0038,
+  color: 0x9db7bb,
+  sunColor: 0xf6d6a0,
+  density: 0.0042,
   falloff: 0.05,
+  mistDensity: 0.03,
+  mistHeight: 1.1,
+};
+
+/** Shared by reference into every fogged program. Update the fields, never replace the objects. */
+export const atmosphereUniforms = {
+  fogSunDir: { value: { x: 0.3, y: 0.35, z: -0.88 } },
+  /** x: time (s), y: mist density scale (0 = off), z, w: unused. */
+  fogMist: { value: { x: 0, y: 1, z: 0, w: 0 } },
 };
 
 let installed = false;
 
-function glslVec3(v: THREE.Vector3 | THREE.Color): string {
-  const [a, b, c] = v instanceof THREE.Color ? [v.r, v.g, v.b] : [v.x, v.y, v.z];
-  return `vec3(${a.toFixed(5)}, ${b.toFixed(5)}, ${c.toFixed(5)})`;
+/** Give a ShaderMaterial made before installation (or by hand) the shared atmosphere uniforms. */
+export function patchFogUniforms(m: THREE.Material): void {
+  const sm = m as THREE.ShaderMaterial;
+  if (!sm.isShaderMaterial || !sm.fog || !sm.uniforms) return;
+  sm.uniforms.fogSunDir ??= { value: atmosphereUniforms.fogSunDir.value };
+  sm.uniforms.fogMist ??= { value: atmosphereUniforms.fogMist.value };
+}
+
+export function setAtmosphereSun(dir: THREE.Vector3): void {
+  const v = atmosphereUniforms.fogSunDir.value;
+  v.x = dir.x;
+  v.y = dir.y;
+  v.z = dir.z;
+}
+
+export function setAtmosphereMist(time: number, amount: number): void {
+  const v = atmosphereUniforms.fogMist.value;
+  v.x = time;
+  v.y = amount;
 }
 
 export function installAtmosphere(scene: THREE.Scene, sunDir: THREE.Vector3, o: AtmosphereOptions = ATMOSPHERE): void {
   scene.fog = new THREE.FogExp2(o.color, o.density);
+  setAtmosphereSun(sunDir.clone().normalize());
   if (installed) return;
   installed = true;
+  // Every built-in program and every ShaderMaterial merged from UniformsLib.fog from now on.
+  const shared = { fogSunDir: atmosphereUniforms.fogSunDir, fogMist: atmosphereUniforms.fogMist };
+  Object.assign(THREE.UniformsLib.fog, shared);
+  for (const lib of Object.values(THREE.ShaderLib)) {
+    if (lib.uniforms && 'fogColor' in lib.uniforms) Object.assign(lib.uniforms, { fogSunDir: { value: shared.fogSunDir.value }, fogMist: { value: shared.fogMist.value } });
+  }
   const sun = new THREE.Color(o.sunColor);
   const C = THREE.ShaderChunk as Record<string, string>;
   C.fog_pars_vertex = /* glsl */ `
@@ -53,6 +92,8 @@ export function installAtmosphere(scene: THREE.Scene, sunDir: THREE.Vector3, o: 
   C.fog_pars_fragment = /* glsl */ `
 #ifdef USE_FOG
   uniform vec3 fogColor;
+  uniform vec3 fogSunDir;
+  uniform vec4 fogMist;
   varying float vFogDepth;
   varying vec3 vFogView;
   #ifdef FOG_EXP2
@@ -61,6 +102,10 @@ export function installAtmosphere(scene: THREE.Scene, sunDir: THREE.Vector3, o: 
     uniform float fogNear;
     uniform float fogFar;
   #endif
+  float fogLayer(float b, float dy) {
+    float x = b * dy;
+    return abs(x) > 1e-3 ? (1.0 - exp(-x)) / x : 1.0;
+  }
 #endif`;
   C.fog_fragment = /* glsl */ `
 #ifdef USE_FOG
@@ -69,19 +114,33 @@ export function installAtmosphere(scene: THREE.Scene, sunDir: THREE.Vector3, o: 
     vec3 fogW = (vec4(vFogView, 0.0) * viewMatrix).xyz;
     float fogDist = length(fogW);
     vec3 fogDir = fogW / max(fogDist, 1e-4);
-    float fogB = ${o.falloff.toFixed(4)};
     float fogH0 = max(cameraPosition.y - (${WATER_Y.toFixed(2)}), 0.0);
     float fogDy = fogW.y;
-    float fogLine = abs(fogB * fogDy) > 1e-3 ? (1.0 - exp(-fogB * fogDy)) / (fogB * fogDy) : 1.0;
-    float fogOpt = fogDensity * fogDist * exp(-fogB * fogH0) * fogLine;
+    float fogOpt = fogDensity * fogDist * exp(-${o.falloff.toFixed(4)} * fogH0) * fogLayer(${o.falloff.toFixed(4)}, fogDy);
     float fogFactor = 1.0 - exp(-fogOpt);
-    float fogSun = max(dot(fogDir, ${glslVec3(sunDir.clone().normalize())}), 0.0);
-    vec3 fogCol = mix(fogColor, ${glslVec3(sun)}, pow(fogSun, 6.0) * 0.75);
+    float fogSun = max(dot(fogDir, fogSunDir), 0.0);
+    vec3 fogCol = mix(fogColor, ${glslVec3(sun)}, pow(fogSun, 8.0) * 0.6);
     // Far away the haze thickens to the sky's own horizon colour.
     gl_FragColor.rgb = mix(gl_FragColor.rgb, fogCol, clamp(fogFactor, 0.0, 0.94));
+    if (fogMist.y > 0.0) {
+      // Mist lying on the water: a thin exponential layer, drifting in slow banks.
+      float mb = ${(1 / o.mistHeight).toFixed(4)};
+      float mh = max(cameraPosition.y - (${WATER_Y.toFixed(2)}), 0.0);
+      float mOpt = ${o.mistDensity.toFixed(4)} * fogMist.y * fogDist * exp(-mb * mh) * fogLayer(mb, fogDy);
+      vec3 fogP = cameraPosition + fogW;
+      float bank = 0.55 + 0.45 * sin(fogP.x * 0.07 + fogMist.x * 0.11) * sin(fogP.z * 0.05 - fogMist.x * 0.07 + 1.3);
+      float mist = (1.0 - exp(-mOpt * bank)) * 0.8;
+      vec3 mistCol = mix(vec3(0.86, 0.9, 0.88), ${glslVec3(sun)} * 1.1, pow(fogSun, 3.0) * 0.7);
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, mistCol, mist);
+    }
   #else
     float fogFactor = smoothstep(fogNear, fogFar, vFogDepth);
     gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
   #endif
 #endif`;
+}
+
+function glslVec3(v: THREE.Vector3 | THREE.Color): string {
+  const [a, b, c] = v instanceof THREE.Color ? [v.r, v.g, v.b] : [v.x, v.y, v.z];
+  return `vec3(${a.toFixed(5)}, ${b.toFixed(5)}, ${c.toFixed(5)})`;
 }

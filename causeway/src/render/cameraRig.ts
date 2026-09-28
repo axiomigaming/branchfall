@@ -242,12 +242,14 @@ export class CameraRig {
         break;
       }
       case 'run': {
-        // Energy rises with the run tier: closer and lower at the top tiers, a wider lens, a drift.
+        // Low and close on a wide lens (the references): shoulder height, the runner big and left
+        // of centre, cropped around the shins, the way ahead open to the right. Energy rises with
+        // the run tier: closer and lower at the top tiers, a wider lens, a drift.
         const d = this.drive;
         const hi = Math.max(0, d - 2.5);
-        const dist = 2.7 + 0.45 * I - 0.12 * hi;
+        const dist = 2.2 + 0.3 * I - 0.1 * hi;
         const drift = 0.22 * I * Math.sin(this.t * 0.37) * this.motionScale;
-        fov = this.shot(runnerPos, F(-dist, drift, 1.68 - 0.1 * I - 0.1 * hi, 6.5, drift * 0.4, 1.12, 57 + 12 * I + 1.5 * hi));
+        fov = this.shot(runnerPos, F(-dist, 0.3 + drift, 1.55 - 0.06 * I - 0.05 * hi, 9, 0.35 + drift * 0.4, 1.1, 60 + 16 * I + 2 * hi));
         break;
       }
       case 'crash': {
@@ -508,8 +510,8 @@ export class CameraRig {
     // Bank a touch into turns.
     const yawRate = dt > 0 ? angleDelta(this.lastYaw, runnerYaw) / dt : 0;
     this.lastYaw = runnerYaw;
-    const bank = 0.05 * (1 + 0.25 * this.drive);
-    this.dutch = damp(this.dutch, running ? THREE.MathUtils.clamp(yawRate * bank, -0.08, 0.08) * this.motionScale : 0, 3, dt);
+    const bank = 0.08 * (1 + 0.25 * this.drive);
+    this.dutch = damp(this.dutch, running ? THREE.MathUtils.clamp(yawRate * bank, -0.12, 0.12) * this.motionScale : 0, 3, dt);
 
     this.trauma = Math.max(0, this.trauma - dt * 0.9);
     const m = this.shakeEnabled ? this.motionScale : 0;
@@ -519,14 +521,18 @@ export class CameraRig {
     const t = this.t;
     const sx = (Math.sin(t * 17.3) * 0.6 + Math.sin(t * 31.1 + 1.3) * 0.4) * amp;
     const sy = (Math.sin(t * 21.7 + 0.7) * 0.6 + Math.sin(t * 43.3 + 2.1) * 0.4) * amp;
-    // A slow handheld breath outside the run.
+    // A slow handheld breath outside the run; in the run, an operator's sway (low, uneven).
     const breathe = running ? 0 : Math.sin(t * 0.7) * 0.012 * this.motionScale;
+    const hand = running ? this.motionScale * (0.6 + 0.4 * intensity) : 0;
+    const hx = (Math.sin(t * 1.13) * 0.6 + Math.sin(t * 2.31 + 1.0) * 0.4) * 0.035 * hand;
+    const hy = (Math.sin(t * 1.57 + 0.4) * 0.6 + Math.sin(t * 2.9 + 2.2) * 0.4) * 0.022 * hand;
+    const hr = (Math.sin(t * 0.83 + 0.9) * 0.7 + Math.sin(t * 1.9) * 0.3) * 0.009 * hand;
 
     this.camera.position.copy(this.pos);
-    this.camera.position.addScaledVector(this.right, sx + this.sway);
-    this.camera.position.y += sy + this.bob + breathe;
+    this.camera.position.addScaledVector(this.right, sx + this.sway + hx);
+    this.camera.position.y += sy + this.bob + breathe + hy;
     this.camera.lookAt(this.look);
-    this.camera.rotateZ((Math.sin(t * 13.1) * 0.5 + Math.sin(t * 7.7)) * amp * 0.25 + this.dutch);
+    this.camera.rotateZ((Math.sin(t * 13.1) * 0.5 + Math.sin(t * 7.7)) * amp * 0.25 + this.dutch + hr);
     this.camera.fov = this.fov;
     this.applyShift(dt);
     this.camera.updateProjectionMatrix();

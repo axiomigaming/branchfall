@@ -15,56 +15,90 @@ import {
 } from 'postprocessing';
 import type { QualityProfile } from '../config/quality';
 
+/** Interleaved gradient noise, shared by every stochastic pass (jitter that TAA-less frames forgive). */
+const IGN = /* glsl */ `float ignL(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }`;
+
+/** Soft ellipse around the runner: 0 on the figure, 1 well clear of it. */
+const PROTECT = /* glsl */ `
+  uniform vec2 protectPos;
+  uniform vec2 protectSize;
+  float protectMask(vec2 p) {
+    vec2 q = (p - protectPos) / protectSize;
+    return smoothstep(0.8, 1.3, length(q));
+  }`;
+
 /**
- * Zoom blur from the vanishing point, the signature of the references: the
- * periphery streaks, the centre of the path and the runner stay sharp. A touch
- * of chromatic fringing rides along at the edges.
+ * Motion blur. Medium and up: true camera motion blur — each pixel's world position is rebuilt
+ * from depth and reprojected with last frame's camera, so the walls rushing past the lens smear
+ * hard, the vanishing point stays crisp, and turns, bob and shake streak the way a real shutter
+ * would. The shutter opens with speed. The runner rides with the camera, so an ellipse on the
+ * figure keeps it sharp and taps that land on it are rejected (no ghosting into the background).
+ * A zoom term from the vanishing point adds the stylised rush on top. Low: the zoom term alone,
+ * no depth.
  */
-class SpeedBlurEffect extends Effect {
-  constructor(samples: number) {
+class MotionBlurEffect extends Effect {
+  constructor(samples: number, camera: boolean) {
     super(
-      'SpeedBlur',
+      'MotionBlur',
       /* glsl */ `
-      uniform float strength;
+      ${IGN}
+      ${PROTECT}
+      uniform float radial;
       uniform vec2 center;
-      uniform vec2 protectPos;
-      uniform vec2 protectSize;
       uniform float aspectRatio;
       uniform float fringe;
-      float ign(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
-      void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
+      uniform float shutterScale;
+      uniform float maxLen;
+      uniform mat4 invViewProj;
+      uniform mat4 prevViewProj;
+      void mainImage(const in vec4 inputColor, const in vec2 uv, ${camera ? 'const in float depth, ' : ''}out vec4 outputColor) {
         vec2 d = uv - center;
         float r = length(vec2(d.x * aspectRatio, d.y));
-        float mask = smoothstep(0.24, 0.85, r);
-        vec2 q = (uv - protectPos) / protectSize;
-        mask *= smoothstep(0.75, 1.35, length(q));
-        float amt = strength * mask;
-        if (amt < 0.002) { outputColor = inputColor; return; }
+        vec2 v = d * radial * smoothstep(0.18, 0.8, r);
+        ${
+          camera
+            ? `vec4 wp = invViewProj * vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+        wp /= wp.w;
+        vec4 pc = prevViewProj * wp;
+        if (pc.w > 0.01) v += (uv - (pc.xy / pc.w * 0.5 + 0.5)) * shutterScale;`
+            : ''
+        }
+        float m = protectMask(uv);
+        v *= m;
+        vec2 va = vec2(v.x * aspectRatio, v.y);
+        float len = length(va);
+        if (len > maxLen) v *= maxLen / len;
+        if (len * resolution.y < 1.5) { outputColor = inputColor; return; }
         vec3 acc = vec3(0.0);
         float w = 0.0;
-        float jitter = ign(gl_FragCoord.xy);
+        float jitter = ignL(gl_FragCoord.xy);
         for (int i = 0; i < ${samples}; i++) {
-          float t = (float(i) + jitter) / float(${samples});
-          float k = 1.0 - t * 0.55;
-          vec2 o = uv - d * t * amt;
+          float t = (float(i) + jitter) / float(${samples}) - 0.5;
+          vec2 o = uv - v * t;
+          // Never drag the runner's pixels across the background.
+          float k = step(0.5, protectMask(o)) * (1.0 - abs(t));
           vec3 c;
-          c.r = texture2D(inputBuffer, o - d * fringe * amt).r;
+          c.r = texture2D(inputBuffer, o - v * fringe).r;
           c.g = texture2D(inputBuffer, o).g;
-          c.b = texture2D(inputBuffer, o + d * fringe * amt).b;
+          c.b = texture2D(inputBuffer, o + v * fringe).b;
           acc += c * k;
           w += k;
         }
-        outputColor = vec4(acc / w, inputColor.a);
+        outputColor = w > 0.01 ? vec4(acc / w, inputColor.a) : inputColor;
       }`,
       {
-        attributes: EffectAttribute.CONVOLUTION,
+        attributes: EffectAttribute.CONVOLUTION | (camera ? EffectAttribute.DEPTH : 0),
         uniforms: new Map<string, THREE.Uniform>([
-          ['strength', new THREE.Uniform(0)],
+          ['radial', new THREE.Uniform(0)],
           ['center', new THREE.Uniform(new THREE.Vector2(0.5, 0.58))],
           ['protectPos', new THREE.Uniform(new THREE.Vector2(0.5, 0.3))],
           ['protectSize', new THREE.Uniform(new THREE.Vector2(0.14, 0.3))],
           ['aspectRatio', new THREE.Uniform(1.6)],
           ['fringe', new THREE.Uniform(0.08)],
+          ['shutterScale', new THREE.Uniform(0)],
+          ['maxLen', new THREE.Uniform(0.12)],
+          ['invViewProj', new THREE.Uniform(new THREE.Matrix4())],
+          ['prevViewProj', new THREE.Uniform(new THREE.Matrix4())],
         ]),
       },
     );
@@ -75,6 +109,7 @@ class SpeedBlurEffect extends Effect {
  * Sun shafts: march from each pixel toward the sun on screen, collecting only what is sky
  * (the depth buffer is clear there) and bright. Arches, pillars and leaf cards cut the light
  * into beams; the result is added before tone mapping so bloom and AgX treat it as light.
+ * A second, softer term scatters the same light into the haze so the beams read as volume.
  */
 class SunShaftsEffect extends Effect {
   constructor(samples: number) {
@@ -91,19 +126,24 @@ class SunShaftsEffect extends Effect {
         vec2 delta = sunPos - uv;
         float jitter = ign2(gl_FragCoord.xy);
         vec3 acc = vec3(0.0);
+        float open = 0.0;
         for (int i = 0; i < ${samples}; i++) {
           float t = (float(i) + jitter) / float(${samples});
-          vec2 p = uv + delta * t * 0.92;
+          vec2 p = uv + delta * t * 0.96;
           if (p.x < 0.0 || p.y < 0.0 || p.x > 1.0 || p.y > 1.0) continue;
           float sky = step(0.99995, readDepth(p));
           vec3 c = texture2D(inputBuffer, p).rgb;
           float l = max(max(c.r, c.g), c.b);
-          acc += sky * min(c, vec3(6.0)) * smoothstep(0.45, 1.8, l) * (0.4 + 0.6 * t);
+          acc += sky * min(c, vec3(8.0)) * smoothstep(0.35, 1.6, l) * (0.35 + 0.65 * t);
+          open += sky;
         }
         acc /= float(${samples});
+        open /= float(${samples});
         float r = length(vec2((uv.x - sunPos.x) * aspectRatio, uv.y - sunPos.y));
-        float fall = exp(-r * 2.1);
-        outputColor = vec4(inputColor.rgb + acc * tint * strength * fall, inputColor.a);
+        float fall = exp(-r * 1.45);
+        // In-scatter: warm haze in the light's path, gated by how much sky the pixel can see.
+        vec3 veil = tint * open * exp(-r * 3.0) * 0.07;
+        outputColor = vec4(inputColor.rgb + (acc * tint * fall + veil) * strength, inputColor.a);
       }`,
       {
         attributes: EffectAttribute.CONVOLUTION | EffectAttribute.DEPTH,
@@ -111,7 +151,169 @@ class SunShaftsEffect extends Effect {
           ['sunPos', new THREE.Uniform(new THREE.Vector2(0.5, 0.6))],
           ['strength', new THREE.Uniform(0)],
           ['aspectRatio', new THREE.Uniform(1.6)],
-          ['tint', new THREE.Uniform(new THREE.Vector3(1.0, 0.84, 0.6))],
+          ['tint', new THREE.Uniform(new THREE.Vector3(1.0, 0.8, 0.55))],
+        ]),
+      },
+    );
+  }
+}
+
+/**
+ * Exposure plus the lens looking into the sun: a veiling glare, a starburst and a chain of
+ * ghosts mirrored through the frame centre. All analytic (no image taps), occlusion-tested
+ * against the depth buffer around the sun, so a wall or a canopy swallows the flare. Runs
+ * before bloom and tone mapping, so the hot core blooms and the ghosts roll off like light.
+ */
+class LensEffect extends Effect {
+  constructor(occlusion: boolean) {
+    super(
+      'Lens',
+      /* glsl */ `
+      uniform vec2 sunPos;
+      uniform float sunOn;
+      uniform float aspectRatio;
+      uniform float exposure;
+      uniform float flare;
+      uniform vec3 sunTint;
+      float sunVis() {
+        ${
+          occlusion
+            ? `float v = 2.0 * step(0.99995, readDepth(clamp(sunPos, 0.0, 1.0)));
+        for (int i = 0; i < 8; i++) {
+          float a = float(i) * 0.7853982;
+          vec2 p = clamp(sunPos + vec2(cos(a) / aspectRatio, sin(a)) * 0.014, 0.0, 1.0);
+          v += step(0.99995, readDepth(p));
+        }
+        return v / 10.0;`
+            : 'return 1.0;'
+        }
+      }
+      float hexDist(vec2 p) {
+        p = abs(p);
+        return max(p.x * 0.8660254 + p.y * 0.5, p.y);
+      }
+      void mainImage(const in vec4 inputColor, const in vec2 uv, ${occlusion ? 'const in float depth, ' : ''}out vec4 outputColor) {
+        vec3 c = inputColor.rgb * exposure;
+        float on = sunOn * flare;
+        if (on > 0.002) {
+          float vis = sunVis() * on;
+          if (vis > 0.002) {
+            vec2 d = uv - sunPos;
+            d.x *= aspectRatio;
+            float r = length(d);
+            vec3 add = sunTint * (exp(-r * 3.0) * 0.06 + exp(-r * 10.0) * 0.3 + exp(-r * 34.0) * 2.0);
+            float ang = atan(d.y, d.x);
+            float rays = pow(abs(cos(ang * 3.0 + 0.4)), 90.0) + 0.6 * pow(abs(cos(ang * 5.0 + 1.3)), 160.0);
+            add += sunTint * rays * exp(-r * 7.0) * 0.7;
+            // Anamorphic streak.
+            add += vec3(1.0, 0.82, 0.62) * exp(-abs(d.y) * 140.0) * exp(-abs(d.x) * 2.2) * 0.5;
+            // Ghosts on the line through the centre.
+            vec2 axis = vec2(0.5) - sunPos;
+            const int G = 5;
+            float gk[5] = float[5](0.55, 1.15, 1.45, 1.9, 2.4);
+            float gs[5] = float[5](0.035, 0.075, 0.03, 0.12, 0.05);
+            vec3 gc[5] = vec3[5](vec3(1.0, 0.7, 0.35), vec3(0.45, 0.75, 1.0), vec3(1.0, 0.55, 0.8), vec3(0.5, 1.0, 0.7), vec3(1.0, 0.85, 0.5));
+            for (int i = 0; i < G; i++) {
+              vec2 gp = sunPos + axis * gk[i];
+              vec2 gd = uv - gp;
+              gd.x *= aspectRatio;
+              float h = hexDist(gd) / gs[i];
+              float disc = smoothstep(1.0, 0.86, h) * (0.45 + 0.55 * smoothstep(0.3, 0.98, h));
+              add += gc[i] * disc * 0.055;
+            }
+            // A halo ring at a fixed radius around the frame centre on the sun's side.
+            vec2 hc = uv - (sunPos + axis * 1.0);
+            hc.x *= aspectRatio;
+            float ring = exp(-pow((length(hc) - 0.42) * 22.0, 2.0));
+            add += vec3(0.9, 0.8, 1.0) * ring * 0.03;
+            c += add * vis;
+          }
+        }
+        outputColor = vec4(c, inputColor.a);
+      }`,
+      {
+        attributes: occlusion ? EffectAttribute.DEPTH : EffectAttribute.NONE,
+        uniforms: new Map<string, THREE.Uniform>([
+          ['sunPos', new THREE.Uniform(new THREE.Vector2(0.5, 0.8))],
+          ['sunOn', new THREE.Uniform(0)],
+          ['aspectRatio', new THREE.Uniform(1.6)],
+          ['exposure', new THREE.Uniform(1)],
+          ['flare', new THREE.Uniform(1)],
+          ['sunTint', new THREE.Uniform(new THREE.Vector3(1.0, 0.86, 0.64))],
+        ]),
+      },
+    );
+  }
+}
+
+/**
+ * Screen-space reflections on the water (High and up). The water writes a marker into alpha;
+ * for those pixels a ray is reflected off the rippled plane and marched through the depth
+ * buffer, and where it meets a cliff, wall or tree its colour is mixed in by Fresnel. Rays that
+ * leave the screen keep the panorama reflection the water shader already drew.
+ */
+class WaterReflectEffect extends Effect {
+  constructor(steps: number) {
+    super(
+      'WaterReflect',
+      /* glsl */ `
+      ${IGN}
+      uniform mat4 invViewProj;
+      uniform mat4 viewProj;
+      uniform vec3 camPos;
+      uniform float waterTime;
+      void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
+        outputColor = inputColor;
+        if (inputColor.a > 0.6 || depth > 0.99999) return;
+        vec4 wp = invViewProj * vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+        vec3 P = wp.xyz / wp.w;
+        vec3 toP = P - camPos;
+        float dist = length(toP);
+        vec3 V = toP / dist;
+        vec2 g = vec2(sin(P.x * 1.3 + waterTime * 1.4) + sin(P.z * 0.7 - waterTime * 1.1), cos(P.z * 1.6 + waterTime * 1.2) + cos(P.x * 0.9 + waterTime * 0.8));
+        g *= 0.022 / (1.0 + dist * 0.03);
+        vec3 N = normalize(vec3(g.x, 1.0, g.y));
+        vec3 R = reflect(V, N);
+        float s0 = 0.35 + dist * 0.035;
+        float jitter = ignL(gl_FragCoord.xy);
+        vec2 hitUV = vec2(0.0);
+        float hit = 0.0;
+        float fi = 0.0;
+        for (int i = 0; i < ${steps}; i++) {
+          fi = float(i) + jitter;
+          vec3 Q = P + R * s0 * fi * (1.0 + fi * 0.18);
+          vec4 cq = viewProj * vec4(Q, 1.0);
+          if (cq.w <= 0.01) break;
+          vec3 n = cq.xyz / cq.w;
+          vec2 q = n.xy * 0.5 + 0.5;
+          if (q.x < 0.0 || q.y < 0.0 || q.x > 1.0 || q.y > 1.0) break;
+          float sd = readDepth(q);
+          float rd = n.z * 0.5 + 0.5;
+          if (sd < 0.99999 && rd > sd) {
+            float gap = getViewZ(sd) - getViewZ(rd);
+            if (gap < 1.2 + s0 * fi * 0.35) {
+              hitUV = q;
+              hit = 1.0;
+            }
+            break;
+          }
+        }
+        if (hit < 0.5) return;
+        vec2 e = smoothstep(vec2(0.0), vec2(0.08), hitUV) * smoothstep(vec2(1.0), vec2(0.92), hitUV);
+        float fade = e.x * e.y * (1.0 - fi / float(${steps}));
+        vec4 hc = texture2D(inputBuffer, hitUV);
+        if (hc.a < 0.6) return; // a reflection of the water itself: keep the panorama
+        float fres = 0.04 + 0.96 * pow(1.0 - max(dot(-V, N), 0.0), 5.0);
+        vec3 refl = hc.rgb * vec3(0.82, 0.92, 0.9);
+        outputColor = vec4(mix(inputColor.rgb, refl, clamp(fres * 1.15, 0.0, 0.92) * fade), inputColor.a);
+      }`,
+      {
+        attributes: EffectAttribute.CONVOLUTION | EffectAttribute.DEPTH,
+        uniforms: new Map<string, THREE.Uniform>([
+          ['invViewProj', new THREE.Uniform(new THREE.Matrix4())],
+          ['viewProj', new THREE.Uniform(new THREE.Matrix4())],
+          ['camPos', new THREE.Uniform(new THREE.Vector3())],
+          ['waterTime', new THREE.Uniform(0)],
         ]),
       },
     );
@@ -196,10 +398,14 @@ class GradeEffect extends Effect {
         vec3 c = inputColor.rgb;
         float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
         c = mix(vec3(l), c, saturation + gold * 0.15 - cold * 0.6);
-        // Split tone: shadows lean cool teal-blue, highlights sunlit honey; midtones stay clean.
-        // The separation is what makes sunlit stone read warm against shade and sky.
-        float hl = smoothstep(0.12, 0.7, l);
-        c *= mix(vec3(0.93, 0.99, 1.07), vec3(1.07, 1.0, 0.88), hl);
+        // Split tone: shade stays warm-neutral (sunlit stone bounces into it), the lights bleach
+        // toward cream the way a sun-drenched frame does; only the deepest darks lean teal.
+        float hl = smoothstep(0.1, 0.75, l);
+        float deep = smoothstep(0.12, 0.0, l);
+        c *= mix(vec3(1.03, 0.99, 0.95), vec3(1.06, 1.01, 0.9), hl);
+        c = mix(c, c * vec3(0.9, 1.0, 1.06), deep * 0.6);
+        float cream = smoothstep(0.62, 0.98, l);
+        c = mix(c, vec3(l) * vec3(1.04, 0.99, 0.88) + (c - vec3(l)) * 0.55, cream * 0.5);
         // A soft S-curve around mid grey rather than a straight contrast stretch.
         vec3 k = clamp(c, 0.0, 1.0);
         vec3 s = k * k * (3.0 - 2.0 * k);
@@ -218,8 +424,8 @@ class GradeEffect extends Effect {
       }`,
       {
         uniforms: new Map<string, THREE.Uniform>([
-          ['saturation', new THREE.Uniform(1.24)],
-          ['contrast', new THREE.Uniform(1.07)],
+          ['saturation', new THREE.Uniform(1.18)],
+          ['contrast', new THREE.Uniform(1.08)],
           ['tint', new THREE.Uniform(new THREE.Vector3(1.01, 1.0, 0.97))],
           ['danger', new THREE.Uniform(0)],
           ['cold', new THREE.Uniform(0)],
@@ -235,18 +441,32 @@ class GradeEffect extends Effect {
 export interface PostParams {
   speed: number; // 0..1
   runnerScreen: THREE.Vector2; // uv of runner's chest
+  /** Half-size of the runner's sharp zone in uv (x, y). Optional: a default ellipse otherwise. */
+  runnerSize?: THREE.Vector2;
   danger: number;
   cold: number;
   gold: number;
   flash: number;
   fade: number;
   bloomBoost: number;
+  /** 1 with full motion, 0 when the player asked for reduced motion (no camera blur). */
+  motion?: number;
+  /** Frame time in seconds (for the shutter). */
+  dt?: number;
+  /** World time, for the water ripples in the reflections. */
+  time?: number;
 }
+
+/** Base exposure: the sun-drenched references sit well above a neutral grey. */
+export const EXPOSURE = 1.14;
 
 export class Post {
   readonly composer: EffectComposer;
-  private blur: SpeedBlurEffect | null = null;
+  private blur: MotionBlurEffect | null = null;
+  private cameraBlur = false;
   private shafts: SunShaftsEffect | null = null;
+  private lens: LensEffect | null = null;
+  private ssr: WaterReflectEffect | null = null;
   private ao: DepthAOEffect | null = null;
   private sun: THREE.Object3D | null = null;
   private sunV = new THREE.Vector3();
@@ -254,6 +474,11 @@ export class Post {
   private bloom: BloomEffect | null = null;
   private vignette = new VignetteEffect({ offset: 0.28, darkness: 0.55 });
   private renderPass: RenderPass;
+  private vp = new THREE.Matrix4();
+  private prevVP = new THREE.Matrix4();
+  private invVP = new THREE.Matrix4();
+  private hasPrev = false;
+  private flareOn = true;
 
   constructor(
     private renderer: THREE.WebGLRenderer,
@@ -269,17 +494,23 @@ export class Post {
   build(q: QualityProfile): void {
     this.composer.removeAllPasses();
     this.composer.addPass(this.renderPass);
+    this.ssr = q.waterReflections > 0 ? new WaterReflectEffect(q.waterReflections) : null;
+    if (this.ssr) this.composer.addPass(new EffectPass(this.camera, this.ssr));
     this.shafts = q.godRays > 0 ? new SunShaftsEffect(q.godRays) : null;
     this.ao = q.ao > 0 ? new DepthAOEffect(q.ao) : null;
     const lightFx = [this.ao, this.shafts].filter((e): e is DepthAOEffect | SunShaftsEffect => e !== null);
     if (lightFx.length) this.composer.addPass(new EffectPass(this.camera, ...lightFx));
-    this.blur = q.speedBlur ? new SpeedBlurEffect(q.bloom ? 12 : 7) : null;
+    this.cameraBlur = q.motionBlur === 'camera';
+    this.blur = q.speedBlur ? new MotionBlurEffect(q.blurSamples, this.cameraBlur) : null;
     if (this.blur) this.composer.addPass(new EffectPass(this.camera, this.blur));
-    this.bloom = q.bloom ? new BloomEffect({ mipmapBlur: true, luminanceThreshold: 0.82, luminanceSmoothing: 0.25, intensity: 0.85, radius: 0.72 }) : null;
+    this.hasPrev = false;
+    this.bloom = q.bloom ? new BloomEffect({ mipmapBlur: true, luminanceThreshold: 0.9, luminanceSmoothing: 0.3, intensity: 0.95, radius: 0.78 }) : null;
+    this.lens = new LensEffect(q.lensFlare);
+    this.flareOn = q.lensFlare;
     const tone = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
     const grain = new NoiseEffect({ premultiply: true, blendFunction: BlendFunction.SCREEN });
     grain.blendMode.opacity.value = 0.035;
-    const effects: Effect[] = [];
+    const effects: Effect[] = [this.lens];
     if (this.bloom) effects.push(this.bloom);
     effects.push(tone, this.grade, this.vignette, grain);
     this.composer.addPass(new EffectPass(this.camera, ...effects));
@@ -288,34 +519,60 @@ export class Post {
 
   setSize(w: number, h: number): void {
     this.composer.setSize(w, h);
-    if (this.blur) this.blur.uniforms.get('aspectRatio')!.value = w / h;
-    if (this.shafts) this.shafts.uniforms.get('aspectRatio')!.value = w / h;
+    for (const e of [this.blur, this.shafts, this.lens]) if (e) e.uniforms.get('aspectRatio')!.value = w / h;
   }
 
   apply(p: PostParams): void {
+    const cam = this.camera as THREE.PerspectiveCamera;
+    cam.updateMatrixWorld();
+    this.vp.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    if (!this.hasPrev) this.prevVP.copy(this.vp);
+    this.invVP.copy(this.vp).invert();
     if (this.blur) {
       const u = this.blur.uniforms;
-      u.get('strength')!.value = p.speed * 0.085;
+      const motion = p.motion ?? 1;
       u.get('protectPos')!.value.copy(p.runnerScreen);
-      u.get('fringe')!.value = 0.05 + p.speed * 0.08;
+      if (p.runnerSize) u.get('protectSize')!.value.copy(p.runnerSize);
+      u.get('fringe')!.value = 0.02 + p.speed * 0.05;
+      if (this.cameraBlur) {
+        // Shutter in seconds: a film-like 1/60 s at a jog, opening to ~1/12 s at full tilt.
+        const shutter = (0.016 + 0.06 * p.speed) * motion;
+        u.get('shutterScale')!.value = shutter / Math.max(1 / 240, p.dt ?? 1 / 60);
+        u.get('radial')!.value = p.speed * 0.05;
+        u.get('maxLen')!.value = 0.05 + 0.11 * p.speed;
+        u.get('invViewProj')!.value.copy(this.invVP);
+        u.get('prevViewProj')!.value.copy(this.prevVP);
+      } else {
+        u.get('radial')!.value = p.speed * 0.1;
+        u.get('maxLen')!.value = 0.12;
+      }
     }
+    if (this.ssr) {
+      const u = this.ssr.uniforms;
+      u.get('invViewProj')!.value.copy(this.invVP);
+      u.get('viewProj')!.value.copy(this.vp);
+      u.get('camPos')!.value.setFromMatrixPosition(cam.matrixWorld);
+      u.get('waterTime')!.value = p.time ?? 0;
+    }
+    this.prevVP.copy(this.vp);
+    this.hasPrev = true;
     const g = this.grade.uniforms;
     g.get('danger')!.value = p.danger;
     g.get('cold')!.value = p.cold;
     g.get('gold')!.value = p.gold;
     g.get('flash')!.value = p.flash;
     g.get('fade')!.value = p.fade;
-    if (this.bloom) this.bloom.intensity = 0.85 + p.bloomBoost;
+    if (this.bloom) this.bloom.intensity = 0.95 + p.bloomBoost;
     this.vignette.darkness = 0.5 + p.speed * 0.2 + p.cold * 0.25;
+    if (this.lens) this.lens.uniforms.get('exposure')!.value = EXPOSURE * (1 - 0.12 * p.cold);
   }
 
-  /** Place the shafts on the sun disc (found by name in the scene), fading as it leaves the frame. */
-  private updateShafts(): void {
-    if (!this.shafts) return;
+  /** Place the shafts and the flare on the sun disc (found by name in the scene), fading as it leaves the frame. */
+  private updateSun(): void {
     this.sun ??= this.scene.getObjectByName('sunDisc') ?? null;
-    const u = this.shafts.uniforms;
     if (!this.sun) {
-      u.get('strength')!.value = 0;
+      if (this.shafts) this.shafts.uniforms.get('strength')!.value = 0;
+      if (this.lens) this.lens.uniforms.get('sunOn')!.value = 0;
       return;
     }
     const cam = this.camera as THREE.PerspectiveCamera;
@@ -324,12 +581,22 @@ export class Post {
     const x = this.sunV.x * 0.5 + 0.5;
     const y = this.sunV.y * 0.5 + 0.5;
     const off = Math.max(0, Math.max(Math.abs(x - 0.5), Math.abs(y - 0.5)) - 0.5);
-    u.get('sunPos')!.value.set(x, y);
-    u.get('strength')!.value = behind ? 0 : 1.2 * Math.max(0, 1 - off * 2.0);
+    if (this.shafts) {
+      const u = this.shafts.uniforms;
+      u.get('sunPos')!.value.set(x, y);
+      u.get('strength')!.value = behind ? 0 : 1.35 * Math.max(0, 1 - off * 1.6);
+    }
+    if (this.lens) {
+      const u = this.lens.uniforms;
+      u.get('sunPos')!.value.set(x, y);
+      // The flare lives only while the disc is in (or just grazing) the frame.
+      const inside = Math.max(0, 1 - off * 12);
+      u.get('sunOn')!.value = behind || !this.flareOn ? 0 : inside;
+    }
   }
 
   render(dt: number): void {
-    this.updateShafts();
+    this.updateSun();
     if (this.ao) {
       const pm = (this.camera as THREE.PerspectiveCamera).projectionMatrix.elements;
       this.ao.uniforms.get('projInfo')!.value.set(1 / pm[0]!, 1 / pm[5]!);
