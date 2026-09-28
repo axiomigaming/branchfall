@@ -1,5 +1,5 @@
-"""The runner's kit and hair: belt, canteen, pouch, pack with bedroll and rope, straps,
-neckerchief, and hair cards over a scalp cap. Everything is conformed to the clothes it sits on."""
+"""The runner's kit and hair: a compact leather satchel on a cross-body strap, the neckerchief,
+and short hair cards over a scalp cap. Everything is conformed to the clothes it sits on."""
 import math
 import random
 
@@ -12,9 +12,6 @@ from char_sculpt import (Meta, voxel_remesh, displace, solidify, smooth_mesh, bu
                          cyl, rounded_box, ellipsoid, xform, bvh_of, keep_faces, duplicate)
 from common import link
 
-PACK_C = Vector((0, -0.222, 1.235))
-ROLL_C = Vector((0, -0.215, 1.462))
-CANTEEN_HANG = Vector((-0.17, -0.09, 1.02))
 SCARF_PTS = [Vector((0.0, -0.078, 1.515)), Vector((0.006, -0.125, 1.515)), Vector((0.012, -0.175, 1.508)), Vector((0.018, -0.225, 1.492))]
 
 
@@ -37,183 +34,83 @@ def around(bvh, z, off, n=36, cy=0.0, zfn=None):
     return pts, nrms
 
 
-# ------------------------------------------------------------------ belt, buckle, canteen, pouch
-def belt(waist_bvh):
-    zf = lambda a: 1.0 - 0.006 * math.cos(a)   # dips a touch at the front
-    pts, nrms = around(waist_bvh, 1.0, 0.004, 30, zfn=zf)
-    band = build("belt", sweep(pts, rect(0.0065, 0.042, 0.0025), ups=[Vector((0, 0, 1))] * len(pts), closed=True))
-    front = pts[0]
-    n = nrms[0]
-    # A brass frame buckle with its prong, the tongue of the belt through it, a keeper loop.
-    frame = build("buckle", xform(ring((0, 0, 0), 0.026, 0.0035, axis="Y", seg=4, mseg=6, sy=1.0), Matrix.Translation(front + Vector((0.004, 0.009, 0))) @ Matrix.Rotation(math.pi / 4, 4, "Y") @ Matrix.Diagonal((1.0, 1.0, 0.82, 1.0))))
-    prong = build("buckle_prong", cyl(front + Vector((0.0, 0.012, 0.0)), front + Vector((0.018, 0.012, 0.0)), 0.0018, seg=6, bevel=0))
-    tip_pts = [front + Vector((-0.004, 0.011, 0)), front + Vector((-0.04, 0.007, 0)), front + Vector((-0.075, 0.0, 0))]
-    tongue = build("belt_tip", sweep(tip_pts, rect(0.006, 0.038, 0.0025), ups=[Vector((0, 0, 1))] * 3))
-    keeper = build("belt_keeper", rounded_box((0.012, 0.012, 0.05), front + Vector((-0.05, 0.004, 0)), 0.003, 1))
-    return [band, frame, prong, tongue, keeper]
+# ------------------------------------------------------------------ satchel
+def _surface_out(bvh, o, d, reach=0.4):
+    hit = bvh.ray_cast(o + d * reach, -d, reach + 0.1)
+    return hit[0] if hit[0] is not None else o + d * 0.15
 
 
-def canteen(waist_bvh):
-    """A canvas-covered water bottle on the right hip, hung from the belt by a leather tab."""
-    a = math.radians(-118)
+def satchel(shirt_bvh):
+    """A compact leather satchel riding on the back of the left hip: a soft body, a flap with a
+    strap and brass buckle, stitched gussets and two rings for the cross-body strap. Small and low,
+    so the back, the shoulders and the arms read from behind."""
+    global SATCHEL_C, SATCHEL_ENDS
+    a = math.radians(140)
     d = Vector((math.sin(a), math.cos(a), 0))
-    hit = waist_bvh.ray_cast(Vector((0, 0, 0.93)) + d * 0.4, -d, 0.5)
-    base = (hit[0] if hit[0] is not None else d * 0.15) + d * 0.045
-    global CANTEEN_HANG
-    CANTEEN_HANG = base + Vector((0, 0, 0.1)) - d * 0.03
+    base = _surface_out(shirt_bvh, Vector((0, -0.01, 0.955)), d) + d * 0.036
+    SATCHEL_C = base.copy()
     rot = Matrix.Translation(base) @ Matrix.Rotation(-a, 4, "Z")
-    body = build("canteen", xform(ellipsoid((0, 0, 0), (0.06, 0.03, 0.078), seg=20, rings=12,
-                                            shape=lambda c: c.__setattr__("z", max(-0.07, min(0.07, c.z * 1.1)))), rot))
-    cap = build("canteen_cap", xform(cyl((0, 0, 0.07), (0, 0, 0.095), 0.014, seg=12, bevel=0.2), rot))
-    tab = build("canteen_tab", xform(rounded_box((0.03, 0.006, 0.08), (0, -0.034, 0.06), 0.002, 1), rot))
-    return [body, cap, tab]
+    W, D, H = 0.2, 0.055, 0.15
 
-
-def pouch(waist_bvh):
-    """A leather pouch on the left front hip with a flap and a brass stud."""
-    a = math.radians(52)
-    d = Vector((math.sin(a), math.cos(a), 0))
-    hit = waist_bvh.ray_cast(Vector((0, 0, 0.97)) + d * 0.4, -d, 0.5)
-    base = (hit[0] if hit[0] is not None else d * 0.15) + d * 0.03
-    rot = Matrix.Translation(base) @ Matrix.Rotation(-a, 4, "Z")
-
-    def sag(c):
-        c.y += 0.006 * math.cos(c.x / 0.06 * math.pi / 2) * (1 - abs(c.z) / 0.05)
-    box = build("pouch", xform(rounded_box((0.1, 0.045, 0.085), (0, 0, -0.01), 0.014, 3, shape=sag), rot))
-    flap = build("pouch_flap", xform(rounded_box((0.106, 0.052, 0.038), (0, 0.003, 0.022), 0.01, 2), rot))
-    stud = build("pouch_stud", xform(ellipsoid((0, 0.03, 0.01), (0.007, 0.004, 0.007), seg=10, rings=6), rot))
-    return [box, flap, stud]
-
-
-# ------------------------------------------------------------------ pack
-def pack():
-    """A worn leather rucksack: soft body, a flap with two straps and buckles, a front pocket,
-    a rope coil on its right side and a canvas bedroll strapped across the top."""
-    m = Meta("mpack", 0.004, stiff=3.0)
-    c = PACK_C
-    for dx in (-0.09, 0.0, 0.09):
-        for dz in (-0.1, 0.0, 0.1):
-            m.ell(c + Vector((dx, 0.0, dz)), (0.07, 0.07, 0.085))
-    m.ell(c + Vector((0, -0.03, -0.13)), (0.14, 0.055, 0.05))   # the load sagging to the bottom
-    body = m.mesh("pack")
-    voxel_remesh(body, 0.003)
+    def slump(c):
+        # The load sags to the bottom and bellies the outer face; the back face stays flat on the hip.
+        k = (c.z + H / 2) / H
+        c.y += 0.008 * math.cos(c.x / (W / 2) * math.pi / 2) * (1 - abs(2 * k - 1)) * (c.y > 0)
+        c.x *= 1.0 + 0.04 * (1 - k)
+    body = build("satchel", xform(rounded_box((W, D, H), (0, 0, 0), 0.018, 3, shape=slump), rot))
 
     def crease(p, n):
-        q = p.copy()
-        # Leather wrinkles, a slight slump, stitched seams round the side panels.
-        q += n * 0.0025 * math.sin(p.z * 80 + noise.noise(p * 12) * 3) * smooth01((abs(p.x) - 0.1) / 0.04)
-        q += n * 0.0015 * noise.noise(p * 30)
-        seam = bell(abs(p.x - c.x), 0.128, 0.0025) * smooth01((p.y - c.y + 0.02) / 0.02)
-        q -= n * 0.0015 * seam
-        return q
+        q = p - base
+        return p + n * (0.0018 * math.sin(p.z * 110 + noise.noise(p * 14) * 3) * bell(q.z, -0.05, 0.03) + 0.0012 * noise.noise(p * 35))
+    for m_ in range(1):
+        mm = body.modifiers.new("sub", "SUBSURF")
+        mm.levels = 1
+        from char_sculpt import apply_mods
+        apply_mods(body)
     displace(body, crease)
     parts = [body]
-    # The flap over the top and down the back, with a thick edge.
-    flap = []
-    for i in range(9):
-        x = -0.155 + 0.31 * i / 8
-        row = []
-        for j in range(8):
-            v = j / 7
-            if v < 0.35:
-                u = v / 0.35
-                p = Vector((x, c.y + 0.06 - 0.12 * u, c.z + 0.155 + 0.02 * math.sin(u * math.pi)))
-            else:
-                u = (v - 0.35) / 0.65
-                p = Vector((x, c.y - 0.075 - 0.004 * math.sin(u * math.pi), c.z + 0.15 - 0.17 * u))
-            row.append(p)
-        flap.append(row)
-    bm = bmesh.new()
-    vs = [[bm.verts.new(p) for p in row] for row in flap]
-    for i in range(8):
-        for j in range(7):
-            bm.faces.new((vs[i][j], vs[i + 1][j], vs[i + 1][j + 1], vs[i][j + 1]))
-    me = bpy.data.meshes.new("pack_flap")
-    bm.to_mesh(me)
-    bm.free()
-    fo = bpy.data.objects.new("pack_flap", me)
-    link(fo)
-    solidify(fo, 0.006, offset=1.0)
-    parts.append(fo)
-    parts.append(build("pack_pocket", rounded_box((0.19, 0.05, 0.12), c + Vector((0, -0.095, -0.075)), 0.02, 3)))
-    parts.append(build("pack_pocket_flap", rounded_box((0.198, 0.056, 0.04), c + Vector((0, -0.098, -0.018)), 0.012, 2)))
-    for sx in (1, -1):
-        x = sx * 0.075
-        parts.append(build("pack_strap", sweep([c + Vector((x, -0.085, 0.14)), c + Vector((x, -0.087, 0.04)), c + Vector((x, -0.12, -0.03)), c + Vector((x, -0.123, -0.1))],
-                                                rect(0.024, 0.005, 0.002), ups=[Vector((0, -1, 0))] * 4)))
-        parts.append(build("pack_buckle", xform(ring((0, 0, 0), 0.013, 0.0022, axis="Y", seg=4, mseg=5), Matrix.Translation(c + Vector((x, -0.093, 0.035))) @ Matrix.Rotation(math.pi / 4, 4, "Y"))))
-    # Rope coil on the right.
-    for k, (dx, r) in enumerate(((-0.168, 0.064), (-0.182, 0.058), (-0.176, 0.052))):
-        parts.append(build("rope", ring(c + Vector((dx, 0.0, -0.035 - 0.004 * k)), r, 0.0105, axis="X", seg=22, mseg=6,
-                                        wob=lambda a, k=k: 0.004 * math.sin(a * 3 + k))))
-    parts.append(build("rope_tie", ring(c + Vector((-0.175, 0.0, 0.02)), 0.02, 0.005, axis="Y", seg=10, mseg=5)))
-    return parts
-
-
-def bedroll():
-    parts = []
-    L = 0.22
-    bm_ = build("bedroll", cyl(ROLL_C + Vector((-L, 0, 0)), ROLL_C + Vector((L, 0, 0)), 0.07, seg=24, bevel=0.35))
-    # A spiral seam and slumped middle.
-    def roll(p, n):
-        q = p.copy()
-        a = math.atan2(p.z - ROLL_C.z, p.y - ROLL_C.y)
-        q += n * (0.0022 * math.sin(a + p.x * 40) + 0.0012 * noise.noise(p * 25))
-        q.z -= 0.008 * (1 - (p.x / L) ** 2) * smooth01((p.z - ROLL_C.z) / 0.07)
-        return q
-    for _ in range(2):
-        m = bm_.modifiers.new("sub", "SUBSURF")
-        m.levels = 1
-        from char_sculpt import apply_mods
-        apply_mods(bm_)
-    displace(bm_, roll)
-    parts.append(bm_)
-    for sx in (1, -1):
-        parts.append(build("roll_tie", ring(ROLL_C + Vector((sx * 0.13, 0, 0)), 0.072, 0.0055, axis="X", seg=20, mseg=4, flat=0.4)))
-    return parts
-
-
-def straps(shirt_bvh):
-    """Shoulder straps over the trapezius, down the chest, under the arms and back to the pack."""
-    out = []
-    for s, sx in (("L", 1), ("R", -1)):
-        spec = [
-            ((sx * 0.085, -0.13, 1.42), (0, -1, 0.2)),
-            ((sx * 0.09, -0.07, 1.47), (0, -0.3, 1)),
-            ((sx * 0.1, 0.0, 1.48), (0, 0.3, 1)),
-            ((sx * 0.105, 0.04, 1.42), (sx * 0.1, 1, 0.3)),
-            ((sx * 0.11, 0.06, 1.33), (sx * 0.15, 1, 0)),
-            ((sx * 0.13, 0.05, 1.23), (sx * 0.5, 1, 0)),
-            ((sx * 0.16, 0.0, 1.17), (sx * 1, 0.2, 0)),
-            ((sx * 0.13, -0.08, 1.15), (sx * 0.8, -0.6, 0)),
-            ((sx * 0.1, -0.13, 1.12), (0, -1, 0)),
-        ]
-        pts, ups = [], []
-        for o, d in spec:
-            loc, nrm, _, _ = shirt_bvh.find_nearest(Vector(o))
-            pts.append(loc + nrm * 0.0055)
-            ups.append(nrm)
-        cp = catmull(pts, 3)
-        cu = []
-        for p in cp:
-            loc, nrm, _, _ = shirt_bvh.find_nearest(p)
-            cu.append(nrm)
-        cp = [shirt_bvh.find_nearest(p)[0] + n * 0.0055 for p, n in zip(cp, cu)]
-        out.append(build("strap", sweep(cp, rect(0.042, 0.006, 0.002), ups=cu)))
-        loc, nrm, _, _ = shirt_bvh.find_nearest(Vector((sx * 0.11, 0.2, 1.33)))
-        q = nrm.to_track_quat("Y", "Z").to_matrix().to_4x4()
-        out.append(build("strap_buckle", xform(ring((0, 0, 0), 0.022, 0.003, axis="Y", seg=4, mseg=5), Matrix.Translation(loc + nrm * 0.011) @ q @ Matrix.Rotation(math.pi / 4, 4, "Y"))))
-        out.append(build("strap_pad", xform(rounded_box((0.05, 0.01, 0.06), (0, 0, 0), 0.004, 2), Matrix.Translation(loc + nrm * 0.008) @ q)))
-    # Sternum strap.
+    # The flap: over the top and two thirds down the outer face, a thick leather edge.
+    parts.append(build("satchel_flap", xform(rounded_box((W + 0.008, D + 0.01, 0.018), (0, 0.0, H / 2 + 0.004), 0.008, 2), rot)))
+    parts.append(build("satchel_flap", xform(rounded_box((W + 0.008, 0.008, 0.1), (0, D / 2 + 0.007, H / 2 - 0.05), 0.006, 2,
+                                                         shape=lambda c: c.__setattr__("z", c.z - 0.012 * (1 - (c.x / (W / 2)) ** 2) * (c.z < 0))), rot)))
+    # Flap strap and buckle.
+    parts.append(build("satchel_strap", xform(rounded_box((0.022, 0.004, 0.09), (0, D / 2 + 0.013, 0.0), 0.0015, 1), rot)))
+    parts.append(build("satchel_buckle", xform(ring((0, 0, 0), 0.012, 0.0022, axis="Y", seg=4, mseg=5), Matrix.Translation(base) @ Matrix.Rotation(-a, 4, "Z") @ Matrix.Translation((0, D / 2 + 0.016, -0.03)) @ Matrix.Rotation(math.pi / 4, 4, "Y"))))
+    # Strap rings at the two top corners; the strap ends are returned for the cross-body strap.
     ends = []
-    for sx in (1, -1):
-        loc, nrm, _, _ = shirt_bvh.find_nearest(Vector((sx * 0.105, 0.2, 1.36)))
-        ends.append(loc + nrm * 0.011)
-    loc, nrm, _, _ = shirt_bvh.find_nearest(Vector((0, 0.2, 1.36)))
-    mid = loc + nrm * 0.014
-    out.append(build("sternum", sweep(catmull([ends[0], mid, ends[1]], 3), rect(0.018, 0.005, 0.002), ups=[Vector((0, 1, 0))] * 7)))
-    out.append(build("sternum_clip", rounded_box((0.03, 0.008, 0.022), mid + Vector((0, 0.004, 0)), 0.004, 1)))
-    return out
+    for sx in (-1, 1):
+        lp = Vector((sx * (W / 2 + 0.004), 0.0, H / 2 - 0.01))
+        parts.append(build("satchel_buckle", xform(ring(lp, 0.011, 0.0022, axis="X", seg=10, mseg=5), rot)))
+        ends.append(rot @ (lp + Vector((0, 0, 0.012))))
+    # local +x points toward the spine (world −x): ends[1] is the inner end, ends[0] the outer one.
+    SATCHEL_ENDS = ends
+    return parts
+
+
+def satchel_strap(shirt_bvh):
+    """The cross-body strap: from the satchel up across the back, over the right shoulder, down across
+    the chest and round the left flank back to the bag."""
+    inner, outer = SATCHEL_ENDS[1], SATCHEL_ENDS[0]
+    way = [(0.04, -0.17, 1.1), (-0.03, -0.16, 1.22), (-0.09, -0.13, 1.35), (-0.115, -0.07, 1.45), (-0.11, 0.0, 1.475),
+           (-0.1, 0.07, 1.42), (-0.06, 0.15, 1.32), (0.01, 0.17, 1.2), (0.08, 0.15, 1.09), (0.15, 0.09, 1.0), (0.185, 0.0, 0.97)]
+    pts = [inner + Vector((0, 0, 0.01))]
+    for w in way:
+        loc, nrm, _, _ = shirt_bvh.find_nearest(Vector(w))
+        pts.append(loc + nrm * 0.008)
+    pts.append(outer + Vector((0, 0, 0.01)))
+    cp = catmull(pts, 3)
+    out, ups = [], []
+    for i, p in enumerate(cp):
+        loc, nrm, _, _ = shirt_bvh.find_nearest(p)
+        if 1 < i < len(cp) - 2:
+            p = loc + nrm * 0.0085
+        out.append(p)
+        ups.append(nrm)
+    return [build("xstrap", sweep(out, rect(0.036, 0.0055, 0.002), ups=ups))]
+
+
+SATCHEL_C = Vector((0.12, -0.17, 0.955))
+SATCHEL_ENDS = [Vector((0.2, -0.1, 1.02)), Vector((0.05, -0.2, 1.02))]
 
 
 # ------------------------------------------------------------------ neckerchief
@@ -308,7 +205,8 @@ def hair_cards(head_bvh, seed=11):
         side = Vector((math.copysign(1, q.x), 0, 0))
         g = (back * (0.9 * top + 0.25) + down * (1 - top) * 1.1 + side * 0.25 * (1 - top) + Vector((0, 0, 0.35)) * front * top)
         g = (g - n0 * g.dot(n0)).normalized()
-        length = rng.uniform(0.035, 0.06) * (1.0 + 0.3 * top) * (0.75 if q.z < 0.0 else 1.0)
+        # Cropped short: a little length on top, clipped close at the sides and the nape.
+        length = rng.uniform(0.022, 0.036) * (1.0 + 0.4 * top) * (0.7 if q.z < 0.0 else 1.0)
         width = rng.uniform(0.011, 0.017)
         lift = rng.uniform(0.002, 0.006) * (0.5 + top)
         nseg = 3

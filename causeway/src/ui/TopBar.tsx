@@ -35,7 +35,7 @@ export function TopBar() {
     <header className="topbar">
       <button className="brand" onClick={() => open('menu')} aria-label="Causeway menu">
         <Mark />
-        <span className="brand-name">CAUSEWAY</span>
+        <span className="brand-name">Causeway</span>
         <span className="tag">Demo</span>
       </button>
       <button className="history" onClick={() => open('history')} aria-label="Previous runs">

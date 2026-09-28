@@ -45,10 +45,10 @@ for (const name of pick) {
   };
 
   await page.goto(`${URL}/?q=low&seed=e2e-${name}&qa`);
-  await page.waitForSelector('.title-actions .btn-gold', { timeout: 300000 });
+  await page.waitForSelector('.title-actions .btn-cta', { timeout: 300000 });
   check('title screen offers entry', true);
   await shot('1-title');
-  await page.click('.title-actions .btn-gold');
+  await page.click('.title-actions .btn-cta');
   await waitPhase(['setup']);
   await shot('2-setup');
   const lay = await page.evaluate(() => ({ dock: (innerHeight - document.querySelector('.dock').getBoundingClientRect().top) / innerHeight, over: document.documentElement.scrollWidth > innerWidth }));
