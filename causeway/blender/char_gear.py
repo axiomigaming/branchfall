@@ -237,7 +237,7 @@ def neckerchief(body_bvh):
         pts = catmull(P, 4)
         nn = len(pts)
         tails.append(build("scarf_tail", sweep(pts, lambda i, nn=nn, wid=wid: [(-wid * (1 - 0.6 * (i / (nn - 1)) ** 1.4) / 2, 0.0), (0, 0.003), (wid * (1 - 0.6 * (i / (nn - 1)) ** 1.4) / 2, 0.0), (0, -0.003)],
-                                              ups=[Vector((0, -1, 0.3))] * nn)))
+                                              ups=[Vector((0, 0, 1))] * nn)))
     return band, knot, tails
 
 
@@ -355,7 +355,7 @@ def brow_cards(head_bvh):
             for i in range(5):
                 t = i / 4
                 x = sx * (0.012 + 0.04 * t)
-                z = 0.029 + 0.005 * math.sin(t * math.pi * 0.9) - 0.004 * t + (k - 0.5) * 0.002
+                z = 0.026 + 0.005 * math.sin(t * math.pi * 0.9) - 0.005 * t + (k - 0.5) * 0.0018
                 o = HC + Vector((x, 0.3, z))
                 hit = head_bvh.ray_cast(o, Vector((0, -1, 0)), 0.5)
                 pts.append((hit[0], hit[1]) if hit[0] is not None else (o, Vector((0, 1, 0))))

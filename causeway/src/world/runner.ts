@@ -135,6 +135,9 @@ export class Runner {
     R: { locked: false, pos: new THREE.Vector3(), w: 0 },
   };
   private headFwd = new THREE.Vector3(0, 0, 1);
+  /** Bind rotations of the spring-driven bones: the clips carry no tracks for them (the exporter drops constant
+   * channels), so each frame starts from rest instead of accumulating. */
+  private rest = new Map<THREE.Bone, THREE.Quaternion>();
   private chestPrev = new THREE.Vector3();
   private chestVel = new THREE.Vector3();
   private hipPrev = new THREE.Vector3();
@@ -196,6 +199,10 @@ export class Runner {
       f.thigh = this.body.getObjectByName(`thigh${s}`) as THREE.Bone | undefined;
       f.shin = this.body.getObjectByName(`shin${s}`) as THREE.Bone | undefined;
       f.foot = this.body.getObjectByName(`foot${s}`) as THREE.Bone | undefined;
+    }
+    for (const n of ['pack', 'bedroll', 'canteen', 'scarf0', 'scarf1', 'scarf2']) {
+      const b = this.bones[n];
+      if (b) this.rest.set(b, b.quaternion.clone());
     }
     // The face's forward direction in the head bone's frame (bind pose faces the root's −Z).
     const head = this.bones.head;
@@ -502,6 +509,7 @@ export class Runner {
   /** Pack, bedroll and canteen bounce, the neckerchief streams in the wind of the run. */
   private secondary(dt: number): void {
     const chest = this.bones.chest;
+    for (const [b, q] of this.rest) b.quaternion.copy(q);
     if (!chest || dt <= 0) return;
     chest.updateWorldMatrix(true, false);
     const p = this.tmp.setFromMatrixPosition(chest.matrixWorld);

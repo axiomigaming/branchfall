@@ -207,7 +207,7 @@ def face_offset(p):
     # A strong jaw: width at the angle, a squared chin pushed forward.
     q.x += math.copysign(0.012, x) * g2(x, y, z, math.copysign(0.058, x), -0.066, 0.018, 0.02) * smooth01((d.y + 0.4) / 0.6)
     q.x += math.copysign(0.004, x) * g2(x, y, z, math.copysign(0.035, x), -0.095, 0.02, 0.015) * fy
-    q.y += 0.02 * g2(x, y, z, 0, -0.098, 0.026, 0.018) * fy
+    q.y += 0.027 * g2(x, y, z, 0, -0.099, 0.027, 0.018) * fy
     q.z -= 0.006 * g2(x, y, z, 0, -0.105, 0.03, 0.02) * fy
     if fy > 0.15:
         w = smooth01((fy - 0.15) / 0.55)
@@ -247,6 +247,8 @@ def face_offset(p):
             fold = math.exp(-((x - ux) / 0.0035) ** 2) * math.exp(-((z + 0.058) / 0.016) ** 2)
             q.y -= 0.0022 * fold * w
             q.y += 0.003 * math.exp(-((x - ux - sx * 0.008) / 0.007) ** 2) * math.exp(-((z + 0.056) / 0.016) ** 2) * w
+        # Set the mouth back under the nose (a straight profile, not a muzzle).
+        q.y -= 0.01 * smooth01((-z - 0.044) / 0.03) * smooth01((0.035 - ax) / 0.03) * w
         # Muzzle over the teeth.
         q.y += 0.003 * g2(x, y, z, 0, -0.062, 0.024, 0.02) * w
         # Fuller cheeks between the cheekbone and the jaw.
