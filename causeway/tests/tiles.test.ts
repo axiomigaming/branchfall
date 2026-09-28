@@ -8,7 +8,7 @@ function fakeKit(): Kit {
   const geo = new Map<string, THREE.BufferGeometry>();
   const matOf = new Map<string, string>();
   const box = new THREE.BoxGeometry(1, 1, 1);
-  for (const n of ['floor_0', 'floor_1', 'floor_2', 'floor_wide_0', 'floor_narrow_0', 'planks_0', 'planks_1', 'stairs_0']) {
+  for (const n of ['floor_0', 'floor_1', 'floor_2', 'floor_wide_0', 'floor_narrow_0', 'planks_0', 'planks_1', 'stairs_0', 'floor_medallion_0']) {
     geo.set(n, box);
     matOf.set(n, 'stone');
   }

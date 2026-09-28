@@ -20,7 +20,8 @@ export type SectionType =
   | 'stairsUp'
   | 'cliff'
   | 'ruins'
-  | 'avenue';
+  | 'avenue'
+  | 'gorge';
 
 export interface Placement {
   piece: string;
@@ -128,9 +129,41 @@ class Builder {
 const LOW_WALLS = ['wall_low_0', 'wall_low_1', 'wall_low_2', 'wall_low_3'];
 const FLOORS = ['floor_0', 'floor_1', 'floor_0', 'floor_1', 'floor_2'];
 
-function floorRun(b: Builder, z0: number, n: number, y = 0, broken = 0.12) {
+/** Cliff faces modelled in Blender: [piece, length along the path, height above the water]. */
+const CLIFFS = [
+  ['cliff_wall_0', 24, 18],
+  ['cliff_wall_1', 24, 23],
+  ['cliff_wall_2', 28, 27],
+] as const;
+
+/**
+ * A cliff face along the path on `side`, its face `x` metres out, centred on z: the rock, the plants
+ * clinging to its ledges and the trees on its crest (three pieces, one placement). Returns its height.
+ */
+function cliffWall(b: Builder, side: number, x: number, z: number, i = b.rng.int(0, CLIFFS.length - 1), sy = 1): number {
+  const [piece, , h] = CLIFFS[i]!;
+  const ry = (side > 0 ? 0 : Math.PI) + b.rng.range(-0.08, 0.08);
+  const s: [number, number, number] = [1, sy, 1];
+  b.place(piece, side * x, WL, z, ry, s);
+  b.place(`${piece}_veg`, side * x, WL, z, ry, s);
+  b.place(`${piece}_trees`, side * x, WL, z, ry, s);
+  return h * sy;
+}
+
+/** A waterfall pouring off a cliff face `x` out on `side`, from `top` above the water, bowing toward the path. */
+function cliffFall(b: Builder, side: number, x: number, z: number, top: number, w: number) {
+  const fm = new THREE.Matrix4().compose(
+    new THREE.Vector3(side * x, WL + top, z),
+    new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (-side * Math.PI) / 2),
+    new THREE.Vector3(1, 1, 1),
+  );
+  b.falls.push({ m: fm, w, h: top });
+  b.foamRing(side * (x - 1.5), z, w * 0.9);
+}
+
+function floorRun(b: Builder, z0: number, n: number, y = 0, broken = 0.12, medallion = 0.07) {
   for (let i = 0; i < n; i++) {
-    const piece = b.rng.chance(broken) ? 'floor_2' : b.rng.pick(FLOORS.slice(0, 4));
+    const piece = b.rng.chance(broken) ? 'floor_2' : b.rng.chance(medallion) ? 'floor_medallion_0' : b.rng.pick(FLOORS.slice(0, 4));
     const flip = b.rng.chance(0.5);
     // Flipping a tile end-for-end hides the repeat of the slab pattern.
     if (flip) b.tile(piece, 0, y, z0 - TILE * i - TILE, Math.PI);
@@ -155,6 +188,8 @@ function lowWalls(b: Builder, z0: number, n: number, sides: number[] = [-1, 1], 
       }
       b.wall(b.rng.pick(LOW_WALLS), side, PATH_HALF + 0.36, 0, z);
       if (b.foliage(0.4)) b.place(`bush_${b.rng.int(0, 3)}`, side * (PATH_HALF + 0.5), b.rng.range(0.9, 1.4), z - b.rng.range(0.5, 3.5), b.rng.range(0, 6.28), b.rng.range(0.55, 0.9));
+      // Green spilling over the wall's outer side, down toward the water.
+      else if (b.foliage(0.3)) b.place(`shrub_mass_${b.rng.int(0, 1)}`, side * (PATH_HALF + 1.1), b.rng.range(0.2, 0.7), z - b.rng.range(1, 3), b.rng.range(0, 6.28), b.rng.range(0.55, 0.8));
       if (b.foliage(0.55)) b.place(`grass_${b.rng.int(0, 1)}`, side * (PATH_HALF - 0.2), 0, z - b.rng.range(0.3, 3.7), b.rng.range(0, 6.28), b.rng.range(0.7, 1.1));
       if (b.foliage(0.22)) b.place(`vines_0`, side * (PATH_HALF + 0.95), b.rng.range(1.0, 1.5), z - 2, side * Math.PI / 2, [0.9, b.rng.range(0.5, 0.8), 1]);
     }
@@ -162,7 +197,7 @@ function lowWalls(b: Builder, z0: number, n: number, sides: number[] = [-1, 1], 
 }
 
 /** Islands, trees, rocks and ruins out in the water on both sides. */
-function scenery(b: Builder, len: number, opts: { minX?: number; sides?: number[]; big?: boolean } = {}) {
+function scenery(b: Builder, len: number, opts: { minX?: number; sides?: number[]; big?: boolean; cliffs?: boolean } = {}) {
   const minX = opts.minX ?? 7;
   const sides = opts.sides ?? [-1, 1];
   const d = b.density.scenery;
@@ -193,7 +228,14 @@ function scenery(b: Builder, len: number, opts: { minX?: number; sides?: number[
           b.place(`palm_${pi}_crown`, x, -2.2 + s * 0.45, zz, ry, ps);
         }
         if (b.foliage(0.8)) b.place(`bush_${b.rng.int(0, 3)}`, x + b.rng.range(-1, 1), -2.2 + s * 0.8, zz + b.rng.range(-1, 1), b.rng.range(0, 6.28), b.rng.range(0.8, 1.4));
-        if (b.foliage(0.5)) b.place(`jungle_${b.rng.int(0, 1)}_trunk`, x + side * 3, -2.4, zz - 2, 0, b.rng.range(0.7, 1.0)), b.place(`jungle_${b.rng.int(0, 1)}_crown`, x + side * 3, -2.4, zz - 2, 0, b.rng.range(0.7, 1.0));
+        if (b.foliage(0.6)) {
+          const t = b.rng.int(0, 1);
+          const ts = b.rng.range(0.75, 1.05);
+          const ry = b.rng.range(0, 6.28);
+          b.place(`tree_big_${t}_trunk`, x + side * 3, -2.4, zz - 2, ry, ts);
+          b.place(`tree_big_${t}_crown`, x + side * 3, -2.4, zz - 2, ry, ts);
+        }
+        if (b.foliage(0.5)) b.place(`shrub_mass_${b.rng.int(0, 1)}`, x, -2.2 + s * 0.35, zz, b.rng.range(0, 6.28), s * 0.7);
       } else if (kind === 'ruin') {
         const r = b.rng.weighted([
           ['pillar_0', 2],
@@ -232,15 +274,25 @@ function scenery(b: Builder, len: number, opts: { minX?: number; sides?: number[
     }
     // Lily pads in the calm water close to the causeway.
     for (let z = -b.rng.range(1, 5); z > -len; z -= b.rng.range(6, 12)) b.lilies(side * b.rng.range(minX - 3.2, minX + 2), z, b.rng.range(0.8, 1.4));
+    // The middle ground closes in: a jungle-clad cliff face across the water, or a temple.
+    if (opts.cliffs !== false && b.rng.chance(0.42 * d + 0.18)) {
+      const x = b.rng.range(minX + 12, minX + 24);
+      const r = b.rng.next();
+      if (r < 0.72) cliffWall(b, side, x, -len / 2 + b.rng.range(-3, 3), undefined, b.rng.range(0.9, 1.25));
+      else {
+        b.place(r < 0.86 ? 'temple_0' : 'temple_1', side * x, WL + 0.2, -b.rng.range(0, len), b.rng.range(0, 6.28), b.rng.range(0.9, 1.2));
+        b.foamRing(side * x, -len / 2, 5.5);
+      }
+    }
     if (opts.big !== false && b.rng.chance(0.4 * d + 0.1)) {
       const x = side * b.rng.range(28, 55);
-      const t = b.rng.pick(['tower_0', 'tower_1', 'rock_big_0', 'rock_big_1', 'rock_big_2', 'arch_1']);
-      const s = t.startsWith('rock') ? b.rng.range(1.2, 2.2) : b.rng.range(1.1, 1.6);
+      const t = b.rng.pick(['tower_0', 'tower_1', 'temple_0', 'temple_1', 'rock_big_0', 'arch_1']);
+      const s = t.startsWith('rock') ? b.rng.range(1.2, 2.2) : t.startsWith('temple') ? b.rng.range(0.9, 1.3) : b.rng.range(1.1, 1.6);
       b.place(t, x, -2.6, -b.rng.range(0, len), b.rng.range(0, 6.28), s);
       if (t.startsWith('tower') || t === 'arch_1') {
         const pi = b.rng.int(0, 1);
-        b.place(`jungle_${pi}_trunk`, x + 6, -2.4, -len / 2, 0, 1.1);
-        b.place(`jungle_${pi}_crown`, x + 6, -2.4, -len / 2, 0, 1.1);
+        b.place(`tree_big_${pi}_trunk`, x + 6, -2.4, -len / 2, 0, 1.1);
+        b.place(`tree_big_${pi}_crown`, x + 6, -2.4, -len / 2, 0, 1.1);
       }
     }
   }
@@ -297,16 +349,10 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
       if (style === 'gorge') {
         // Cliffs close in on both sides, a fall pouring from each; the planks cross the gap between.
         for (const side of [-1, 1]) {
-          b.place(`rock_big_${b.rng.int(0, 2)}`, side * 15, -3, -len * 0.3, b.rng.range(0, 6.28), [1.3, 1.9, 1.2]);
-          b.place(`rock_big_${b.rng.int(0, 2)}`, side * 16, -3, -len * 0.95, b.rng.range(0, 6.28), [1.4, 1.7, 1.3]);
+          const cx = b.rng.range(8, 9.5);
+          const h = cliffWall(b, side, cx, -len / 2, b.rng.int(0, 2), b.rng.range(0.95, 1.2));
           const fz = -len * b.rng.range(0.45, 0.7);
-          const fm = new THREE.Matrix4().compose(
-            new THREE.Vector3(side * 8.2, 12, fz),
-            new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (side * Math.PI) / 2),
-            new THREE.Vector3(1, 1, 1),
-          );
-          b.falls.push({ m: fm, w: 3.2, h: 14.2 });
-          b.foamRing(side * 9, fz, 3);
+          cliffFall(b, side, cx - 0.8, fz, h * 0.7, 3.2);
           for (let k = 0; k < 3; k++) if (b.foliage(0.8)) b.place(`bush_${b.rng.int(0, 3)}`, side * b.rng.range(7.5, 9.5), b.rng.range(2, 9), -b.rng.range(0, len), 0, b.rng.range(1, 1.6));
           if (b.foliage(0.9)) b.place(`roots_1`, side * 8, b.rng.range(7, 10), -len * b.rng.range(0.1, 0.35), -side * Math.PI / 2, [1.5, 1.8, 1]);
           b.place(`palm_${b.rng.int(0, 2)}_trunk`, side * 9.5, 4, -len * 0.85, 0, 0.9);
@@ -384,6 +430,7 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
           if (b.foliage(0.3)) b.place(`fern_${b.rng.int(0, 1)}`, side * (PATH_HALF - 0.05), -0.05, z - b.rng.range(0.5, 3.5), b.rng.range(0, 6.28), 0.85);
           if (b.foliage(0.55)) b.place('vines_0', side * (PATH_HALF + 0.15), b.rng.range(3.8, 4.8), z - 2, -side * Math.PI / 2, [1, b.rng.range(0.8, 1.3), 1]);
           if (b.foliage(0.5)) b.place(`bush_${b.rng.int(0, 3)}`, side * (PATH_HALF + 0.7), b.rng.range(4.2, 5.0), z - b.rng.range(0, 4), 0, b.rng.range(0.7, 1.1));
+          if (b.foliage(0.35)) b.place(`shrub_mass_${b.rng.int(0, 1)}`, side * (PATH_HALF + 1.4), b.rng.range(4.4, 5.0), z - 2, b.rng.range(0, 6.28), b.rng.range(0.7, 1.0));
           if (b.foliage(0.4)) b.place(`grass_${b.rng.int(0, 1)}`, side * (PATH_HALF - 0.15), 0, z - 1.5, 0, 0.9);
         }
       }
@@ -462,24 +509,14 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
       const side = b.rng.chance(0.5) ? -1 : 1;
       lowWalls(b, 0, n, [-side], { gaps: 0.1 });
       for (let i = 0; i < n; i++) b.wall('foundation_1', side, PATH_HALF + 0.42, 0, -TILE * i);
-      // The cliff: two big rocks overlapping, a waterfall pouring between them.
-      const cx = side * 17;
-      b.place(`rock_big_${b.rng.int(0, 2)}`, cx, -3, -len * 0.25, b.rng.range(0, 6.28), [1.5, 1.8, 1.4]);
-      b.place(`rock_big_${b.rng.int(0, 2)}`, cx + side * 2, -3, -len * 0.85, b.rng.range(0, 6.28), [1.6, 1.6, 1.5]);
+      // The cliff: a towering stratified face close over the path, a waterfall pouring down it.
+      const h = cliffWall(b, side, 8.2, -len / 2, 2, b.rng.range(1.0, 1.15));
       b.place(`rock_mid_${b.rng.int(0, 2)}`, side * 5.5, -2.2, -len * 0.55, 0, 1.6);
-      const fm = new THREE.Matrix4().compose(
-        new THREE.Vector3(side * 8.5, 14, -len * 0.55),
-        new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (side * Math.PI) / 2),
-        new THREE.Vector3(1, 1, 1),
-      );
-      b.falls.push({ m: fm, w: 4.2, h: 16.5 });
-      b.foamRing(side * 9.5, -len * 0.55, 3.4);
+      cliffFall(b, side, 7.4, -len * 0.55, h * 0.72, 4.2);
       b.lilies(side * 6.5, -len * 0.3, 1.3);
       b.lilies(side * 7, -len * 0.8, 1.1);
-      for (let k = 0; k < 2; k++) if (b.foliage(0.8)) b.place(`roots_${b.rng.int(0, 1)}`, side * 8.2, b.rng.range(5, 9), -len * b.rng.range(0.2, 0.9), -side * Math.PI / 2, [1.4, 1.6, 1]);
-      for (let z = -2; z > -len; z -= 5) if (b.foliage(0.7)) b.place(`bush_${b.rng.int(0, 3)}`, side * b.rng.range(7, 10), b.rng.range(0, 6), z, 0, b.rng.range(1, 1.6));
-      b.place(`palm_1_trunk`, side * 9, 2, -len * 0.2, 0, 1.1);
-      b.place(`palm_1_crown`, side * 9, 2, -len * 0.2, 0, 1.1);
+      for (let k = 0; k < 2; k++) if (b.foliage(0.8)) b.place(`roots_${b.rng.int(0, 1)}`, side * 7.6, b.rng.range(5, 9), -len * b.rng.range(0.2, 0.9), -side * Math.PI / 2, [1.4, 1.6, 1]);
+      for (let z = -2; z > -len; z -= 5) if (b.foliage(0.7)) b.place(`shrub_mass_${b.rng.int(0, 1)}`, side * b.rng.range(5.5, 7), -2.1, z, b.rng.range(0, 6.28), b.rng.range(0.8, 1.2));
       scenery(b, len, { sides: [-side] });
       return { hazards: ['rockfall', 'chasm'], walls: 'cliff' };
     },
@@ -524,10 +561,70 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
         }
       }
       const hs = b.rng.chance(0.5) ? -1 : 1;
-      b.place(`head_${b.rng.int(0, 1)}`, hs * 12, WL - 0.6, -len * 0.6, faceIn(hs, 0.6), 1.3);
-      b.foamRing(hs * 12, -len * 0.6, 3.4);
+      if (b.variant % 3 === 1) {
+        // The avenue leads the eye to a golden face on its lotus plinth.
+        b.place('idol_0', hs * 11, WL, -len + 1, faceIn(hs, 1.6), 1.1);
+        b.foamRing(hs * 11, -len + 1, 5.8);
+      } else {
+        b.place(`head_${b.rng.int(0, 1)}`, hs * 12, WL - 0.6, -len * 0.6, faceIn(hs, 0.6), 1.3);
+        b.foamRing(hs * 12, -len * 0.6, 3.4);
+      }
       scenery(b, len, { minX: 13, big: true });
       return { hazards: ['chasm', 'gate'], walls: 'low' };
+    },
+  },
+  gorge: {
+    // The jungle gorge / temple valley: stratified cliffs close in on both sides, green clinging to
+    // every ledge, waterfalls, and at its end either a gopura the path runs through, a golden face
+    // gazing down the causeway, or temple towers and an idol standing in the water.
+    lengths: [28, 32],
+    build: (b, len) => {
+      const n = len / TILE;
+      const gate = b.variant % 2 === 0;
+      floorRun(b, 0, n, 0, 0.06, 0.28);
+      lowWalls(b, 0, gate ? n - 2 : n, [-1, 1], { gaps: 0.3 });
+      const templeSide = b.rng.chance(0.5) ? -1 : 1;
+      for (const side of [-1, 1]) {
+        const wide = !gate && side === templeSide;
+        // Overlapping cliff faces from just before the section to just past its end.
+        let z = 3;
+        let k = 0;
+        while (z > -len - 3) {
+          const i = b.rng.int(0, 2);
+          const L = CLIFFS[i]![1];
+          const x = (wide ? 15 : 8.6) + b.rng.range(0, 2.2);
+          const h = cliffWall(b, side, x, Math.max(z - L / 2, -len - 3 + L / 2), i, b.rng.range(0.95, 1.25));
+          if (k === 0 || b.rng.chance(0.5)) cliffFall(b, side, x - 0.8, Math.max(z - L * b.rng.range(0.3, 0.7), -len + 2), h * 0.7, b.rng.range(2.6, 4.2));
+          z -= L * b.rng.range(0.7, 0.85);
+          k++;
+        }
+        for (let zz = -2; zz > -len; zz -= b.rng.range(4, 7)) {
+          if (b.foliage(0.7)) b.place(`shrub_mass_${b.rng.int(0, 1)}`, side * b.rng.range(5, 7), -2.1, zz, b.rng.range(0, 6.28), b.rng.range(0.8, 1.3));
+          b.lilies(side * b.rng.range(4.5, 6.5), zz - 2, b.rng.range(0.8, 1.2));
+        }
+        if (b.foliage(0.8)) {
+          const t = b.rng.int(0, 1);
+          const tz = -len * b.rng.range(0.2, 0.6);
+          const ry = b.rng.range(0, 6.28);
+          const ts = b.rng.range(0.8, 1.0);
+          b.place(`tree_big_${t}_trunk`, side * 6.6, -2.3, tz, ry, ts);
+          b.place(`tree_big_${t}_crown`, side * 6.6, -2.3, tz, ry, ts);
+        }
+      }
+      if (gate) {
+        // The path runs through the gate's passage over the last tiles; the face looks straight down it.
+        b.place('face_gate_0', 0, 0, -len + 8, 0);
+        b.place('face_gate_0_gold', 0, 0, -len + 8, 0);
+        for (const side of [-1, 1]) b.foam(side, 7.5, -len + 8, 7);
+        if (b.foliage(0.9)) b.place('vines_2', 0, 15.5, -len + 8.6, 0, [1.8, 1.4, 1]);
+      } else {
+        // A temple tower stands in the widened side of the valley, a golden idol at its far end.
+        b.place(b.rng.chance(0.5) ? 'temple_0' : 'temple_1', templeSide * 10, WL + 0.2, -len * 0.45, b.rng.range(0, 6.28), b.rng.range(0.85, 1.0));
+        b.foamRing(templeSide * 10, -len * 0.45, 5.5);
+        b.place('idol_0', -templeSide * 7.8, WL, -len + 2, faceIn(-templeSide, 2.2), 0.95);
+        b.foamRing(-templeSide * 7.8, -len + 2, 5.2);
+      }
+      return { hazards: ['rockfall', 'chasm'], walls: 'tall' };
     },
   },
 };
@@ -555,6 +652,7 @@ export function nextType(rng: Rng, prev: SectionType, elevation: number, intensi
     ['cliff', 1.4],
     ['ruins', 1.3],
     ['avenue', 1.2],
+    ['gorge', 1.7],
     [elevation > -0.5 ? 'stairsDown' : 'stairsUp', 1.1],
   ];
   const options = w.filter(([t]) => t !== prev || t === 'corridor');

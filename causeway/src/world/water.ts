@@ -19,8 +19,8 @@ export class Water {
         uSky: { value: null },
         uSunDir: { value: sunDir.clone() },
         uSunColor: { value: new THREE.Color(1.0, 0.82, 0.6) },
-        uShallow: { value: new THREE.Color('#3aa596') },
-        uDeep: { value: new THREE.Color('#0e4447') },
+        uShallow: { value: new THREE.Color('#2ab4a6') },
+        uDeep: { value: new THREE.Color('#073a48') },
         uDetail: { value: 2 },
         uCamPos: { value: new THREE.Vector3() },
       },
@@ -85,7 +85,9 @@ export class Water {
           vec3 refl = skySample(R);
           // (The sRGB texture is decoded to linear by the sampler.)
           float depthLook = smoothstep(0.0, 1.0, dot(V, vec3(0.0, 1.0, 0.0)));
-          vec3 body = mix(uDeep, uShallow, depthLook * 0.8 + 0.1);
+          // Looking down into it the water is clear turquoise; toward the horizon it reads deep.
+          vec3 body = mix(uDeep, uShallow, depthLook * 0.85 + 0.05);
+          body *= mix(0.72, 1.0, smoothstep(90.0, 8.0, dist));
           // Light scattered inside wave crests.
           float crest = clamp(g.x * 3.0 + g.y * 2.0, 0.0, 1.0);
           body += uShallow * crest * 0.25;

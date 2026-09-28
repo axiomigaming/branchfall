@@ -203,7 +203,7 @@ def rock(name="rock"):
     L(nt, bsdf.outputs[0], out.inputs[0])
     vec, _ = _coords(nt, 0.6)
     big = _noise(nt, vec, 1.0, 8, 0.6, 0.4)
-    col = ramp(nt, big.outputs[0], [(0.25, hexcol("#6b5140")), (0.5, hexcol("#9c7a5c")), (0.75, hexcol("#b89572"))])
+    col = ramp(nt, big.outputs[0], [(0.25, hexcol("#6e3f2c")), (0.5, hexcol("#a8603a")), (0.75, hexcol("#c98a58"))])
     wave = N(nt, "ShaderNodeTexWave", Scale=1.2, Distortion=9, Detail=5)
     wave.bands_direction = "Z"
     L(nt, vec, wave.inputs["Vector"])
@@ -213,8 +213,8 @@ def rock(name="rock"):
     col = mix(nt, dirt, col, hexcol("#2c2018"), "MIX")
     up = _up_mask(nt, 0.25, 0.7)
     mn = _noise(nt, vec, 2.5, 6, 0.6, 0.8)
-    moss = math_node(nt, "MULTIPLY", up, maprange(nt, mn.outputs[0], 0.4, 0.55))
-    mc = ramp(nt, _noise(nt, vec, 12, 3).outputs[0], [(0.3, hexcol("#2f4318")), (0.7, hexcol("#5c7026"))])
+    moss = math_node(nt, "MULTIPLY", up, maprange(nt, mn.outputs[0], 0.34, 0.5))
+    mc = ramp(nt, _noise(nt, vec, 12, 3).outputs[0], [(0.3, hexcol("#2c4a16")), (0.7, hexcol("#5a7a24"))])
     col = mix(nt, moss, col, mc, "MIX")
     L(nt, col, bsdf.inputs["Base Color"])
     bsdf.inputs["Roughness"].default_value = 0.92
@@ -290,4 +290,79 @@ def flora(name="flora"):
     L(nt, col, bsdf.inputs["Base Color"])
     L(nt, maprange(nt, fine.outputs[0], 0.3, 0.7, 0.5, 0.85), bsdf.inputs["Roughness"])
     L(nt, _bump(nt, fine.outputs[0], 0.6, 0.03), bsdf.inputs["Normal"])
+    return m
+
+
+def cliff(name="cliff"):
+    """Stratified red-orange sandstone faces: vertex-coloured beds, green on every shelf, streaks of
+    moss and algae running down from the ledges, dark and wet at the waterline."""
+    m = bpy.data.materials.new(name)
+    nt = nodes_clear(m)
+    out = N(nt, "ShaderNodeOutputMaterial")
+    bsdf = N(nt, "ShaderNodeBsdfPrincipled")
+    L(nt, bsdf.outputs[0], out.inputs[0])
+    vec, _ = _coords(nt, 0.5)
+    base = N(nt, "ShaderNodeVertexColor", _layer_name="Col").outputs[0]
+    big = _noise(nt, vec, 0.9, 6, 0.6, 0.5)
+    col = mix(nt, 1.0, base, ramp(nt, big.outputs[0], [(0.25, (0.72, 0.7, 0.68)), (0.5, (0.98, 0.95, 0.92)), (0.75, (1.14, 1.08, 1.0))]), "MULTIPLY")
+    fine = _noise(nt, vec, 30, 8, 0.7)
+    col = mix(nt, 1.0, col, ramp(nt, fine.outputs[0], [(0.35, (0.84, 0.82, 0.8)), (0.65, (1.08, 1.05, 1.02))]), "MULTIPLY")
+    wave = N(nt, "ShaderNodeTexWave", Scale=1.6, Distortion=7, Detail=5)
+    wave.bands_direction = "Z"
+    L(nt, vec, wave.inputs["Vector"])
+    col = mix(nt, 0.6, col, ramp(nt, wave.outputs[1], [(0.2, (0.8, 0.76, 0.72)), (0.8, (1.1, 1.05, 1.0))]), "MULTIPLY")
+    ao = _ao(nt, 1.0)
+    dirt = maprange(nt, ao, 0.3, 0.95, 0.85, 0.0)
+    col = mix(nt, dirt, col, hexcol("#2a1a12"), "MIX")
+    # Vertical streaks (stretched noise) of dark algae and green moss below the shelves.
+    mp = N(nt, "ShaderNodeMapping")
+    mp.inputs["Scale"].default_value = (2.2, 2.2, 0.18)
+    L(nt, vec, mp.inputs[0])
+    streak = _noise(nt, mp.outputs[0], 2.5, 6, 0.6)
+    sm = maprange(nt, streak.outputs[0], 0.5, 0.68, 0.0, 0.6)
+    col = mix(nt, sm, col, hexcol("#3d3a22"), "MULTIPLY")
+    up = _up_mask(nt, 0.3, 0.7)
+    mn = _noise(nt, vec, 2.2, 6, 0.65, 0.7)
+    moss = math_node(nt, "MULTIPLY", up, maprange(nt, mn.outputs[0], 0.34, 0.5))
+    moss = math_node(nt, "MAXIMUM", moss, math_node(nt, "MULTIPLY", maprange(nt, streak.outputs[0], 0.6, 0.72, 0.0, 0.75), maprange(nt, mn.outputs[0], 0.45, 0.6)))
+    moss = math_node(nt, "MAXIMUM", moss, math_node(nt, "MULTIPLY", dirt, 0.5))
+    mc = ramp(nt, _noise(nt, vec, 14, 4).outputs[0], [(0.3, hexcol("#2c4a16")), (0.6, hexcol("#4f7222")), (0.85, hexcol("#7d8f2e"))])
+    col = mix(nt, moss, col, mc, "MIX")
+    zs = N(nt, "ShaderNodeSeparateXYZ")
+    tco = N(nt, "ShaderNodeTexCoord")
+    L(nt, tco.outputs["Object"], zs.inputs[0])
+    wet = maprange(nt, zs.outputs[2], 1.2, -0.5, 0.0, 1.0)
+    col = mix(nt, math_node(nt, "MULTIPLY", wet, 0.7), col, hexcol("#2b3a24"), "MULTIPLY")
+    L(nt, col, bsdf.inputs["Base Color"])
+    L(nt, mix(nt, moss, (0.88, 0.88, 0.88, 1), (1, 1, 1, 1)), bsdf.inputs["Roughness"])
+    h = _noise(nt, vec, 5, 12, 0.7, 0.3)
+    v = _voronoi(nt, vec, 2.5, "F1")
+    height = math_node(nt, "ADD", h.outputs[0], math_node(nt, "MULTIPLY", v.outputs["Distance"], 0.5))
+    nrm = _bump(nt, height, 0.8, 0.25)
+    nrm = _bump(nt, wave.outputs[1], 0.45, 0.12, nrm)
+    cr = _voronoi(nt, vec, 1.4)
+    nrm = _bump(nt, maprange(nt, cr.outputs["Distance"], 0.0, 0.03, 0.0, 1.0), 0.5, 0.05, nrm)
+    L(nt, nrm, bsdf.inputs["Normal"])
+    return m
+
+
+def gold(name="gold"):
+    """Gilded stone: bright leaf, grime and green patina in the hollows."""
+    m = bpy.data.materials.new(name)
+    nt = nodes_clear(m)
+    out = N(nt, "ShaderNodeOutputMaterial")
+    bsdf = N(nt, "ShaderNodeBsdfPrincipled")
+    L(nt, bsdf.outputs[0], out.inputs[0])
+    vec, _ = _coords(nt, 1.0)
+    base = N(nt, "ShaderNodeVertexColor", _layer_name="Col").outputs[0]
+    n1 = _noise(nt, vec, 3, 6, 0.6)
+    col = mix(nt, 1.0, base, ramp(nt, n1.outputs[0], [(0.3, (0.8, 0.72, 0.6)), (0.7, (1.12, 1.06, 0.95))]), "MULTIPLY")
+    ao = _ao(nt, 0.4)
+    grime = maprange(nt, ao, 0.35, 0.95, 0.9, 0.0)
+    col = mix(nt, grime, col, hexcol("#3a2a12"), "MIX")
+    pat = math_node(nt, "MULTIPLY", grime, maprange(nt, _noise(nt, vec, 6, 4).outputs[0], 0.45, 0.6))
+    col = mix(nt, pat, col, hexcol("#3f6a3a"), "MIX")
+    L(nt, col, bsdf.inputs["Base Color"])
+    L(nt, maprange(nt, n1.outputs[0], 0.3, 0.7, 0.28, 0.5), bsdf.inputs["Roughness"])
+    L(nt, _bump(nt, _noise(nt, vec, 24, 8, 0.6).outputs[0], 0.25, 0.02), bsdf.inputs["Normal"])
     return m

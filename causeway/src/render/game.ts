@@ -59,7 +59,7 @@ export class Game {
   private motes = new Motes(420);
   private ambient = new Ambient(); // world art: birds, butterflies, leaves
   private post!: Post;
-  private sun = new THREE.DirectionalLight(0xffd29a, 5.8);
+  private sun = new THREE.DirectionalLight(0xffe6c4, 6.4);
   private sunDir = new THREE.Vector3(0.4, 0.25, -0.8);
   private clock = new THREE.Clock();
   private raf = 0;
@@ -121,7 +121,8 @@ export class Game {
     scene.backgroundIntensity = 1.0;
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     scene.environment = pmrem.fromEquirectangular(kit.env).texture;
-    scene.environmentIntensity = 0.5;
+    // A blue sky fills the shade: warm sun, cool shadows.
+    scene.environmentIntensity = 0.62;
     pmrem.dispose();
     // World art: height fog with sun in-scattering (replaces three's fog chunks before compile).
     installAtmosphere(scene, kit.sunDir);

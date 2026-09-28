@@ -20,6 +20,7 @@ const VARIANTS: Record<SectionType, number> = {
   cliff: 3,
   ruins: 3,
   avenue: 3,
+  gorge: 4,
 };
 
 interface Variant {
@@ -60,6 +61,7 @@ const TILE_CAPACITY: Record<string, number> = {
   floor_2: 40,
   floor_wide_0: 12,
   floor_narrow_0: 8,
+  floor_medallion_0: 36,
   planks_0: 40,
   planks_1: 40,
   stairs_0: 8,
@@ -156,6 +158,7 @@ export class Track {
     kit.matOf.set('foam_strip', 'foam');
     kit.matOf.set('foam_ring', 'foam');
     if (!kit.mat.has('foam')) kit.mat.set('foam', makeFoamMaterial());
+    stageKit(kit);
   }
 
   /** Build every section variant. Yields between variants so a loading screen can animate. */
@@ -371,6 +374,35 @@ export class Track {
 
   get tileMeshes(): THREE.InstancedMesh[] {
     return [...this.tiles['meshes'].values()];
+  }
+}
+
+/**
+ * Runtime finishing for the round-3 stage pieces (once per kit): the golden faces are metal, and
+ * the plants clinging to a cliff shade as a mass leaning out toward the path and the sky, not as one
+ * dome the size of the cliff (the loader's radial foliage normals).
+ */
+function stageKit(kit: Kit): void {
+  const gold = kit.mat.get('gold') as THREE.MeshStandardMaterial | undefined;
+  if (gold && !gold.userData.staged) {
+    gold.userData.staged = true;
+    gold.metalness = 1;
+    gold.metalnessMap = null;
+    gold.envMapIntensity = 1.35;
+    gold.needsUpdate = true;
+  }
+  const lean = new THREE.Vector3(-0.55, 0.85, 0.05).normalize();
+  const n = new THREE.Vector3();
+  for (const [name, g] of kit.geo) {
+    if (!name.endsWith('_veg') || g.userData.staged) continue;
+    g.userData.staged = true;
+    const nrm = g.getAttribute('normal') as THREE.BufferAttribute | undefined;
+    if (!nrm) continue;
+    for (let i = 0; i < nrm.count; i++) {
+      n.fromBufferAttribute(nrm, i).multiplyScalar(0.35).add(lean).normalize();
+      nrm.setXYZ(i, n.x, n.y, n.z);
+    }
+    nrm.needsUpdate = true;
   }
 }
 

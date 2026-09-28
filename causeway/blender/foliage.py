@@ -26,7 +26,7 @@ CELLS = {
     "grass": (0.75, 0.0, 1.0, 0.5),
 }
 
-LEAF_GREENS = ["#4e6b25", "#5f7a2a", "#6f8a33", "#3f5a1f", "#7b8f3a", "#566f28"]
+LEAF_GREENS = ["#4a7024", "#5a842a", "#6c9432", "#3b5c1e", "#7a9638", "#527a28"]
 
 
 def _leaf_material():
@@ -133,7 +133,7 @@ def build_broad(rng):
         d = Vector((math.sin(a), math.cos(a), 0))
         base = Vector((rng.uniform(-0.2, 0.2), -0.9 + rng.uniform(0, 0.4), 0))
         ln = rng.uniform(0.9, 1.3)
-        c = hexcol(rng.choice(["#3d5a1d", "#4a6b22", "#577a2a", "#35501a"]))
+        c = hexcol(rng.choice(["#386420", "#467626", "#58862c", "#30561c"]))
         _leaflet(bm, base, d, ln, rng.uniform(0.5, 0.7), c, seg=8, curl=rng.uniform(-0.1, 0.1))
     return bm
 

@@ -19,10 +19,12 @@ export interface AtmosphereOptions {
 }
 
 export const ATMOSPHERE: AtmosphereOptions = {
-  color: 0xc4a983,
-  sunColor: 0xf7c689,
-  density: 0.0042,
-  falloff: 0.055,
+  // Cool blue-green haze away from the sun (aerial perspective: depth layers fade toward the sky),
+  // warm gold looking into the light.
+  color: 0x8fb0bb,
+  sunColor: 0xf3d09a,
+  density: 0.0038,
+  falloff: 0.05,
 };
 
 let installed = false;
@@ -74,7 +76,7 @@ export function installAtmosphere(scene: THREE.Scene, sunDir: THREE.Vector3, o: 
     float fogOpt = fogDensity * fogDist * exp(-fogB * fogH0) * fogLine;
     float fogFactor = 1.0 - exp(-fogOpt);
     float fogSun = max(dot(fogDir, ${glslVec3(sunDir.clone().normalize())}), 0.0);
-    vec3 fogCol = mix(fogColor, ${glslVec3(sun)}, pow(fogSun, 8.0) * 0.6);
+    vec3 fogCol = mix(fogColor, ${glslVec3(sun)}, pow(fogSun, 6.0) * 0.75);
     // Far away the haze thickens to the sky's own horizon colour.
     gl_FragColor.rgb = mix(gl_FragColor.rgb, fogCol, clamp(fogFactor, 0.0, 0.94));
   #else

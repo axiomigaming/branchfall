@@ -35,8 +35,9 @@ export function makeWaterfallMaterial(): THREE.ShaderMaterial {
         float edge = smoothstep(0.0, 0.18, vUv.x) * smoothstep(1.0, 0.82, vUv.x);
         float foamBottom = smoothstep(0.25, 0.0, vUv.y);
         float a = edge * (0.35 + 0.55 * streak) + foamBottom * 0.4;
-        vec3 col = mix(vec3(0.62, 0.78, 0.76), vec3(1.0, 0.97, 0.9), streak * 0.7 + foamBottom);
-        gl_FragColor = vec4(col * 1.25, clamp(a, 0.0, 0.92));
+        // Green-white water over the rock: streaks of spray, a darker glassy body between them.
+        vec3 col = mix(vec3(0.42, 0.62, 0.6), vec3(0.95, 0.96, 0.9), smoothstep(0.35, 0.95, streak) * 0.8 + foamBottom);
+        gl_FragColor = vec4(col, clamp(a * 0.9, 0.0, 0.85));
         #include <fog_fragment>
       }`,
   });
