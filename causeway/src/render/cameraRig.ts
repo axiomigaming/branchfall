@@ -57,6 +57,9 @@ function track(keys: [number, Frame][], t: number): Frame {
   return keys[keys.length - 1]![1];
 }
 
+/** Closest a cinematic (crash or escape) lens may come to the runner's head, in metres. */
+const MIN_SHOT = 2.35;
+
 const F = (along: number, lat: number, up: number, lAlong: number, lLat: number, lUp: number, fov: number, focus = 0): Frame => ({ along, lat, up, lAlong, lLat, lUp, fov, focus });
 
 /**
@@ -328,7 +331,10 @@ export class CameraRig {
               }
             }
           }
-          if (!found) this.pullTarget = Math.max(0.3, Math.min(this.pullTarget, hit - 0.12));
+          // Pull in front of the obstacle — but a cinematic never closes to a face-filling close-up.
+          const len = this.cand.distanceTo(this.eye.set(this.runnerAt.x, this.runnerAt.y + 1.3, this.runnerAt.z));
+          const floor = run ? 0.3 : Math.min(1, MIN_SHOT / Math.max(0.01, len));
+          if (!found) this.pullTarget = Math.max(floor, Math.min(this.pullTarget, hit - 0.12));
         }
       }
     }
@@ -353,43 +359,45 @@ export class CameraRig {
     switch (this.escapeShot) {
       case 'salute':
         // Stay behind: the runner turns back to face the lens for the salute.
-        a = lerp(0.15, 0.55, ease((T - 0.3) / 2));
-        r = lerp(3.2, 3.6, ease(T / 2));
-        up = lerp(1.6, 1.3, ease((T - 1) / 1.5));
+        a = lerp(0.15, 0.6, ease((T - 0.3) / 2));
+        r = lerp(3.6, 4.3, ease(T / 2));
+        up = lerp(1.7, 1.45, ease((T - 1) / 1.5));
         lAlong = lerp(2.5, 0, ease(T / 1.4));
-        lUp = 1.35;
-        fov = lerp(52, 46, ease((T - 1) / 2));
+        lUp = lerp(1.25, 1.05, ease((T - 1) / 2));
+        fov = lerp(52, 48, ease((T - 1) / 2));
         break;
       case 'leap':
         // Swing out to profile to watch the leap, then on round to a low three-quarter front.
         a = lerp(0.2, 1.45, ease(T / 0.8)) + lerp(0, 0.75, ease((T - 1.6) / 2));
-        r = lerp(3.4, 3.9, ease(T / 0.8)) - 0.6 * low;
-        up = lerp(1.5, 1.2, ease(T / 0.8)) - 0.25 * low;
+        r = lerp(3.8, 4.4, ease(T / 0.8)) - 0.2 * low;
+        up = lerp(1.5, 1.25, ease(T / 0.8)) - 0.15 * low;
         lAlong = lerp(2.5, 0, ease(T / 1.2));
-        lUp = lerp(1.3, 1.5, low);
-        fov = lerp(54, 46, low);
+        lUp = lerp(1.2, 1.1, low);
+        fov = lerp(54, 49, low);
         break;
       case 'cheer':
         // Round to the front, low, looking up at the raised fists.
         a = T < 0.35 ? 0.15 : lerp(0.15, 2.55, ease((T - 0.35) / 2.0));
-        r = lerp(3.1, 2.6, low);
-        up = lerp(1.6, 0.75, low);
+        r = lerp(3.6, 4.1, low);
+        up = lerp(1.6, 0.95, low);
         lAlong = T < 0.35 ? 3 : lerp(1.5, 0, ease((T - 0.35) / 1.5));
-        lUp = lerp(1.25, 1.65, low);
-        fov = lerp(52, 47, low);
+        lUp = lerp(1.2, 1.2, low);
+        fov = lerp(52, 50, low);
         break;
       default:
         // Look-back: orbit round to a three-quarter front as they stop, then low for the fist.
         a = T < 0.45 ? 0.15 : lerp(0.15, 2.25, ease((T - 0.45) / 2.1)) + Math.max(0, T - 3.4) * 0.03;
-        r = lerp(3.1, 2.75, low);
-        up = lerp(T < 0.45 ? 1.65 : 1.5, 0.95, low);
+        r = lerp(3.6, 4.0, low);
+        up = lerp(T < 0.45 ? 1.65 : 1.5, 1.1, low);
         lAlong = T < 0.45 ? 3 : lerp(1.5, 0, ease((T - 0.45) / 1.5));
-        lUp = lerp(1.2, 1.5, low);
-        fov = lerp(52, 45, low);
+        lUp = lerp(1.2, 1.15, low);
+        fov = lerp(52, 48, low);
     }
     // Grand escapes: a wider orbit that cranes up as it settles.
     const crane = e * ease((T - 1.2) / 2.5);
     r *= 1 + 0.35 * e;
+    // Portrait: the lens is already opened up for width; come in so the figure keeps its size.
+    if (this.camera.aspect < 1) r *= 0.66;
     up += 1.1 * crane;
     fov += 3 * e;
     return { along: -Math.cos(a) * r, lat: s * Math.sin(a) * r, up, lAlong, lLat: 0, lUp: lUp + 0.2 * crane, focus: 0, fov };
@@ -445,6 +453,17 @@ export class CameraRig {
     }
   }
 
+  /** Medium-shot floor for the cinematics: the lens stays ≥ MIN_SHOT from the runner's head. */
+  private keepMedium(runnerPos: THREE.Vector3): void {
+    const head = this.tmp.set(runnerPos.x, runnerPos.y + 1.62, runnerPos.z);
+    const d = this.pos.distanceTo(head);
+    if (d >= MIN_SHOT) return;
+    const dir = this.pos.clone().sub(head);
+    if (dir.lengthSq() < 1e-6) dir.set(0, 0.3, 1);
+    this.pos.copy(head).addScaledVector(dir.normalize(), MIN_SHOT);
+    this.constrain(this.pos);
+  }
+
   update(dt: number, runnerPos: THREE.Vector3, runnerYaw: number, intensity: number): void {
     this.t += dt;
     this.modeT += dt;
@@ -468,6 +487,7 @@ export class CameraRig {
     }
     dampV(this.look, this.targetLook, stiff * 1.4, dt);
     this.constrain(this.pos);
+    if (this.mode === 'cashout' || this.mode === 'crash') this.keepMedium(runnerPos);
     // Never let the lens dip under the runner's feet.
     this.pos.y = Math.max(this.pos.y, runnerPos.y + 0.6);
     // Portrait screens: open the vertical angle so the way ahead still fits across.
