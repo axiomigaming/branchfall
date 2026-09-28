@@ -535,11 +535,13 @@ export class Post {
       if (p.runnerSize) u.get('protectSize')!.value.copy(p.runnerSize);
       u.get('fringe')!.value = 0.02 + p.speed * 0.05;
       if (this.cameraBlur) {
-        // Shutter in seconds: a film-like 1/60 s at a jog, opening to ~1/12 s at full tilt.
-        const shutter = (0.016 + 0.06 * p.speed) * motion;
+        // Shutter in seconds: a film-like 1/60 s at a jog, opening to ~1/16 s at full tilt.
+        // Portrait screens bring the walls closer to the lens, so they get a shorter shutter.
+        const portrait = cam.aspect < 1 ? 0.75 : 1;
+        const shutter = (0.016 + 0.045 * p.speed) * motion * portrait;
         u.get('shutterScale')!.value = shutter / Math.max(1 / 240, p.dt ?? 1 / 60);
         u.get('radial')!.value = p.speed * 0.05;
-        u.get('maxLen')!.value = 0.05 + 0.11 * p.speed;
+        u.get('maxLen')!.value = (0.05 + 0.08 * p.speed) * portrait;
         u.get('invViewProj')!.value.copy(this.invVP);
         u.get('prevViewProj')!.value.copy(this.prevVP);
       } else {
