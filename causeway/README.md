@@ -2,10 +2,10 @@
 
 <p align="center">
   <img src="docs/screenshots/run-bridge.jpg" alt="A rope-railed plank bridge over turquoise water" width="49%">
-  <img src="docs/screenshots/run-arch.jpg" alt="The guardian avenue: colossi standing in the water either side of the causeway" width="49%">
+  <img src="docs/screenshots/run-arch.jpg" alt="A cliff gorge with waterfalls, the golden face gate at the vanishing point" width="49%">
 </p>
 <p align="center">
-  <img src="docs/screenshots/title.jpg" alt="Entry screen over the live world" width="49%">
+  <img src="docs/screenshots/title.jpg" alt="Mid-run at 1.78x with the gold CASH OUT plate" width="49%">
   <img src="docs/screenshots/crash-gate.jpg" alt="The way falls: a carved slab gate seals the path" width="49%">
 </p>
 <p align="center">
