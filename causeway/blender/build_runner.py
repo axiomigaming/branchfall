@@ -112,7 +112,7 @@ def gauss(d2, s):
 
 # ------------------------------------------------------------------ body (skin modifier)
 RADII = {
-    "pelvis": (0.165, 0.122), "spine": (0.15, 0.11), "chest": (0.19, 0.122), "neck": (0.058, 0.06),
+    "pelvis": (0.165, 0.122), "spine": (0.15, 0.11), "chest": (0.19, 0.122), "neck": (0.068, 0.068),
     "head": (0.05, 0.05),
 }
 for s in "LR":
@@ -658,10 +658,10 @@ for s, sx in (("L", 1), ("R", -1)):
             r = math.sqrt((co.y / 0.026) ** 2 + (co.z / 0.033) ** 2)
             if r < 0.7:
                 co.x -= 0.006 * (1 - r / 0.7)
-    eb_ = ellipsoid((0, 0, 0), (0.011, 0.026, 0.033), seg=12, rings=8, shape=ear_shape)
+    eb_ = ellipsoid((0, 0, 0), (0.01, 0.022, 0.029), seg=12, rings=8, shape=ear_shape)
     ear = eb_ if sx > 0 else mirror_obj(eb_)
     eo = solid(f"ear_{s}", ear, SKIN, "head", mat=M_SKIN)
-    eo.matrix_world = Matrix.Translation(HC + Vector((sx * 0.078, -0.012, -0.004))) @ Euler((0.18, 0, sx * 0.22)).to_matrix().to_4x4()
+    eo.matrix_world = Matrix.Translation(HC + Vector((sx * 0.075, -0.01, -0.004))) @ Euler((0.18, 0, sx * 0.12)).to_matrix().to_4x4()
     extras.append(eo)
 
 # ------------------------------------------------------------------ hands: palm, curled fingers, thumb
@@ -810,7 +810,7 @@ extras.append(solid("back_pouch", rounded_box((0.1, 0.045, 0.075), bp, 0.014, 2,
 
 # ------------------------------------------------------------------ neckerchief
 SCARF_PTS = [Vector((0, -0.07, 1.513)), Vector((0.008, -0.145, 1.542)), Vector((0.016, -0.215, 1.55)), Vector((0.024, -0.285, 1.536))]
-extras.append(solid("scarf_band", ring((0, 0.008, 1.505), 0.064, 0.017, seg=20, flat=1.1, sy=1.02, mseg=6), SCARF, "neck", mat=M_CLOTH))
+extras.append(solid("scarf_band", ring((0, 0.008, 1.515), 0.068, 0.021, seg=20, flat=1.1, sy=1.02, mseg=6), SCARF, "neck", mat=M_CLOTH))
 extras.append(solid("scarf_knot", ellipsoid((0, -0.066, 1.508), (0.026, 0.018, 0.022), seg=10, rings=6), SCARF_DARK, "neck", mat=M_CLOTH))
 for k, (dx, ln, wid) in enumerate(((0.016, 1.0, 0.042), (-0.02, 0.82, 0.036))):
     pts = catmull([SCARF_PTS[0] + Vector((dx * 0.3, 0, 0))] + [SCARF_PTS[0] + (p - SCARF_PTS[0]) * ln + Vector((dx * (i + 1) / 3, 0, -0.004 * k)) for i, p in enumerate(SCARF_PTS[1:])], 3)
