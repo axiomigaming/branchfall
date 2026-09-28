@@ -146,7 +146,7 @@ function cliffWall(b: Builder, side: number, x: number, z: number, i = b.rng.int
   const s: [number, number, number] = [1, sy, 1];
   b.place(piece, side * x, WL, z, ry, s);
   b.place(`${piece}_veg`, side * x, WL, z, ry, s);
-  b.place(`${piece}_trees`, side * x, WL, z, ry, s);
+  if (b.rich) b.place(`${piece}_trees`, side * x, WL, z, ry, s);
   return h * sy;
 }
 
@@ -275,7 +275,8 @@ function scenery(b: Builder, len: number, opts: { minX?: number; sides?: number[
     // Lily pads in the calm water close to the causeway.
     for (let z = -b.rng.range(1, 5); z > -len; z -= b.rng.range(6, 12)) b.lilies(side * b.rng.range(minX - 3.2, minX + 2), z, b.rng.range(0.8, 1.4));
     // The middle ground closes in: a jungle-clad cliff face across the water, or a temple.
-    if (opts.cliffs !== false && b.rng.chance(0.42 * d + 0.18)) {
+    // (Phones go without: the gorge and cliff sections still bring their own.)
+    if (opts.cliffs !== false && b.rich && b.rng.chance(0.42 * d + 0.18)) {
       const x = b.rng.range(minX + 12, minX + 24);
       const r = b.rng.next();
       if (r < 0.72) cliffWall(b, side, x, -len / 2 + b.rng.range(-3, 3), undefined, b.rng.range(0.9, 1.25));
@@ -595,7 +596,7 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
           const x = (wide ? 15 : 8.6) + b.rng.range(0, 2.2);
           const h = cliffWall(b, side, x, Math.max(z - L / 2, -len - 3 + L / 2), i, b.rng.range(0.95, 1.25));
           if (k === 0 || b.rng.chance(0.5)) cliffFall(b, side, x - 0.8, Math.max(z - L * b.rng.range(0.3, 0.7), -len + 2), h * 0.7, b.rng.range(2.6, 4.2));
-          z -= L * b.rng.range(0.7, 0.85);
+          z -= L * b.rng.range(0.82, 0.95);
           k++;
         }
         for (let zz = -2; zz > -len; zz -= b.rng.range(4, 7)) {

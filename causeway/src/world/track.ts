@@ -389,6 +389,10 @@ function stageKit(kit: Kit): void {
     gold.metalness = 1;
     gold.metalnessMap = null;
     gold.envMapIntensity = 1.35;
+    // A little self-light in the leaf: the face must read as gold even in shade, at the end of a valley.
+    gold.emissive = new THREE.Color(0xffc56a);
+    gold.emissiveMap = gold.map;
+    gold.emissiveIntensity = 0.32;
     gold.needsUpdate = true;
   }
   const lean = new THREE.Vector3(-0.55, 0.85, 0.05).normalize();
