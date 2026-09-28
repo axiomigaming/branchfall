@@ -36,7 +36,7 @@ EYE_R = 0.0118
 
 
 def eye_centre(sx):
-    return HC + Vector((sx * 0.0315, 0.06, 0.004))
+    return HC + Vector((sx * 0.031, 0.058, 0.004))
 
 
 def _along(a, b):
@@ -121,12 +121,12 @@ def _lid_shell(sx):
             az = -1.25 + 2.5 * (i + 0.5) / NU
             el = -0.95 + 1.9 * (j + 0.5) / NV
             a = az * sx  # + toward the outer corner
-            w = 1.08
+            w = 0.98
             u = max(0.0, 1 - (a / w) ** 2) if abs(a) < w else 0.0
             # Almond: the upper lid arches higher toward the inner third, the lower is flatter,
             # the outer corner sits a touch higher than the inner.
-            up = 0.37 * u ** 0.6 * (1 + 0.1 * math.sin(-a * 1.4)) + 0.05 * a
-            lo = -0.25 * u ** 0.7 + 0.05 * a
+            up = 0.28 * u ** 0.55 * (1 + 0.12 * math.sin(-a * 1.4)) + 0.05 * a
+            lo = -0.2 * u ** 0.8 + 0.05 * a
             inside = abs(a) < w and lo < el < up
             if not inside:
                 faces.append(bm.faces.new((verts[j][i], verts[j][i + 1], verts[j + 1][i + 1], verts[j + 1][i])))
@@ -183,6 +183,52 @@ def g2(x, y, z, cx, cz, sx_, sz_, cy=None, sy_=None):
     return math.exp(-0.5 * e)
 
 
+PROFILE_X = (0.0, 0.015, 0.031, 0.05, 0.065)
+PROFILE_Z = (0.08, 0.065, 0.05, 0.035, 0.028, 0.02, 0.012, 0.004, -0.01, -0.025, -0.035, -0.045, -0.052, -0.057, -0.0625, -0.068, -0.078, -0.09, -0.1, -0.11)
+# Calibrated with review tooling (a profile table: brow ~11 mm ahead of the cornea, nose tip ~37 mm,
+# lips ~20 mm, chin in line with the lips).
+FACE_CORR = [
+    [0.0013, 0.0010, 0.0020, 0.0000, 0.0000],
+    [0.0015, 0.0003, 0.0019, 0.0000, 0.0000],
+    [0.0025, 0.0024, 0.0034, 0.0000, 0.0000],
+    [-0.0012, -0.0049, -0.0015, 0.0000, 0.0000],
+    [-0.0123, -0.0069, -0.0027, 0.0000, 0.0000],
+    [-0.0117, -0.0092, -0.0064, 0.0000, 0.0000],
+    [-0.0111, -0.0131, 0.0036, 0.0000, 0.0000],
+    [-0.0110, -0.0124, 0.0031, 0.0000, 0.0000],
+    [-0.0094, -0.0155, -0.0116, -0.0067, 0.0000],
+    [-0.0049, -0.0142, -0.0115, -0.0110, 0.0000],
+    [0.0056, -0.0252, -0.0036, -0.0012, 0.0000],
+    [0.0018, -0.0063, -0.0018, 0.0000, 0.0000],
+    [-0.0014, 0.0019, -0.0006, 0.0000, 0.0000],
+    [-0.0008, -0.0016, -0.0032, 0.0000, 0.0000],
+    [0.0151, 0.0178, 0.0099, 0.0000, 0.0000],
+    [-0.0005, 0.0015, 0.0013, 0.0000, 0.0000],
+    [0.0035, 0.0028, 0.0085, 0.0000, 0.0000],
+    [0.0070, 0.0107, 0.0000, 0.0000, 0.0000],
+    [0.0300, 0.0300, 0.0000, 0.0000, 0.0000],
+    [0.0000, 0.0000, 0.0000, 0.0000, 0.0000],
+]
+
+
+def face_corr(ax, z):
+    """Smooth (normalised gaussian) interpolation of the calibrated depth correction."""
+    X, Z = PROFILE_X, PROFILE_Z
+    if ax > X[-1] + 0.02 or z > Z[0] + 0.02 or z < Z[-1] - 0.02:
+        return 0.0
+    num = den = 0.0
+    for j, zz in enumerate(Z):
+        wz = math.exp(-((z - zz) / 0.0075) ** 2)
+        if wz < 1e-4:
+            continue
+        for i, xx in enumerate(X):
+            wgt = wz * math.exp(-((ax - xx) / 0.011) ** 2)
+            num += FACE_CORR[j][i] * wgt
+            den += wgt
+    fade = smooth01((X[-1] + 0.02 - ax) / 0.02) * smooth01((Z[0] + 0.02 - z) / 0.02) * smooth01((z - Z[-1] + 0.02) / 0.02)
+    return num / den * fade if den > 1e-9 else 0.0
+
+
 def face_offset(p):
     """Base ellipsoid point (head-local) → sculpted head surface point."""
     x, y, z = p
@@ -192,7 +238,8 @@ def face_offset(p):
     ax = abs(x)
     # Planes: a flatter face, fuller occiput, squarer sides of the skull.
     if d.y > 0:
-        q.y *= 1 - 0.07 * fy * fy
+        q.y *= 1 - 0.02 * fy * fy
+        q.y -= 0.012 * smooth01((ax - 0.035) / 0.035) * smooth01((z + 0.09) / 0.05) * smooth01((0.07 - z) / 0.05)
     if d.y < -0.2:
         q += d.normalized() * 0.007 * smooth01((-d.y - 0.2) / 0.5) * smooth01((z + 0.05) / 0.04)
     q.x *= 1 + 0.03 * (1 - abs(d.z)) * (1 - fy)
@@ -205,9 +252,9 @@ def face_offset(p):
             q.y = q.y * (1 - 0.38 * t * back)
             q.x *= 1 - 0.2 * t * back
     # A strong jaw: width at the angle, a squared chin pushed forward.
-    q.x += math.copysign(0.012, x) * g2(x, y, z, math.copysign(0.058, x), -0.066, 0.018, 0.02) * smooth01((d.y + 0.4) / 0.6)
+    q.x += math.copysign(0.015, x) * g2(x, y, z, math.copysign(0.058, x), -0.066, 0.018, 0.02) * smooth01((d.y + 0.4) / 0.6)
     q.x += math.copysign(0.004, x) * g2(x, y, z, math.copysign(0.035, x), -0.095, 0.02, 0.015) * fy
-    q.y += 0.027 * g2(x, y, z, 0, -0.099, 0.027, 0.018) * fy
+    q.y += 0.045 * g2(x, y, z, 0, -0.098, 0.027, 0.02) * fy
     q.z -= 0.006 * g2(x, y, z, 0, -0.105, 0.03, 0.02) * fy
     if fy > 0.15:
         w = smooth01((fy - 0.15) / 0.55)
@@ -215,26 +262,25 @@ def face_offset(p):
         q.y -= 0.004 * smooth01((z - 0.045) / 0.06) * w
         # Brow ridge, heavier over the inner eye, and the glabella between.
         brow = math.exp(-((z - 0.029 + 0.08 * max(0.0, ax - 0.03) ** 1.0 * 0.3) / 0.0105) ** 2) * math.exp(-(ax / 0.052) ** 4)
-        q.y += 0.015 * brow * w
-        q.y += 0.004 * g2(x, y, z, 0, 0.022, 0.009, 0.01) * w
+        q.y += 0.006 * brow * w
         # Temples.
         q.x -= math.copysign(0.004, x) * g2(x, y, z, math.copysign(0.064, x), 0.03, 0.012, 0.02) * w
         # Eye sockets (the eyeball and lids sit in these).
         for sx in (-1, 1):
-            q.y -= 0.026 * g2(x, y, z, sx * 0.0315, 0.004, 0.0135, 0.0115) * w
+            q.y -= 0.022 * g2(x, y, z, sx * 0.031, 0.004, 0.0125, 0.0105) * w
             # Under-eye bag and the orbital rim below.
             q.y += 0.0025 * g2(x, y, z, sx * 0.03, -0.014, 0.012, 0.004) * w
         # Cheekbones and the hollow beneath.
         for sx in (-1, 1):
-            q += Vector((sx * 0.5, 0.55, 0)) * 0.011 * g2(x, y, z, sx * 0.05, -0.012, 0.014, 0.011) * w
-            q.y -= 0.005 * g2(x, y, z, sx * 0.047, -0.048, 0.012, 0.014) * w
+            q += Vector((sx * 0.55, 0.5, 0)) * 0.017 * g2(x, y, z, sx * 0.05, -0.014, 0.013, 0.01) * w
+            q.y -= 0.008 * g2(x, y, z, sx * 0.045, -0.05, 0.011, 0.013) * w
         # Nose: bridge from the glabella, a strong straight dorsum, the tip, and the wings.
         if -0.06 < z < 0.035:
             u = (0.022 - z) / 0.056  # 0 at the bridge root, 1 at the tip
             if u < 1.0:
-                prof = 0.006 + 0.015 * smooth01(u) ** 0.9
+                prof = 0.003 + 0.013 * smooth01(u) ** 0.9
             else:
-                prof = 0.021 * (1 - smooth01((u - 1.0) / 0.22))
+                prof = 0.016 * (1 - smooth01((u - 1.0) / 0.2))
             wid = 0.0075 + 0.005 * smooth01(u) + 0.003 * math.exp(-((u - 1.0) / 0.12) ** 2)
             q.y += max(0.0, prof) * math.exp(-(x / wid) ** 2) * w
         for sx in (-1, 1):
@@ -256,15 +302,20 @@ def face_offset(p):
             q += Vector((sx * 0.4, 0.6, 0)) * 0.005 * g2(x, y, z, sx * 0.038, -0.035, 0.018, 0.02) * w
         # Lips: an upper lip with a bow, a fuller lower lip, the line between, corners tucked in.
         bow = 0.0012 * math.exp(-((ax - 0.006) / 0.004) ** 2)
-        q.y += 0.0042 * math.exp(-(x / 0.023) ** 4) * math.exp(-((z + 0.0565 + bow) / 0.0048) ** 2) * w
+        q.y += 0.0058 * math.exp(-(x / 0.022) ** 4) * math.exp(-((z + 0.057 + bow) / 0.0045) ** 2) * w
+        # The upper lip's border: a crisp ridge above the vermilion.
+        q.y += 0.0012 * math.exp(-(x / 0.02) ** 4) * math.exp(-((z + 0.0525) / 0.0012) ** 2) * w
         q.y += 0.0048 * math.exp(-(x / 0.021) ** 4) * math.exp(-((z + 0.0685) / 0.0055) ** 2) * w
-        q.y -= 0.0035 * math.exp(-(x / 0.022) ** 6) * math.exp(-((z + 0.0625) / 0.0014) ** 2) * w
+        q.y -= 0.0055 * math.exp(-(x / 0.023) ** 6) * math.exp(-((z + 0.0625) / 0.0014) ** 2) * w
         for sx in (-1, 1):
             q.y -= 0.003 * g2(x, y, z, sx * 0.023, -0.0625, 0.003, 0.004) * w
             # Philtrum ridges.
             q.y += 0.0012 * g2(x, y, z, sx * 0.004, -0.051, 0.0015, 0.004) * w
         # Under the lower lip.
         q.y -= 0.0035 * g2(x, y, z, 0, -0.08, 0.014, 0.0045) * w
+        # Calibrated depth: the profile measured against a real face (see PROFILE_Z/X), so the brow,
+        # nose, lips and chin sit where they should relative to the eyes.
+        q.y += face_corr(ax, z) * w
     # Under the skull, behind the jaw: gather into the neck column.
     if z < -0.02:
         t = smooth01((-z - 0.02) / 0.07) * smooth01((0.45 - d.y) / 0.5)
@@ -288,7 +339,9 @@ def _head_grid(nu, nv):
         for i in range(nu):
             ph = 2 * math.pi * i / nu
             dd = Vector((math.sin(ph) * math.sin(th), math.cos(ph) * math.sin(th), math.cos(th)))
-            p = Vector((dd.x * HR.x, dd.y * HR.y, dd.z * (0.104 if dd.z > 0 else HR.z)))
+            # The face is shallower than the back of the skull.
+            fr = HR.y - 0.009 * smooth01(dd.y / 0.6) * smooth01((0.9 - dd.z) / 0.5)
+            p = Vector((dd.x * HR.x, dd.y * (fr if dd.y > 0 else HR.y), dd.z * (0.104 if dd.z > 0 else HR.z)))
             row.append(bm.verts.new(HC + face_offset(p)))
         rows.append(row)
     top = bm.verts.new(HC + face_offset(Vector((0, 0, 0.104))))

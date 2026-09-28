@@ -15,7 +15,7 @@ from common import link
 PACK_C = Vector((0, -0.222, 1.235))
 ROLL_C = Vector((0, -0.215, 1.462))
 CANTEEN_HANG = Vector((-0.17, -0.09, 1.02))
-SCARF_PTS = [Vector((0.0, -0.075, 1.52)), Vector((0.008, -0.135, 1.548)), Vector((0.016, -0.195, 1.556)), Vector((0.024, -0.255, 1.545))]
+SCARF_PTS = [Vector((0.0, -0.078, 1.515)), Vector((0.006, -0.125, 1.515)), Vector((0.012, -0.175, 1.508)), Vector((0.018, -0.225, 1.492))]
 
 
 def bell(x, c, w):
@@ -222,13 +222,18 @@ def neckerchief(body_bvh):
     for k in range(28):
         a = 2 * math.pi * k / 28
         d = Vector((math.sin(a), math.cos(a), 0))
-        z = 1.515 - 0.012 * max(0.0, math.cos(a)) + 0.004 * math.sin(a * 3)
+        z = 1.532 - 0.008 * max(0.0, math.cos(a))
         hit = body_bvh.ray_cast(Vector((0, 0.008, z)), d, 0.2)
-        p = (hit[0] if hit[0] is not None else Vector((0, 0.008, z)) + d * 0.06) + d * 0.009
-        pts.append(p)
-    band = build("scarf_band", sweep(pts, lambda i: [(-0.003, -0.016), (0.004, -0.018), (0.006, 0.0), (0.004, 0.018), (-0.003, 0.016), (-0.005, 0.0)],
-                                     ups=[Vector((0, 0, 1))] * 28, closed=True))
-    knot = build("scarf_knot", ellipsoid(SCARF_PTS[0] + Vector((0.0, -0.004, -0.004)), (0.024, 0.017, 0.02), seg=12, rings=8,
+        r = (hit[0] - Vector((0, 0.008, z))).length if hit[0] is not None else 0.06
+        pts.append((a, z, r))
+    # Smooth the radius round the neck, then sit the band clear of the collar stand beneath it.
+    rs = [p[2] for p in pts]
+    for _ in range(4):
+        rs = [(rs[i - 1] + 2 * rs[i] + rs[(i + 1) % len(rs)]) / 4 for i in range(len(rs))]
+    pts = [Vector((0, 0.008, z)) + Vector((math.sin(a), math.cos(a), 0)) * (r + 0.011) for (a, z, _), r in zip(pts, rs)]
+    prof = [(0.0055 * math.cos(t), 0.012 * math.sin(t)) for t in (2 * math.pi * k / 10 for k in range(10))]
+    band = build("scarf_band", sweep(pts, prof, ups=[Vector((0, 0, 1))] * 28, closed=True))
+    knot = build("scarf_knot", ellipsoid(SCARF_PTS[0] + Vector((0.0, -0.012, 0.0)), (0.024, 0.017, 0.021), seg=12, rings=8,
                                          shape=lambda c: c.__iadd__(Vector((0, 0, 0.003 * math.sin(c.x * 200))))))
     tails = []
     for k, (dx, ln, wid) in enumerate(((0.016, 1.0, 0.05), (-0.022, 0.8, 0.042))):
@@ -280,17 +285,17 @@ def hair_cards(head_bvh, seed=11):
     count = 0
     # Seed roots on a jittered grid over the scalp (head-local spherical coords).
     roots = []
-    for i in range(44):
-        for j in range(20):
-            ph = 2 * math.pi * (i + rng.random() * 0.8) / 44
-            th = math.pi * 0.5 * (j + rng.random() * 0.8) / 20 * 1.25
+    for i in range(48):
+        for j in range(21):
+            ph = 2 * math.pi * (i + rng.random() * 0.8) / 48
+            th = math.pi * 0.5 * (j + rng.random() * 0.8) / 21 * 1.25
             d = Vector((math.sin(ph) * math.sin(th), math.cos(ph) * math.sin(th), math.cos(th)))
             o = HC + Vector((0, -0.005, 0.0))
             hit = head_bvh.ray_cast(o + d * 0.3, -d, 0.35)
             if hit[0] is None:
                 continue
             q = hit[0] - HC
-            if q.z < hairline(q) + 0.004 or q.z < -0.085:
+            if q.z < hairline(q) + 0.0015 or q.z < -0.085:
                 continue
             roots.append((hit[0], hit[1]))
     for (p0, n0) in roots:
@@ -341,6 +346,11 @@ def hair_cards(head_bvh, seed=11):
     link(ob)
     for p in me.polygons:
         p.use_smooth = True
+    # Soft shading: card normals lean toward a sphere round the skull (60 %), keeping some per-card relief.
+    ctr = HC + Vector((0, -0.012, 0.004))
+    me.update()
+    nrm = [((v.co - ctr).normalized() * 0.6 + v.normal * 0.4).normalized() for v in me.vertices]
+    me.normals_split_custom_set_from_vertices([tuple(n) for n in nrm])
     print("hair cards:", count, flush=True)
     return ob
 
@@ -361,7 +371,7 @@ def brow_cards(head_bvh):
                 pts.append((hit[0], hit[1]) if hit[0] is not None else (o, Vector((0, 1, 0))))
             rows = []
             for i, (p, n) in enumerate(pts):
-                w = 0.0045 * (1 - 0.55 * i / 4)
+                w = 0.0024 * (1 - 0.5 * i / 4)
                 up = Vector((0, 0, 1))
                 up = (up - n * up.dot(n)).normalized()
                 rows.append((bm.verts.new(p + n * 0.0012 - up * w / 2), bm.verts.new(p + n * 0.0016 + up * w / 2)))
