@@ -81,4 +81,54 @@ describe('route generation', () => {
     expect(gates).toBeGreaterThan(0);
     expect(cliffs).toBeGreaterThan(10);
   });
+
+  it('the tunnel has no room for the slab gate; its portals and vault fit inside the section', () => {
+    for (let i = 0; i < 6; i++) {
+      const l = buildLayout('tunnel', `tunnel#${i}`, { foliage: 1, scenery: 1 });
+      expect(l.hazards).not.toContain('gate');
+      expect(l.walls).toBe('tall');
+      const at = (p: { m: THREE.Matrix4 }) => new THREE.Vector3().setFromMatrixPosition(p.m);
+      const mouths = l.props.filter((p) => p.piece === 'tunnel_mouth_0').map(at);
+      expect(mouths.length).toBe(2);
+      for (const m of mouths) expect(Math.abs(m.x)).toBeLessThan(1e-6);
+      const vaults = l.props.filter((p) => /^vault_\d$/.test(p.piece)).map(at);
+      expect(vaults.length).toBeGreaterThanOrEqual(2);
+      // Every vault segment (4 m along −Z from its origin, or +Z when turned) lies between the portals.
+      const zs = mouths.map((m) => m.z).sort((a, b) => a - b);
+      for (const v of vaults) {
+        expect(v.z).toBeLessThanOrEqual(zs[1]! + 1e-6);
+        expect(v.z).toBeGreaterThanOrEqual(zs[0]! - 1e-6);
+      }
+      expect(zs[0]!).toBeGreaterThanOrEqual(-l.len);
+      // The path is floored all the way through.
+      expect(l.tiles.length).toBe(l.len / 4);
+    }
+  });
+
+  it('boardwalks are planks; statue avenues end at a lintel gate with the facades out over the water', () => {
+    for (let i = 0; i < 4; i++) {
+      const bw = buildLayout('boardwalk', `boardwalk#${i}`, { foliage: 1, scenery: 1 });
+      expect(bw.tiles.every((t) => t.piece.startsWith('planks_'))).toBe(true);
+      const st = buildLayout('statues', `statues#${i}`, { foliage: 1, scenery: 1 });
+      expect(st.props.some((p) => p.piece === 'lintel_gate_0')).toBe(true);
+      for (const p of st.props) {
+        const x = Math.abs(new THREE.Vector3().setFromMatrixPosition(p.m).x);
+        if (p.piece.startsWith('facade_')) expect(x).toBeGreaterThan(7.5);
+        if (p.piece.startsWith('guardian_')) expect(x).toBeGreaterThan(2.9);
+      }
+    }
+  });
+
+  it('scatter thins out on the lightest tier', () => {
+    const count = (d: number) => {
+      let n = 0;
+      for (const t of ['corridor', 'ruins', 'tall'] as const)
+        for (let i = 0; i < 3; i++) n += buildLayout(t, `${t}#${i}`, { foliage: d, scenery: d }).props.filter((p) => p.piece.startsWith('scatter_')).length;
+      return n;
+    };
+    const high = count(1);
+    const low = count(0.4);
+    expect(high).toBeGreaterThan(20);
+    expect(low).toBeLessThan(high * 0.45);
+  });
 });

@@ -21,6 +21,9 @@ const VARIANTS: Record<SectionType, number> = {
   ruins: 3,
   avenue: 3,
   gorge: 4,
+  boardwalk: 3,
+  tunnel: 3,
+  statues: 3,
 };
 
 interface Variant {
@@ -83,7 +86,8 @@ class TileSystem {
       const m = new THREE.InstancedMesh(geo, kit.mat.get(kit.matOf.get(piece)!)!, cap);
       m.name = `tiles:${piece}`;
       m.receiveShadow = true;
-      m.castShadow = true;
+      // Paving lies flat on the causeway: its shadow falls only on itself. Planks and stairs stand over water.
+      m.castShadow = !piece.startsWith('floor_');
       m.frustumCulled = false;
       m.count = 0;
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -199,7 +203,8 @@ export class Track {
         continue;
       }
       p.setFromMatrixPosition(pl.m);
-      const zone = isWaterPiece(pl.piece) ? 'water' : Math.abs(p.x) > 7.5 ? 'far' : 'near';
+      // Scattered pebbles are a zone of their own: near the path, but too small to be worth a shadow.
+      const zone = isWaterPiece(pl.piece) ? 'water' : pl.piece.startsWith('scatter_') ? 'grit' : Math.abs(p.x) > 7.5 ? 'far' : 'near';
       const key = `${this.kit.matOf.get(pl.piece)!}|${zone}`;
       const c = g.clone().applyMatrix4(pl.m);
       if (!byKey.has(key)) byKey.set(key, []);
@@ -278,7 +283,7 @@ export class Track {
       inst.receiveShadow = m.receiveShadow;
       inst.renderOrder = m.renderOrder;
       inst.name = m.name;
-      if (!m.name.endsWith('|near')) inst.position.y = toWater;
+      if (!m.name.endsWith('|near') && !m.name.endsWith('|grit')) inst.position.y = toWater;
       root.add(inst);
     }
     const falls: THREE.Mesh[] = [];

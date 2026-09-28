@@ -393,3 +393,177 @@ def preview(path, cam_loc, target, lens=28, res=(960, 540), samples=24, sun=(35,
     bpy.ops.render.render(write_still=True)
     bpy.data.objects.remove(lo)
     bpy.data.objects.remove(co)
+
+
+# ---------------------------------------------------------------- round 4: weathered stone
+def add_stone(bm, size, loc, rot=(0, 0, 0), rng=None, color=None, radius=0.3, erode=0.35, cuts=2, lean=(0.0, 0.0),
+              pillow=0.0, taper=0.04, uvshrink=None):
+    """Add a rounded, eroded stone block to `bm`: a box with soft rounded edges (`radius` is a fraction of
+    the smallest half-extent), noise-eroded surfaces and chipped corners; `pillow` bulges the faces,
+    `taper` narrows the top (weathering takes the top more than the base), `lean` shears it askew.
+
+    Triangle cost equals a 2-segment bevelled block (~108 tris at cuts=2, 48 at cuts=1). The grid rows
+    next to every edge sit where the rounding starts, so the flats stay flat and the edges read round.
+    `uvshrink` {'top','side','bottom': 0..1} marks faces whose UV islands ensure_uvs_packed_weighted
+    shrinks before packing, so faces the camera never sees don't eat atlas space.
+    """
+    rng = rng or random
+    hx, hy, hz = size[0] / 2, size[1] / 2, size[2] / 2
+    h = (hx, hy, hz)
+    r = max(0.004, radius * min(h))
+    tmp = bmesh.new()
+    bmesh.ops.create_cube(tmp, size=2.0)
+    bmesh.ops.subdivide_edges(tmp, edges=list(tmp.edges), cuts=cuts, use_grid_fill=True)
+    off = Vector((rng.uniform(-50, 50), rng.uniform(-50, 50), rng.uniform(-50, 50)))
+    ms = min(size)
+    # A few chips: dents centred on random points near the corners and edges.
+    chips = []
+    for _ in range(rng.randint(1, 3) if erode > 0.05 else 0):
+        c = Vector((rng.choice((-1, 1)) * hx * rng.uniform(0.4, 1.0), rng.choice((-1, 1)) * hy * rng.uniform(0.4, 1.0),
+                    rng.choice((-1, 1)) * hz * rng.uniform(0.5, 1.0)))
+        chips.append((c, rng.uniform(0.3, 0.55) * ms, rng.uniform(0.06, 0.16) * ms * erode))
+    first = 1 - 2 / (cuts + 1)
+    for v in tmp.verts:
+        g = v.co.copy()  # grid coords in [-1, 1]
+        p = []
+        for k in range(3):
+            t, a = g[k], abs(g[k])
+            if 1e-6 < a < 1 - 1e-6:
+                inner = max(0.0, (h[k] - r) / h[k])
+                # The row next to each edge moves to where the rounding starts; rows inside spread evenly.
+                t = 0.0 if cuts == 1 else math.copysign(inner * min(1.0, a / first), t)
+            p.append(t * h[k])
+        p = Vector(p)
+        inner = Vector((max(-(hx - r), min(hx - r, p.x)), max(-(hy - r), min(hy - r, p.y)), max(-(hz - r), min(hz - r, p.z))))
+        d = p - inner
+        n = d.normalized() if d.length > 1e-7 else Vector((0, 0, 1))
+        q = inner + n * r if d.length > 1e-7 else p
+        s2 = (q.x / hx) ** 2 + (q.y / hy) ** 2 + (q.z / hz) ** 2
+        if pillow:
+            q += n * pillow * ms * max(0.0, min(1.0, (3 - s2) / 2) - 0.5) * 2
+        # Erosion: soft lumps and hollows, stronger toward edges and corners.
+        edge = max(0.0, min(1.0, abs(q.x) / hx + abs(q.y) / hy + abs(q.z) / hz - 1.2))
+        e = noise.fractal(q * (2.4 / max(ms, 0.2)) + off, 0.55, 2.0, 3) * 0.08 * ms * erode
+        e -= edge * 0.07 * ms * erode * (0.7 + 0.5 * noise.noise(q * 5.0 + off))
+        for c, cr, depth in chips:
+            dist = (q - c).length
+            if dist < cr:
+                e -= depth * (1 - (dist / cr) ** 2)
+        q += n * e
+        if taper and q.z > -hz:
+            f = 1 - taper * erode * (q.z + hz) / (2 * hz)
+            q.x *= f
+            q.y *= f
+        q.x += lean[0] * (q.z + hz)
+        q.y += lean[1] * (q.z + hz)
+        v.co = q
+    m = Matrix.Translation(Vector(loc)) @ Euler(rot).to_matrix().to_4x4()
+    bmesh.ops.transform(tmp, matrix=m, verts=tmp.verts)
+    tmp.normal_update()
+    col_layer = tmp.loops.layers.float_color.new("Col")
+    col = color or (0.5, 0.5, 0.5, 1)
+    sh = tmp.faces.layers.float.new("uvshrink")
+    for f in tmp.faces:
+        for l in f.loops:
+            l[col_layer] = col
+        if uvshrink:
+            nz = f.normal.z
+            if nz > 0.6:
+                f[sh] = uvshrink.get("top", 0.0)
+            elif nz < -0.6:
+                f[sh] = uvshrink.get("bottom", 0.0)
+            elif abs(f.normal.y) > 0.7 and "end" in uvshrink:
+                f[sh] = uvshrink["end"]  # the ends of a block, against its neighbours in the course
+            else:
+                f[sh] = uvshrink.get("side", 0.0)
+    me = bpy.data.meshes.new("_tmp")
+    tmp.to_mesh(me)
+    tmp.free()
+    bm.from_mesh(me)
+    bpy.data.meshes.remove(me)
+
+
+def drop_faces_below(bm, nz=-0.92, zmax=None):
+    """Delete faces pointing straight down (never seen: they sit on the ground or on another stone)."""
+    bm.normal_update()
+    kill = [f for f in bm.faces if f.normal.z < nz and (zmax is None or f.calc_center_median().z < zmax)]
+    bmesh.ops.delete(bm, geom=kill, context="FACES")
+
+
+def ensure_uvs_packed_weighted(objs, size, margin_px=5, angle=60):
+    """ensure_uvs_packed, but UV islands made only of faces with a float face attribute `uvshrink` > 0
+    are scaled by (1 − uvshrink) before packing: hidden or grazing faces (slab sides in the joints, the
+    bed under a floor, the backs of wall stones) get fewer texels and the faces the camera sees more."""
+    import numpy as np
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in objs:
+        o.select_set(True)
+        if not o.data.uv_layers:
+            o.data.uv_layers.new(name="UVMap")
+    bpy.context.view_layer.objects.active = objs[0]
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(angle_limit=math.radians(angle), island_margin=0.0, correct_aspect=True, scale_to_bounds=False)
+    bpy.ops.uv.select_all(action="SELECT")
+    bpy.ops.uv.average_islands_scale()
+    bpy.ops.object.mode_set(mode="OBJECT")
+    for o in objs:
+        me = o.data
+        at = me.attributes.get("uvshrink")
+        if at is None or at.domain != "FACE":
+            continue
+        shrink = np.zeros(len(me.polygons), np.float32)
+        at.data.foreach_get("value", shrink)
+        if not shrink.any():
+            continue
+        bm = bmesh.new()
+        bm.from_mesh(me)
+        uvl = bm.loops.layers.uv.active
+        sl = bm.faces.layers.float.get("uvshrink")
+        bm.faces.ensure_lookup_table()
+        parent = list(range(len(bm.faces)))
+
+        def find(i):
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        # Islands: faces joined through edges whose UVs agree on both sides.
+        for e in bm.edges:
+            ll = e.link_loops
+            if len(ll) != 2:
+                continue
+            a, b = ll
+            if (a[uvl].uv - b.link_loop_next[uvl].uv).length < 1e-6 and (a.link_loop_next[uvl].uv - b[uvl].uv).length < 1e-6:
+                ra, rb = find(a.face.index), find(b.face.index)
+                if ra != rb:
+                    parent[ra] = rb
+        groups = {}
+        for f in bm.faces:
+            groups.setdefault(find(f.index), []).append(f)
+        for fs in groups.values():
+            s = min(f[sl] for f in fs)
+            if s <= 0:
+                continue
+            k = max(0.05, 1 - s)
+            n = 0
+            cx = cy = 0.0
+            for f in fs:
+                for l in f.loops:
+                    cx += l[uvl].uv.x
+                    cy += l[uvl].uv.y
+                    n += 1
+            cx /= n
+            cy /= n
+            for f in fs:
+                for l in f.loops:
+                    u = l[uvl].uv
+                    l[uvl].uv = (cx + (u.x - cx) * k, cy + (u.y - cy) * k)
+        bm.to_mesh(me)
+        bm.free()
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.select_all(action="SELECT")
+    bpy.ops.uv.pack_islands(margin_method="FRACTION", margin=margin_px / size, rotate=True, shape_method="CONCAVE")
+    bpy.ops.object.mode_set(mode="OBJECT")

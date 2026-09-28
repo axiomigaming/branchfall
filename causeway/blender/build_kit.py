@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import bpy
 from mathutils import Vector
 
-from common import reset, bake_group, ensure_uvs_packed, export_glb, textured_material, OUT, CACHE
+from common import reset, bake_group, ensure_uvs_packed_weighted, export_glb, textured_material, OUT, CACHE
 import kit_geo as K
 import materials as M
 import foliage as F
@@ -43,6 +43,10 @@ for i in range(2):
     groups["stoneA"].append(K.wall(f"wall_mid_{i}", 120 + i, height=2.6, ruin=0.45, depth=0.8))
 for i in range(2):
     groups["stoneA"].append(K.wall(f"wall_tall_{i}", 140 + i, height=5.2, ruin=0.3, depth=1.0, tall=True))
+# Ivy draped over the ragged crests of the low and mid walls (placed with the wall, same transform).
+for i, o in enumerate(list(groups["stoneA"])):
+    if o.name.startswith(("wall_low_", "wall_mid_")):
+        groups["leaf"].append(F.wall_ivy(o.name + "_ivy", 1100 + i, K.CRESTS[o.name], depth=0.8 if "mid" in o.name else 0.7, density=0.85))
 groups["stoneA"].append(K.foundation("foundation_0", 160))
 groups["stoneA"].append(K.foundation("foundation_1", 161, height=4.0))
 
@@ -64,6 +68,16 @@ groups["stoneB"] += [
 for i in range(4):
     groups["stoneB"].append(K.rubble(f"rubble_{i}", 270 + i, n=4 + i * 2, spread=0.6 + 0.4 * i))
 groups["stoneB"].append(K.rubble("debris_0", 290, n=1, spread=0, size=(0.5, 0.5)))
+# ---- round 4: the vaulted tunnel, ruined facades and a lintel gate for the vanishing point, a lone column
+groups["stoneB"] += [
+    K.vault("vault_0", 1010),
+    K.vault("vault_1", 1011),
+    K.tunnel_mouth("tunnel_mouth_0", 1000),
+    K.facade("facade_0", 1030),
+    K.facade("facade_1", 1031, width=8.0, height=11.0, windows=1),
+    K.lintel_gate("lintel_gate_0", 1020),
+    K.column_lone("column_lone_0", 1040),
+]
 
 # ---- statuary and set pieces (their own atlas, so the faces get texels)
 groups["statue"] += [
@@ -85,6 +99,9 @@ groups["floor"] += [
     K.floor("floor_wide_0", 303, width=10.0, length=8.0),
     K.floor("floor_narrow_0", 304, width=3.0),
 ]
+# Rubble strewn along the wall feet and, sparser and flatter, across the path (no shadows; see track.ts).
+groups["floor"] += [K.scatter(f"scatter_edge_{i}", 980 + i, n=40 + 8 * i, shards=8 + 2 * i, chunks=2 + i) for i in range(3)]
+groups["floor"] += [K.scatter(f"scatter_path_{i}", 990 + i, width=4.0, n=14 + 6 * i, shards=4 + 2 * i, chunks=0, low=True) for i in range(2)]
 
 # ---- rocks
 for i in range(3):
@@ -93,7 +110,7 @@ for i in range(3):
     groups["rock"].append(K.rock_obj(f"rock_mid_{i}", 410 + i, size=(3.2, 2.6, 2.4), detail=4))
 
 # ---- wood
-groups["wood"] += [K.planks("planks_0", 500), K.planks("planks_1", 501), S.rope_rail("rope_rail_0", 510)]
+groups["wood"] += [K.planks("planks_0", 500), K.planks("planks_1", 501), S.rope_rail("rope_rail_0", 510, width=3.6)]
 groups["bark"] += [S.roots("roots_0", 520), S.roots("roots_1", 521, width=4.5, n=10, length=(2.0, 4.5))]
 groups["flora"] += [
     S.lily_pads("lily_0", 800),
@@ -174,7 +191,7 @@ for key, (mat, size) in mats.items():
         continue
     log(f"uv + bake {key} ({len(objs)} objects, {size // Q}px)")
     # Margins in texels of the shipped (optimized, halved) atlas stay at 3–4 px.
-    ensure_uvs_packed(objs, size // Q, margin_px=max(2, (8 if size >= 4096 else 6 if size >= 2048 else 4) // Q))
+    ensure_uvs_packed_weighted(objs, size // Q, margin_px=max(2, (8 if size >= 4096 else 6 if size >= 2048 else 4) // Q))
     bake_group(objs, mat, key, size // Q, ao_samples=6 if FAST else 20, ao_strength=0.6 if key != "rock" else 0.7)
 
 leaf_mat = textured_material("leaf", leaf_img, None, None, alpha=True)
