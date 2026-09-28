@@ -4,7 +4,7 @@ import { multiplierAtSmooth } from '../engine/curve';
 import { Rng, hashString } from '../engine/rng';
 import { loadKit, pickAssetSet, wind, type Kit } from '../world/assets';
 import { DynamicResolution, warmUp } from './perf';
-import { installAtmosphere } from '../world/atmosphere';
+import { installAtmosphere, patchFogUniforms, setAtmosphereMist, setAtmosphereSun } from '../world/atmosphere';
 import { Debris } from '../world/debris';
 import { forward } from '../world/path';
 import { CRASH_CLIPS, crashStaging, escapeStaging, nextBeat, runDrive, runTier, type CrashKind, type CrashStaging, type EscapeStaging } from '../world/choreo';
@@ -31,6 +31,10 @@ export interface WorldSounds {
   /** A heavy landing at its exact frame: the gate slab, the biggest rockfall block. Optional. */
   slam?(size: number): void;
 }
+
+const UP = new THREE.Vector3(0, 1, 0);
+const SHADOW_U = new THREE.Vector3();
+const SHADOW_V = new THREE.Vector3();
 
 const nullSounds: WorldSounds = { footstep() {}, impact() {}, tremor() {}, run() {}, crash() {}, escape() {}, whoosh() {}, slam() {} };
 
@@ -60,8 +64,17 @@ export class Game {
   private motes = new Motes(420);
   private ambient = new Ambient(); // world art: birds, butterflies, leaves
   private post!: Post;
-  private sun = new THREE.DirectionalLight(0xffe6c4, 6.4);
+  private sun = new THREE.DirectionalLight(0xffe0b8, 13);
   private sunDir = new THREE.Vector3(0.4, 0.25, -0.8);
+  /** The sun as rendered in the panorama; `sunDir` is this turned by `skyYaw`. */
+  private sunBase = new THREE.Vector3(0.4, 0.25, -0.8);
+  /** The sky, its light and the sun turn slowly with the route's heading, so the sun stays ahead. */
+  private skyYaw = 0;
+  private shadowExtent = 20;
+  private fill = new THREE.DirectionalLight(0xffe0bc, 2.4);
+  private mistAmount = 1;
+  private tmpHead = new THREE.Vector3(); // perf
+  private tmpSize = new THREE.Vector2(); // perf
   private clock = new THREE.Clock();
   private raf = 0;
   private visible = true;
@@ -123,24 +136,28 @@ export class Game {
     scene.backgroundIntensity = 1.0;
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     scene.environment = pmrem.fromEquirectangular(kit.env).texture;
-    // A blue sky fills the shade (cool), the sunlit sandstone bounces warm light back into it.
-    scene.environmentIntensity = 0.55;
-    scene.add(new THREE.HemisphereLight(0xffeeda, 0x9a5c36, 0.55));
+    // The sky fills the shade; sunlit sandstone bounces warm light back into it, so shade reads
+    // warm umber (as in the references), never grey.
+    scene.environmentIntensity = 0.26;
+    scene.add(new THREE.HemisphereLight(0xffe4c4, 0xc07a48, 0.62));
+    // Bounce from the sunlit causeway behind the lens: the sun is ahead, so without it every face
+    // the camera sees (the runner's back, the wall faces) would sit in flat shade.
+    this.fill.position.set(0, 0.35, 1);
+    scene.add(this.fill, this.fill.target);
     pmrem.dispose();
     // World art: height fog with sun in-scattering (replaces three's fog chunks before compile).
     installAtmosphere(scene, kit.sunDir);
 
+    this.sunBase.copy(kit.sunDir);
     this.sunDir.copy(kit.sunDir);
     this.sun.castShadow = true;
-    this.sun.shadow.bias = -0.0003;
-    this.sun.shadow.normalBias = 0.035;
+    // A low sun: long, crisp shadows. The box is tight around the runner (it follows, snapped to
+    // texels so edges do not crawl); depth bias small for the long range, normal bias kills acne.
+    this.sun.shadow.bias = -0.0004;
+    this.sun.shadow.normalBias = 0.06;
     const sc = this.sun.shadow.camera;
-    sc.left = -26;
-    sc.right = 26;
-    sc.top = 26;
-    sc.bottom = -26;
     sc.near = 1;
-    sc.far = 140;
+    sc.far = 130; // casters within ~55 m sunward only: far scenery must not blanket the causeway in a low sun
     scene.add(this.sun, this.sun.target);
     // The sun disc itself, hot enough to bloom.
     const sunDisc = new THREE.Mesh(
@@ -152,9 +169,9 @@ export class Game {
         blending: THREE.AdditiveBlending,
         vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
         fragmentShader: `varying vec2 vUv; void main(){ float d = length(vUv - 0.5) * 2.0;
-          float core = smoothstep(0.16, 0.12, d) * 7.0;
-          float halo = exp(-d * 5.0) * 0.9 + exp(-d * 14.0) * 1.6;
-          gl_FragColor = vec4(vec3(1.0, 0.86, 0.64) * (core + halo), 1.0); }`,
+          float core = smoothstep(0.14, 0.1, d) * 14.0;
+          float halo = exp(-d * 5.0) * 0.45 + exp(-d * 14.0) * 2.0;
+          gl_FragColor = vec4(vec3(1.0, 0.88, 0.7) * (core + halo) * smoothstep(1.0, 0.8, d), 1.0); }`,
       }),
     );
     sunDisc.name = 'sunDisc';
@@ -172,6 +189,11 @@ export class Game {
     this.runner.onFootstep = (foot, k) => this.footstep(foot, k);
     scene.add(this.runner.root);
     scene.add(this.particles.points, this.motes.points, this.ambient.root);
+    // Materials made before the atmosphere was installed get its live uniforms too.
+    scene.traverse((o) => {
+      const m = (o as THREE.Mesh).material;
+      if (m) for (const x of Array.isArray(m) ? m : [m]) patchFogUniforms(x);
+    });
 
     onProgress(0.72, 'Laying the causeway');
     await this.track.prepare({ foliage: q.foliageDensity, scenery: q.sceneryDensity }, (i, n) => onProgress(0.72 + 0.23 * (i / n), 'Laying the causeway'));
@@ -215,6 +237,14 @@ export class Game {
     this.particles.budget = q.dust;
     this.ambient.setBudget(q.ambientLife);
     this.water.setDetail(q.waterDetail);
+    this.water.setReflections(q.waterReflections > 0);
+    this.motes.setBudget(q.motes);
+    this.mistAmount = q.mist;
+    this.shadowExtent = q.shadowExtent;
+    const sc = this.sun.shadow.camera;
+    sc.left = sc.bottom = -q.shadowExtent;
+    sc.right = sc.top = q.shadowExtent;
+    sc.updateProjectionMatrix();
     this.post.build(q);
     this.resize();
     if (rebuildTrack) {
@@ -880,9 +910,35 @@ export class Game {
       cam.updateProjectionMatrix();
     }
 
-    // Sun follows the runner so its shadow box stays tight.
-    this.sun.target.position.copy(rp);
-    this.sun.position.copy(rp).addScaledVector(this.sunDir, 70);
+    // The sky and its sun turn slowly with the route (a few degrees a second at most), so the sun
+    // stays ahead in the chase frame through the bends; outside the run they snap.
+    const ry = this.runner.root.rotation.y;
+    // Hold the sun ~30° off the route's axis on a wide screen (walls on its side throw their
+    // shadows diagonally across the causeway, as in the references), nearer the axis on a tall one.
+    let dy = ry + (cam.aspect < 1 ? -0.1 : -0.3) - this.skyYaw;
+    dy -= Math.round(dy / (2 * Math.PI)) * 2 * Math.PI;
+    const follow = this.stage === 'title' || this.stage === 'setup' ? 1 : 1 - Math.exp(-rawDt * 0.14);
+    this.skyYaw += dy * follow;
+    this.sunDir.copy(this.sunBase).applyAxisAngle(UP, this.skyYaw);
+    this.scene.backgroundRotation.y = this.skyYaw;
+    this.scene.environmentRotation.y = this.skyYaw;
+    this.water.setSun(this.sunDir, this.skyYaw);
+    setAtmosphereSun(this.sunDir);
+    setAtmosphereMist(this.worldT, this.mistAmount);
+    // Sun follows the runner so its shadow box stays tight: centred ahead (where the long shadows
+    // fall toward the lens), snapped to whole shadow texels across the light.
+    const ext = this.shadowExtent;
+    const sh = this.tmpHead.set(-Math.sin(ry), 0, -Math.cos(ry)).multiplyScalar(ext * 0.45).add(rp);
+    const texel = (2 * ext) / this.sun.shadow.mapSize.x;
+    const su = SHADOW_U.crossVectors(this.sunDir, UP).normalize();
+    const sv = SHADOW_V.crossVectors(su, this.sunDir);
+    const cu = su.dot(sh);
+    const cv = sv.dot(sh);
+    sh.addScaledVector(su, Math.round(cu / texel) * texel - cu).addScaledVector(sv, Math.round(cv / texel) * texel - cv);
+    this.fill.target.position.copy(rp);
+    this.fill.position.set(rp.x - this.sunDir.x * 10, rp.y + 7, rp.z - this.sunDir.z * 10);
+    this.sun.target.position.copy(sh);
+    this.sun.position.copy(sh).addScaledVector(this.sunDir, 55);
     this.sunDisc.position.copy(cam.position).addScaledVector(this.sunDir, 900);
     this.sunDisc.lookAt(cam.position);
 
@@ -898,15 +954,21 @@ export class Game {
     }
     this.debris.update(dt);
     this.particles.update(dt);
-    this.motes.update(this.worldT, cam, this.renderer.domElement.height / (2 * Math.tan((cam.fov * Math.PI) / 360)), 1);
+    this.motes.update(this.worldT, cam, this.renderer.domElement.height / (2 * Math.tan((cam.fov * Math.PI) / 360)), 1, this.sunDir);
     this.ambient.update(this.worldT, cam);
 
     // Keep the runner sharp in the blur: project the chest to screen.
     const chest = this.tmpChest.copy(rp).setY(rp.y + 1.05).project(cam); // perf: no per-frame alloc
+    const head = this.tmpHead.copy(rp).setY(rp.y + 1.85).project(cam);
+    const halfH = Math.min(0.6, Math.max(0.08, Math.abs(head.y - chest.y) * 0.5 * 1.25));
     const speedBlur = this.motion === 'reduced' ? 0 : Math.min(1, Math.max(0, (this.speed - 4) / 10));
     this.post.apply({
       speed: speedBlur,
-      runnerScreen: this.tmpScreen.set(chest.x * 0.5 + 0.5, chest.y * 0.5 + 0.5),
+      runnerScreen: this.tmpScreen.set(chest.x * 0.5 + 0.5, chest.y * 0.5 + 0.5 - halfH * 0.15),
+      runnerSize: this.tmpSize.set((halfH * 0.62) / cam.aspect, halfH * 1.15),
+      motion: this.motion === 'reduced' ? 0 : 1,
+      dt: rawDt,
+      time: this.worldT,
       danger: this.fx.danger,
       cold: this.fx.cold,
       gold: this.fx.gold,

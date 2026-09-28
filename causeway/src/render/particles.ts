@@ -187,7 +187,10 @@ export class Particles {
   }
 }
 
-/** Sunlit specks drifting in the air around the camera. */
+/**
+ * Sunlit specks drifting in the air around the camera. They scatter forward: looking into the
+ * sun they flare into glowing points, looking away they almost vanish, like dust in a beam.
+ */
 export class Motes {
   readonly points: THREE.Points;
   private offsets: Float32Array;
@@ -209,11 +212,12 @@ export class Motes {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      uniforms: { uTime: { value: 0 }, uCenter: { value: new THREE.Vector3() }, uScale: { value: 600 }, uAmount: { value: 1 } },
+      uniforms: { uTime: { value: 0 }, uCenter: { value: new THREE.Vector3() }, uScale: { value: 600 }, uAmount: { value: 1 }, uSunDir: { value: new THREE.Vector3(0, 0.4, -0.9) } },
       vertexShader: /* glsl */ `
         attribute float aSeed;
-        uniform float uTime; uniform vec3 uCenter; uniform float uScale; uniform float uAmount;
+        uniform float uTime; uniform vec3 uCenter; uniform float uScale; uniform float uAmount; uniform vec3 uSunDir;
         varying float vA;
+        varying float vGlow;
         void main() {
           vec3 p = position;
           p.x += sin(uTime * 0.3 + aSeed * 40.0) * 0.8;
@@ -224,22 +228,37 @@ export class Motes {
           vec4 mv = modelViewMatrix * vec4(uCenter + rel, 1.0);
           float d = -mv.z;
           vA = smoothstep(0.5, 2.5, d) * smoothstep(16.0, 8.0, d) * (0.4 + 0.6 * fract(aSeed * 7.3)) * uAmount;
-          gl_PointSize = (0.025 + 0.03 * aSeed) * uScale / max(d, 0.1);
+          // Forward scattering toward the sun (a Henyey-Greenstein-like lobe) plus a faint floor.
+          float mu = dot(normalize(rel), uSunDir);
+          float hg = 0.12 + 1.9 * pow(max(mu, 0.0), 6.0) + 0.5 * pow(max(mu, 0.0), 2.0);
+          vGlow = hg;
+          // Twinkle as they tumble.
+          vA *= 0.6 + 0.4 * sin(uTime * (1.5 + aSeed * 3.0) + aSeed * 60.0);
+          gl_PointSize = (0.03 + 0.04 * aSeed) * uScale / max(d, 0.1) * (0.8 + 0.5 * min(hg, 1.5));
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: /* glsl */ `
         varying float vA;
+        varying float vGlow;
         void main() {
-          float a = smoothstep(0.5, 0.0, length(gl_PointCoord - 0.5));
-          gl_FragColor = vec4(vec3(1.0, 0.86, 0.6) * 1.6, a * vA * 0.7);
+          float r = length(gl_PointCoord - 0.5);
+          float a = smoothstep(0.5, 0.0, r);
+          a *= a;
+          gl_FragColor = vec4(vec3(1.0, 0.84, 0.58) * (1.2 + 2.4 * vGlow), a * vA * 0.75);
         }`,
     });
     this.points = new THREE.Points(g, mat);
     this.points.frustumCulled = false;
   }
 
-  update(t: number, cam: THREE.Camera, scale: number, amount: number): void {
+  /** Show this fraction of the pool (quality budget). */
+  setBudget(f: number): void {
+    this.points.geometry.setDrawRange(0, Math.round(this.count * Math.max(0, Math.min(1, f))));
+  }
+
+  update(t: number, cam: THREE.Camera, scale: number, amount: number, sunDir?: THREE.Vector3): void {
     const u = (this.points.material as THREE.ShaderMaterial).uniforms;
+    if (sunDir) u.uSunDir!.value.copy(sunDir);
     u.uTime!.value = t;
     u.uCenter!.value.copy(cam.position);
     u.uScale!.value = scale;

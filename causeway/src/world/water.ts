@@ -19,8 +19,10 @@ export class Water {
         uSky: { value: null },
         uSunDir: { value: sunDir.clone() },
         uSunColor: { value: new THREE.Color(1.0, 0.82, 0.6) },
-        uShallow: { value: new THREE.Color('#2ab4a6') },
-        uDeep: { value: new THREE.Color('#073a48') },
+        uShallow: { value: new THREE.Color('#2fa593') },
+        uDeep: { value: new THREE.Color('#06403f') },
+        uSkyYaw: { value: 0 },
+        uMark: { value: 1 },
         uDetail: { value: 2 },
         uCamPos: { value: new THREE.Vector3() },
       },
@@ -49,6 +51,8 @@ export class Water {
         uniform vec3 uDeep;
         uniform int uDetail;
         uniform vec3 uCamPos;
+        uniform float uSkyYaw;
+        uniform float uMark;
         varying vec3 vWorld;
 
         vec2 waveGrad(vec2 p, float t) {
@@ -68,6 +72,9 @@ export class Water {
 
         vec3 skySample(vec3 d) {
           d = normalize(d);
+          // The panorama turns with the light (see Game: the sky follows the route's heading).
+          float cy = cos(uSkyYaw), sy = sin(uSkyYaw);
+          d = vec3(cy * d.x - sy * d.z, d.y, sy * d.x + cy * d.z);
           vec2 uv = vec2(atan(d.z, d.x) / 6.2831853 + 0.5, asin(clamp(d.y, -1.0, 1.0)) / 3.1415926 + 0.5);
           return texture2D(uSky, uv).rgb;
         }
@@ -86,8 +93,10 @@ export class Water {
           // (The sRGB texture is decoded to linear by the sampler.)
           float depthLook = smoothstep(0.0, 1.0, dot(V, vec3(0.0, 1.0, 0.0)));
           // Looking down into it the water is clear turquoise; toward the horizon it reads deep.
-          vec3 body = mix(uDeep, uShallow, depthLook * 0.85 + 0.05);
-          body *= mix(0.72, 1.0, smoothstep(90.0, 8.0, dist));
+          vec3 body = mix(uDeep, uShallow, depthLook * 0.8 + 0.04);
+          // Deep teal-green in the middle distance, a clearer jade close under the eye.
+          body = mix(body, uShallow * 1.15, smoothstep(14.0, 3.0, dist) * 0.35);
+          body *= mix(0.7, 1.0, smoothstep(90.0, 8.0, dist));
           // Light scattered inside wave crests.
           float crest = clamp(g.x * 3.0 + g.y * 2.0, 0.0, 1.0);
           body += uShallow * crest * 0.25;
@@ -99,11 +108,13 @@ export class Water {
             float ca = pow(abs(sin(q.x * 2.2) * sin(q.y * 2.0)), 3.0);
             body += vec3(0.55, 0.85, 0.7) * ca * 0.22 * depthLook * smoothstep(45.0, 6.0, dist);
           }
-          vec3 col = mix(body, refl, fres * 0.9);
+          // Glossy: the sky and the far world mirror strongly toward grazing angles.
+          vec3 col = mix(body, refl * vec3(0.9, 0.97, 0.95), clamp(fres * 1.05, 0.0, 0.95));
           vec3 H = normalize(uSunDir + V);
           float spec = pow(max(dot(N, H), 0.0), 420.0) * 22.0 + pow(max(dot(N, H), 0.0), 60.0) * 0.35;
           col += uSunColor * spec;
-          gl_FragColor = vec4(col, 1.0);
+          // Alpha marks water for the screen-space reflections (the canvas itself is opaque).
+          gl_FragColor = vec4(col, uMark);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
           #include <fog_fragment>
@@ -125,6 +136,17 @@ export class Water {
 
   setDetail(d: number): void {
     this.uniforms.uDetail!.value = d;
+  }
+
+  /** Mark water pixels in alpha for the screen-space reflection pass (only where it runs). */
+  setReflections(on: boolean): void {
+    this.uniforms.uMark!.value = on ? 0.3 : 1;
+  }
+
+  /** Where the sun is, and how far the panorama has been turned to keep it there. */
+  setSun(dir: THREE.Vector3, skyYaw: number): void {
+    (this.uniforms.uSunDir!.value as THREE.Vector3).copy(dir);
+    this.uniforms.uSkyYaw!.value = skyYaw;
   }
 }
 

@@ -25,8 +25,8 @@ FAST = "--fast" in sys.argv
 sc = reset()
 rng = random.Random(11)
 
-SUN_EL = 34.0  # high enough that the low walls leave the causeway floor in sun
-SUN_AZ = 50.0  # degrees from +X toward +Y (the run direction is +Y): ahead and to the right
+SUN_EL = 20.0  # low and ahead: the sun sits in the top of the chase frame and walls throw long shadows back along the floor
+SUN_AZ = 76.0  # degrees from +X toward +Y (the run direction is +Y): just right of straight ahead
 SUN_ROT = 90.0 - SUN_AZ  # Nishita: dir = (sin r·cos e, cos r·cos e, sin e)
 
 # ---------------------------------------------------------------- world
@@ -380,7 +380,7 @@ sc.cycles.use_denoising = True
 sc.cycles.max_bounces = 4
 sc.view_settings.view_transform = "AgX"
 sc.view_settings.look = "AgX - Base Contrast"
-sc.view_settings.exposure = -0.35
+sc.view_settings.exposure = -0.2
 
 bpy.ops.render.render()
 rr = bpy.data.images["Render Result"]
