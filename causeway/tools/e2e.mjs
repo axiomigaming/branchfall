@@ -36,6 +36,13 @@ for (const name of pick) {
   const st = () => page.evaluate(() => { const s = window.__store.getState(); return { phase: s.phase, balance: s.balance, stake: s.stake, history: s.history.length, result: s.result && { won: s.result.won, payout: s.result.round.payout, stake: s.result.round.stake, mult: s.result.round.cashoutMult, crash: s.result.round.crash } }; });
   const waitPhase = (phases, timeout = 120000) => page.waitForFunction((p) => p.includes(window.__store.getState().phase), phases, { timeout });
   const shot = (tag) => page.screenshot({ path: `${OUT}/${name}-${tag}.png` }).catch(() => {});
+  // Wide screens show a top-bar button per panel; phones reach the same panels through the menu.
+  const openPanel = async (label) => {
+    const direct = page.locator(`.topbar button[aria-label="${label}"]`);
+    if (await direct.isVisible()) return direct.click();
+    await page.click('.topbar button[aria-label="Menu"]');
+    await page.click(`.menu button:has-text("${label}")`);
+  };
 
   await page.goto(`${URL}/?q=low&seed=e2e-${name}&qa`);
   await page.waitForSelector('.title-actions .btn-gold', { timeout: 300000 });
@@ -44,6 +51,8 @@ for (const name of pick) {
   await page.click('.title-actions .btn-gold');
   await waitPhase(['setup']);
   await shot('2-setup');
+  const lay = await page.evaluate(() => ({ dock: (innerHeight - document.querySelector('.dock').getBoundingClientRect().top) / innerHeight, over: document.documentElement.scrollWidth > innerWidth }));
+  check('setup dock leaves the world visible, no horizontal overflow', lay.dock <= 0.34 && !lay.over, JSON.stringify(lay));
 
   // Stake input clamps to the table limits.
   await page.fill('#stake', '0.01');
@@ -95,14 +104,13 @@ for (const name of pick) {
   check('cash-out after the fall changes nothing', (await st()).balance === r.balance);
 
   // Panels.
-  await page.click('button[aria-label="Provably fair"]');
+  await openPanel('Provably fair');
   await page.waitForSelector('.verdict', { timeout: 10000 });
   check('fairness panel verifies the last run', !(await page.$('.verdict.bad')));
   await shot('6-fair');
   await page.keyboard.press('Escape');
-  await page.click('button[aria-label="Settings"]');
+  await openPanel('Settings');
   await page.click('.seg button:has-text("Medium")');
-  await page.click('button[aria-label="Settings"]').catch(() => {});
   await page.keyboard.press('Escape');
   await page.keyboard.press('m');
   check('mute toggles', (await page.evaluate(() => window.__store.getState().settings.muted)) === true);

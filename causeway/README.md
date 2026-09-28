@@ -119,6 +119,39 @@ in `blender/` with headless Blender (`pip install bpy==4.2.0 "numpy<2"`):
 
 `python3 blender/build_kit.py --fast` bakes at quarter resolution for look-dev.
 
+### Asset delivery (after every re-export)
+
+Blender's exports (`kit.glb`, `runner.glb`, `env.hdr`) are pipeline **inputs**:
+the game never downloads them and `vite build` leaves them out of `dist`. After
+re-exporting anything, run:
+
+```sh
+npm run assets:optimize        # ~1 min; unchanged inputs are skipped (--force rebuilds)
+```
+
+It writes, into `public/assets/`:
+
+| File | What |
+| --- | --- |
+| `kit.high.glb`, `runner.high.glb` | meshopt geometry (`EXT_meshopt_compression` + `KHR_mesh_quantization`), WebP textures ≤ 2048 px (roughness atlases 1024 px, stored grey) |
+| `kit.mobile.glb`, `runner.mobile.glb` | the same, textures ≤ 1024 px (roughness and the small wood/bark/flora atlases 512 px), solid pieces simplified by ≤ 0.2 % of their size |
+| `env.half.hdr` | the IBL map at 512×256 (it only lights rough surfaces through PMREM) |
+| `manifest.json` | per file: bytes and content hash; bundled into the JS, so every asset URL carries `?v=<hash>` and `/assets/*` is served immutable (`public/_headers`) |
+
+Commit the outputs with the inputs. The loader picks **mobile** for phones, the
+Low tier, Save-Data and ≤ 4 GB devices, **high** otherwise; `?assets=high|mobile`
+overrides. Runner animation channels that hold a bone at rest in every clip are
+dropped; if a new clip moves such a bone, it is kept automatically.
+
+| First load (assets) | Before | high | mobile |
+| --- | --- | --- | --- |
+| bytes | 26.2 MB | 9.0 MiB | 4.6 MiB |
+
+`npm run bench -- --q low --net 4g` (with a server on `URL`, default
+`http://localhost:5195`) measures load bytes/time, the loading bar, ms/frame, draw
+calls, triangles, JS allocation per frame and memory over 10 rounds in headless
+Chromium; compare builds by relative numbers (SwiftShader is slow).
+
 ### Section library
 
 `start`, `corridor`, `bridge` (plank, rope-railed and waterfall-gorge styles),

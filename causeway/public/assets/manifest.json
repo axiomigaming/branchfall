@@ -1,0 +1,51 @@
+{
+  "generated": "npm run assets:optimize (tools/optimize-assets.mjs)",
+  "pipeline": "bdb33d5b18",
+  "sets": {
+    "high": {
+      "kit": {
+        "file": "kit.high.glb",
+        "bytes": 8056692,
+        "v": "5bcc4be2a3",
+        "src": "5208f5e512"
+      },
+      "runner": {
+        "file": "runner.high.glb",
+        "bytes": 1468808,
+        "v": "4da5d88829",
+        "src": "9288eb952f"
+      }
+    },
+    "mobile": {
+      "kit": {
+        "file": "kit.mobile.glb",
+        "bytes": 3742868,
+        "v": "9933981a56",
+        "src": "3c965ba083"
+      },
+      "runner": {
+        "file": "runner.mobile.glb",
+        "bytes": 955468,
+        "v": "87b6644bf1",
+        "src": "97463a2b7c"
+      }
+    }
+  },
+  "shared": {
+    "backdrop": {
+      "file": "backdrop.webp",
+      "bytes": 237368,
+      "v": "69dfc8a09f"
+    },
+    "env": {
+      "file": "env.half.hdr",
+      "bytes": 248637,
+      "v": "d63b1e8138"
+    },
+    "backdropMeta": {
+      "file": "backdrop.json",
+      "bytes": 253,
+      "v": "0449207079"
+    }
+  }
+}

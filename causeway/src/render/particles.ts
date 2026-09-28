@@ -90,31 +90,47 @@ export class Particles {
   emit(e: Emit): void {
     if (this.n >= this.max) return;
     const i = this.n++;
-    this.pos.set([e.pos.x, e.pos.y, e.pos.z], i * 3);
-    this.vel.set([e.vel.x, e.vel.y, e.vel.z], i * 3);
-    this.col.set([e.color.r, e.color.g, e.color.b], i * 3);
-    this.data.set([e.life, e.life, e.size, e.grow, e.alpha, e.drag ?? 1.5, e.gravity ?? 0], i * 7);
+    // perf: element writes, no temporary arrays per particle.
+    const p = i * 3;
+    const d = i * 7;
+    this.pos[p] = e.pos.x;
+    this.pos[p + 1] = e.pos.y;
+    this.pos[p + 2] = e.pos.z;
+    this.vel[p] = e.vel.x;
+    this.vel[p + 1] = e.vel.y;
+    this.vel[p + 2] = e.vel.z;
+    this.col[p] = e.color.r;
+    this.col[p + 1] = e.color.g;
+    this.col[p + 2] = e.color.b;
+    this.data[d] = e.life;
+    this.data[d + 1] = e.life;
+    this.data[d + 2] = e.size;
+    this.data[d + 3] = e.grow;
+    this.data[d + 4] = e.alpha;
+    this.data[d + 5] = e.drag ?? 1.5;
+    this.data[d + 6] = e.gravity ?? 0;
   }
+
+  // perf: scratch for burst() so a burst allocates nothing.
+  private static readonly scratch: Emit = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), life: 0, size: 0, grow: 0, color: new THREE.Color(), alpha: 0, drag: 0, gravity: 0 };
+  private uploaded = 0;
+  private attrs: THREE.BufferAttribute[] | undefined;
 
   /** A burst of `count` particles around `at`, scaled by the quality budget. */
   burst(at: THREE.Vector3, count: number, opts: { spread: number; up: number; speed: number; size: number; life: number; color: THREE.Color; alpha?: number; grow?: number; gravity?: number; drag?: number }): void {
     const n = Math.round(count * this.budget);
-    const v = new THREE.Vector3();
-    const p = new THREE.Vector3();
+    const e = Particles.scratch;
+    e.color = opts.color;
+    e.grow = opts.grow ?? 1.2;
+    e.alpha = opts.alpha ?? 0.5;
+    e.gravity = opts.gravity ?? 0;
+    e.drag = opts.drag ?? 1.8;
     for (let k = 0; k < n; k++) {
-      p.set(at.x + (Math.random() - 0.5) * opts.spread, at.y + Math.random() * 0.2, at.z + (Math.random() - 0.5) * opts.spread);
-      v.set((Math.random() - 0.5) * opts.speed, Math.random() * opts.up, (Math.random() - 0.5) * opts.speed);
-      this.emit({
-        pos: p,
-        vel: v,
-        life: opts.life * (0.6 + Math.random() * 0.8),
-        size: opts.size * (0.6 + Math.random() * 0.8),
-        grow: opts.grow ?? 1.2,
-        color: opts.color,
-        alpha: opts.alpha ?? 0.5,
-        gravity: opts.gravity ?? 0,
-        drag: opts.drag ?? 1.8,
-      });
+      e.pos.set(at.x + (Math.random() - 0.5) * opts.spread, at.y + Math.random() * 0.2, at.z + (Math.random() - 0.5) * opts.spread);
+      e.vel.set((Math.random() - 0.5) * opts.speed, Math.random() * opts.up, (Math.random() - 0.5) * opts.speed);
+      e.life = opts.life * (0.6 + Math.random() * 0.8);
+      e.size = opts.size * (0.6 + Math.random() * 0.8);
+      this.emit(e);
     }
   }
 
@@ -143,10 +159,16 @@ export class Particles {
       i++;
     }
     this.points.geometry.setDrawRange(0, this.n);
-    this.aPos.needsUpdate = true;
-    this.aCol.needsUpdate = true;
-    this.aSize.needsUpdate = true;
-    this.aAlpha.needsUpdate = true;
+    // perf: upload only the live range (and nothing when there was and is nothing to draw).
+    const live = Math.max(this.n, this.uploaded);
+    this.uploaded = this.n;
+    if (live === 0) return;
+    this.attrs ??= [this.aPos, this.aCol, this.aSize, this.aAlpha];
+    for (const a of this.attrs) {
+      a.clearUpdateRanges();
+      a.addUpdateRange(0, live * a.itemSize);
+      a.needsUpdate = true;
+    }
   }
 
   private kill(i: number): void {

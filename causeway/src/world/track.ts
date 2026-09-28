@@ -372,6 +372,11 @@ export class Track {
     foamTime.value = time;
   }
 
+  /** Every prepared section variant's merged props (for shader and upload warm-up). */
+  variantGroups(): THREE.Object3D[] {
+    return [...this.variants.values()].flat().map((v) => v.group);
+  }
+
   get tileMeshes(): THREE.InstancedMesh[] {
     return [...this.tiles['meshes'].values()];
   }

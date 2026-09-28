@@ -18,13 +18,15 @@ export interface QualityProfile {
   ambientLife: number;
   /** Screen-space ambient occlusion taps per pixel (depth only, no extra draws); 0 turns it off. */
   ao: number;
+  /** Floor for dynamic resolution, as a fraction of the pixel-ratio cap (perf). */
+  minRenderScale: number;
 }
 
 export const QUALITY: Record<QualityLevel, QualityProfile> = {
-  low: { pixelRatioCap: 1, shadows: false, shadowMapSize: 1024, bloom: false, speedBlur: true, smaa: false, foliageDensity: 0.45, sceneryDensity: 0.4, viewDistance: 110, dust: 0.4, waterDetail: 0, godRays: 0, ambientLife: 0.35, ao: 0 },
-  medium: { pixelRatioCap: 1.5, shadows: true, shadowMapSize: 1024, bloom: true, speedBlur: true, smaa: false, foliageDensity: 0.7, sceneryDensity: 0.7, viewDistance: 140, dust: 0.7, waterDetail: 1, godRays: 14, ambientLife: 0.6, ao: 0 },
-  high: { pixelRatioCap: 2, shadows: true, shadowMapSize: 2048, bloom: true, speedBlur: true, smaa: true, foliageDensity: 1, sceneryDensity: 1, viewDistance: 175, dust: 1, waterDetail: 2, godRays: 22, ambientLife: 1, ao: 10 },
-  ultra: { pixelRatioCap: 2.5, shadows: true, shadowMapSize: 4096, bloom: true, speedBlur: true, smaa: true, foliageDensity: 1, sceneryDensity: 1, viewDistance: 210, dust: 1.3, waterDetail: 2, godRays: 30, ambientLife: 1, ao: 14 },
+  low: { pixelRatioCap: 1, shadows: false, shadowMapSize: 1024, bloom: false, speedBlur: true, smaa: false, foliageDensity: 0.45, sceneryDensity: 0.4, viewDistance: 110, dust: 0.4, waterDetail: 0, godRays: 0, ambientLife: 0.35, ao: 0, minRenderScale: 0.7 },
+  medium: { pixelRatioCap: 1.5, shadows: true, shadowMapSize: 1024, bloom: true, speedBlur: true, smaa: false, foliageDensity: 0.7, sceneryDensity: 0.7, viewDistance: 140, dust: 0.7, waterDetail: 1, godRays: 14, ambientLife: 0.6, ao: 0, minRenderScale: 0.7 },
+  high: { pixelRatioCap: 2, shadows: true, shadowMapSize: 2048, bloom: true, speedBlur: true, smaa: true, foliageDensity: 1, sceneryDensity: 1, viewDistance: 175, dust: 1, waterDetail: 2, godRays: 22, ambientLife: 1, ao: 10, minRenderScale: 0.75 },
+  ultra: { pixelRatioCap: 2.5, shadows: true, shadowMapSize: 4096, bloom: true, speedBlur: true, smaa: true, foliageDensity: 1, sceneryDensity: 1, viewDistance: 210, dust: 1.3, waterDetail: 2, godRays: 30, ambientLife: 1, ao: 14, minRenderScale: 0.8 },
 };
 
 /** A first guess before any frame has been timed. The frame-time governor refines it. */

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { heatOf } from '../audio/feedback';
 import { formatCredits, formatMult, parseCredits, parseMult, payout } from '../engine/money';
 import { useStore } from '../state/store';
 import { useCtl } from './context';
@@ -34,7 +35,7 @@ export function Dock() {
   if (phase === 'title' || phase === 'loading') return null;
   const live = phase === 'lead' || phase === 'running' || phase === 'cashing';
   return (
-    <div className="dock" ref={ref}>
+    <div className={`dock${live ? ' live' : ''}`} ref={ref}>
       {live ? <CashOut /> : <Setup />}
     </div>
   );
@@ -81,69 +82,20 @@ function Setup() {
 
   return (
     <>
-      <div className="setup panel">
-        <div className="field stake">
-          <div className="field-head">
-            <label className="field-label" htmlFor="stake">
-              Stake
-            </label>
-            <span className="field-note">
-              Min {formatCredits(limits.minStake)} · Max {formatCredits(limits.maxStake)}
-            </span>
-          </div>
-          <div className="stepper">
-            <button className="step" onClick={stepDown} disabled={busy || s.stake <= limits.minStake} aria-label="Lower stake">
-              <IconMinus />
-            </button>
-            <div className="amount">
-              <input
-                id="stake"
-                inputMode="decimal"
-                value={text}
-                disabled={busy}
-                onFocus={(e) => {
-                  editing.current = true;
-                  e.currentTarget.select();
-                }}
-                onChange={(e) => setText(e.target.value)}
-                onBlur={commit}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                  e.stopPropagation();
-                }}
-                aria-describedby="stake-unit"
-              />
-              <span className="unit" id="stake-unit">
-                CR
-              </span>
-            </div>
-            <button className="step" onClick={stepUp} disabled={busy || s.stake >= max} aria-label="Raise stake">
-              <IconPlus />
-            </button>
-          </div>
-          <div className="chips">
-            <button className="qchip" disabled={busy} onClick={() => setStake(s.stake / 2)}>
-              ½
-            </button>
-            <button className="qchip" disabled={busy} onClick={() => setStake(s.stake * 2)}>
-              2×
-            </button>
-            {[500, 2500, 10000].map((v) => (
-              <button key={v} className="qchip" disabled={busy || v > max} onClick={() => setStake(v)}>
-                {formatCredits(v).replace('.00', '')}
-              </button>
-            ))}
-            <button className="qchip" disabled={busy} onClick={() => setStake(max)}>
-              Max
-            </button>
-          </div>
-        </div>
-        <div className="field auto">
-          <div className="field-head">
+      <div className="setup glass">
+        <div className="setup-head">
+          <label className="field-label" htmlFor="stake">
+            Stake
+          </label>
+          <span className="field-note limits">
+            {formatCredits(limits.minStake)} – {formatCredits(limits.maxStake)}
+          </span>
+          <div className={`auto${s.autoOn ? ' on' : ''}`}>
             <button
               className="toggle"
               role="switch"
               aria-checked={s.autoOn}
+              aria-label="Auto cash-out"
               disabled={busy}
               onClick={() => {
                 ctl?.audio.ui('tick');
@@ -151,62 +103,110 @@ function Setup() {
               }}
             >
               <span className="switch" />
-              Auto cash-out
+              <span className="toggle-text">
+                Auto<span className="long"> cash-out</span>
+              </span>
             </button>
-          </div>
-          <div className={`auto-amount${s.autoOn ? ' on' : ''}`}>
-            <div className="amount">
-              <input
-                aria-label="Auto cash-out multiplier"
-                inputMode="decimal"
-                value={autoText}
-                disabled={!s.autoOn || busy}
-                onFocus={(e) => e.currentTarget.select()}
-                onChange={(e) => setAutoText(e.target.value)}
-                onBlur={commitAuto}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                  e.stopPropagation();
-                }}
-              />
-              <span className="unit">×</span>
-            </div>
-            <div className="field-note auto-note">
-              {target ? (
-                <>
-                  Pays <b>{formatCredits(payout(s.stake, target))}</b> if the way holds
-                </>
-              ) : (
-                'You cash out by hand'
-              )}
-            </div>
+            {s.autoOn && (
+              <div className="auto-well">
+                <input
+                  aria-label="Auto cash-out multiplier"
+                  inputMode="decimal"
+                  value={autoText}
+                  disabled={busy}
+                  onFocus={(e) => e.currentTarget.select()}
+                  onChange={(e) => setAutoText(e.target.value)}
+                  onBlur={commitAuto}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                    e.stopPropagation();
+                  }}
+                />
+                <span className="unit">×</span>
+              </div>
+            )}
           </div>
         </div>
-        <div className="run-cell">
-          {broke ? (
-            <button className="btn btn-gold run-btn" onClick={() => void ctl?.refill()} onMouseEnter={() => ctl?.audio.ui('hover')}>
-              <span className="medal" aria-hidden />
-              <span className="btn-label">Refill</span>
-              <small className="btn-sub">Demo credits</small>
-            </button>
-          ) : (
-            <button
-              className={`btn btn-gold run-btn${busy ? ' busy' : ''}${won ? ' won' : ''}`}
-              onClick={() => void ctl?.run()}
-              onMouseEnter={() => ctl?.audio.ui('hover')}
-              disabled={s.stake > s.balance}
-              aria-busy={busy}
-              aria-label={busy ? 'Placing your stake' : `${s.phase === 'result' ? 'Run again' : 'Run'} with a stake of ${formatCredits(s.stake)}`}
-            >
-              <span className="medal" aria-hidden />
-              <span className="btn-label">{busy ? 'Placing' : s.phase === 'result' ? 'Run again' : 'Run'}</span>
-              <small className="btn-sub num">
-                {formatCredits(s.stake)}
-                <i>CR</i>
-              </small>
-            </button>
-          )}
+        <div className="setup-body">
+          <div className="stake-col">
+            <div className="stepper">
+              <button className="step" onClick={stepDown} disabled={busy || s.stake <= limits.minStake} aria-label="Lower stake">
+                <IconMinus />
+              </button>
+              <div className="amount">
+                <input
+                  id="stake"
+                  inputMode="decimal"
+                  value={text}
+                  disabled={busy}
+                  onFocus={(e) => {
+                    editing.current = true;
+                    e.currentTarget.select();
+                  }}
+                  onChange={(e) => setText(e.target.value)}
+                  onBlur={commit}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                    e.stopPropagation();
+                  }}
+                  aria-describedby="stake-unit"
+                />
+                <span className="unit" id="stake-unit">
+                  CR
+                </span>
+              </div>
+              <button className="step" onClick={stepUp} disabled={busy || s.stake >= max} aria-label="Raise stake">
+                <IconPlus />
+              </button>
+            </div>
+            <div className="chips">
+              <button className="qchip" disabled={busy} onClick={() => setStake(s.stake / 2)}>
+                ½
+              </button>
+              <button className="qchip" disabled={busy} onClick={() => setStake(s.stake * 2)}>
+                2×
+              </button>
+              {[500, 2500, 10000].map((v) => (
+                <button key={v} className="qchip" disabled={busy || v > max} onClick={() => setStake(v)}>
+                  {formatCredits(v).replace('.00', '')}
+                </button>
+              ))}
+              <button className="qchip" disabled={busy} onClick={() => setStake(max)}>
+                Max
+              </button>
+            </div>
+          </div>
+          <div className="run-cell">
+            {broke ? (
+              <button className="btn btn-gold run-btn" onClick={() => void ctl?.refill()} onMouseEnter={() => ctl?.audio.ui('hover')}>
+                <span className="btn-label">Refill</span>
+                <span className="gem-sep" aria-hidden />
+                <small className="btn-sub">Demo credits</small>
+              </button>
+            ) : (
+              <button
+                className={`btn btn-gold run-btn${busy ? ' busy' : ''}${won ? ' won' : ''}`}
+                onClick={() => void ctl?.run()}
+                onMouseEnter={() => ctl?.audio.ui('hover')}
+                disabled={s.stake > s.balance}
+                aria-busy={busy}
+                aria-label={busy ? 'Placing your stake' : `${s.phase === 'result' ? 'Run again' : 'Run'} with a stake of ${formatCredits(s.stake)}`}
+              >
+                <span className="btn-label">{busy ? 'Placing' : s.phase === 'result' ? 'Run again' : 'Run'}</span>
+                <span className="gem-sep" aria-hidden />
+                <small className="btn-sub num">
+                  {formatCredits(s.stake)}
+                  <i>CR</i>
+                </small>
+              </button>
+            )}
+          </div>
         </div>
+        {target !== null && (
+          <div className="field-note auto-note">
+            Auto cash-out pays <b>{formatCredits(payout(s.stake, target))}</b> at {formatMult(target)}× if the way holds
+          </div>
+        )}
       </div>
       <div className="fine">
         Cash out any time for stake × multiplier. If the way falls first, the stake is lost. <kbd>Space</kbd> to run
@@ -220,12 +220,20 @@ function CashOut() {
   const live = useStore((s) => s.live)!;
   const ctl = useCtl();
   const amtRef = useRef<HTMLSpanElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!ctl) return;
     let raf = 0;
+    let lastHeat = -1;
     const tick = () => {
       raf = requestAnimationFrame(tick);
       if (amtRef.current) amtRef.current.textContent = formatCredits(ctl.currentReturn());
+      // The plate's glow follows the multiplier, on the same curve as the HUD figure.
+      const heat = heatOf(ctl.currentMult());
+      if (btnRef.current && Math.abs(heat - lastHeat) > 0.004) {
+        btnRef.current.style.setProperty('--heat', heat.toFixed(3));
+        lastHeat = heat;
+      }
     };
     tick();
     return () => cancelAnimationFrame(raf);
@@ -234,6 +242,7 @@ function CashOut() {
   return (
     <>
       <button
+        ref={btnRef}
         className={`btn cash${lead ? ' lead' : ''}${phase === 'cashing' ? ' pressed' : ''}`}
         onPointerDown={(e) => {
           // Pointer-down, not click: the tap is the decision.
@@ -246,7 +255,6 @@ function CashOut() {
         aria-label="Cash out"
       >
         <span className="aura" aria-hidden />
-        <span className="medal" aria-hidden />
         <span className="label">
           <span className="btn-label">{lead ? 'Get set' : phase === 'cashing' ? 'Securing' : 'Cash out'}</span>
           <small>{lead ? 'The run starts in a moment' : phase === 'cashing' ? 'Taking the return' : 'Take the return now'}</small>

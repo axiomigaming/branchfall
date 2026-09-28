@@ -1,17 +1,18 @@
-"""CAUSEWAY interface artwork: carved plaques, cast frames and set medallions.
+"""CAUSEWAY interface artwork: sunlit plates for the primary actions, and the sheets' frame.
 
-    python3 blender/build_ui.py            # all pieces -> public/ui/*.webp
-    python3 blender/build_ui.py --fast     # quarter samples, for look-dev
-    python3 blender/build_ui.py jade sun   # only the named pieces
+    python3 blender/build_ui.py                       # shipped pieces -> public/ui/*.webp
+    python3 blender/build_ui.py --fast                # quarter samples, for look-dev
+    python3 blender/build_ui.py plate-sun plate-gold  # only the named pieces
+    python3 blender/build_ui.py concept-b-run         # concept-board pieces (never shipped)
 
 Every piece is modelled lying flat (Z up), rendered straight down with an
 orthographic Cycles camera onto a transparent film, and saved as WebP.
 
-The plaques and the panel frame are built for CSS `border-image` 9-slice use:
-all ornament sits inside the corner squares (`SLICE` units from each edge) and
-everything between the corners is a straight extrusion, so the edge and centre
-slices stretch cleanly to any button width. Text is never baked in; the page
-sets it live on top.
+plate-sun (RUN / ENTER: sandstone in gold leaf) and plate-gold (CASH OUT: gold
+leaf) are 3-slice strips for CSS `border-image`: [pointed cap | one repeating
+centre tile | pointed cap]. Geometry between the caps repeats every TILE/8 and
+the textures every TILE, so the centre tiles seamlessly at any width. The panel
+frame is a 9-slice. Text is never baked in; the page sets it live on top.
 """
 import math
 import os
@@ -307,41 +308,6 @@ def corner_frets(w, h, inset, arm, t, z0, z1, mat, steps=True):
 
 
 # ---------------------------------------------------------------- pieces
-def plaque(name, face_mat, frame_mat, inlay_mat, w=6.0, h=2.0, chamfer=0.34, frame_w=0.2, relief=1.0):
-    """A carved stone tablet in a cast frame with a gold-inlaid rim.
-
-    Profile from the outside in: cast frame (bevelled, highest), a fine gold
-    bead in its middle, a gold fillet at its inner edge, then the stone face,
-    pillowed and set lower. Fret brackets and rivets live in the corners."""
-    sc = reset()
-    M = mats()
-    fm, im, sm = M[frame_mat], M[inlay_mat], M[face_mat]
-    outer = crect(w, h, chamfer)
-    inner = inset_outline(outer, frame_w)
-    zf = 0.18 * relief
-    ring("frame", outer, inner, 0.0, zf, fm, bevel=0.07, seg=4, profile=0.62)
-    mid_o = inset_outline(outer, frame_w * 0.40)
-    mid_i = inset_outline(outer, frame_w * 0.58)
-    ring("bead", mid_o, mid_i, zf - 0.03, zf + 0.018, im, bevel=0.012, seg=3, profile=0.7)
-    fil_o = inset_outline(outer, frame_w - 0.005)
-    fil_i = inset_outline(outer, frame_w + 0.045)
-    ring("fillet", fil_o, fil_i, 0.0, zf * 0.62, im, bevel=0.018, seg=3)
-    face = inset_outline(outer, frame_w + 0.03)
-    slab("face", face, 0.0, zf * 0.42, sm, bevel=0.11, seg=6, profile=0.5)
-    # corners: fret brackets on the face, a rivet on each chamfer
-    corner_frets(w, h, frame_w + 0.16, 0.26, 0.045, zf * 0.42 - 0.01, zf * 0.42 + 0.03, im)
-    cm = chamfer * 0.5
-    for sx in (-1, 1):
-        for sy in (-1, 1):
-            # centre of the chamfer's band, on the frame
-            px = sx * (w / 2 - cm - frame_w * 0.25 + 0.02)
-            py = sy * (h / 2 - cm - frame_w * 0.25 + 0.02)
-            stud("rivet", px, py, 0.06, zf, im, h=0.05)
-    lights(w, h)
-    camera(w, h)
-    render(name)
-
-
 def panel_frame(name, w=8.0, h=4.0, frame_w=0.09, chamfer=0.3):
     """The dock/sheet frame: a thin bronze band, gold corner frets; open centre."""
     reset()
@@ -358,26 +324,123 @@ def panel_frame(name, w=8.0, h=4.0, frame_w=0.09, chamfer=0.3):
     render(name)
 
 
-def arch_mark(scale, z0, z1, mat, oy=0.0):
-    """The game's mark (an arch over a causeway), as a raised gold relief."""
-    pts = []
-    def P(x, y):
-        # SVG space (32x32, y down, centred at 16,17) -> units
-        pts.append(((x - 16) * scale, (17 - y) * scale + oy))
-    P(6, 26)
-    P(6, 14)
-    for k in range(1, 16):
-        a = math.pi - math.pi * k / 16
-        P(16 + 10 * math.cos(a), 14 - 10 * math.sin(a))
-    P(26, 14)
-    P(26, 26)
-    P(21.5, 26)
-    P(21.5, 14)
-    for k in range(1, 12):
-        a = math.pi * k / 12
-        P(16 + 5.5 * math.cos(a), 14 - 5.5 * math.sin(a))
-    P(10.5, 14)
-    P(10.5, 26)
+# ---------------------------------------------------------------- round 3: sunlit plates
+TILE = 1.0  # the repeating centre of a 3-slice plate, in units (128 px)
+
+
+def periodic(nt, period=TILE, sy=1.0):
+    """Object coordinates wrapped so X repeats every `period`: textures tile seamlessly
+    across the plate's centre slice however many times CSS repeats it."""
+    tc = N(nt, "ShaderNodeTexCoord")
+    sep = N(nt, "ShaderNodeSeparateXYZ")
+    L(nt, tc.outputs["Object"], sep.inputs[0])
+    th = math_node(nt, "MULTIPLY", sep.outputs["X"], 2 * math.pi / period)
+    r = period / (2 * math.pi)
+    cx = math_node(nt, "MULTIPLY", math_node(nt, "SINE", th), r)
+    cy = math_node(nt, "MULTIPLY", math_node(nt, "COSINE", th), r)
+    comb = N(nt, "ShaderNodeCombineXYZ")
+    L(nt, cx, comb.inputs["X"])
+    L(nt, cy, comb.inputs["Z"])
+    L(nt, math_node(nt, "MULTIPLY", sep.outputs["Y"], sy), comb.inputs["Y"])
+    return comb.outputs[0]
+
+
+def mat_sandstone(name, light="#fbeed3", dark="#e9cc98", grain=0.3, rough=0.7):
+    """Sun-warmed sandstone: pale cream ground, soft clouding, faint bedding, fine grain."""
+    m = bpy.data.materials.new(name)
+    nt = nodes_clear(m)
+    bsdf = N(nt, "ShaderNodeBsdfPrincipled", Roughness=rough)
+    v = periodic(nt)
+    cloud = N(nt, "ShaderNodeTexNoise", Scale=2.2, Detail=4.0, Roughness=0.5)
+    L(nt, v, cloud.inputs["Vector"])
+    c = mix(nt, maprange(nt, cloud.outputs["Fac"], 0.25, 0.75, 0.15, 0.85), hexcol(light), hexcol(dark))
+    fine = N(nt, "ShaderNodeTexNoise", Scale=70.0, Detail=2.0, Roughness=0.7)
+    L(nt, v, fine.inputs["Vector"])
+    c = mix(nt, maprange(nt, fine.outputs["Fac"], 0.55, 0.8, 0.0, 0.18), c, hexcol("#b98d58"))
+    L(nt, c, bsdf.inputs["Base Color"])
+    bump = N(nt, "ShaderNodeBump", Strength=grain, Distance=0.01)
+    L(nt, fine.outputs["Fac"], bump.inputs["Height"])
+    L(nt, bump.outputs[0], bsdf.inputs["Normal"])
+    out = N(nt, "ShaderNodeOutputMaterial")
+    L(nt, bsdf.outputs[0], out.inputs[0])
+    return m
+
+
+def mat_leaf(name, base="#f1c56c", low="#c98f3a", rough=0.26, crinkle=0.06, glow=None, glow_strength=0.0):
+    """Gold leaf: bright metal with soft tonal patches and a faint crinkle where the leaf laps."""
+    m = bpy.data.materials.new(name)
+    nt = nodes_clear(m)
+    bsdf = N(nt, "ShaderNodeBsdfPrincipled", Metallic=1.0, Roughness=rough)
+    v = periodic(nt)
+    nz = N(nt, "ShaderNodeTexNoise", Scale=4.0, Detail=4.0, Roughness=0.55)
+    L(nt, v, nz.inputs["Vector"])
+    c = mix(nt, maprange(nt, nz.outputs["Fac"], 0.3, 0.7, 0.0, 0.3), hexcol(base), hexcol(low))
+    L(nt, c, bsdf.inputs["Base Color"])
+    L(nt, maprange(nt, nz.outputs["Fac"], 0.3, 0.7, rough * 0.7, rough * 1.4), bsdf.inputs["Roughness"])
+    if crinkle:
+        vz = N(nt, "ShaderNodeTexVoronoi", Scale=9.0)
+        vz.feature = "DISTANCE_TO_EDGE"
+        L(nt, v, vz.inputs["Vector"])
+        bump = N(nt, "ShaderNodeBump", Strength=crinkle, Distance=0.01)
+        L(nt, vz.outputs["Distance"], bump.inputs["Height"])
+        L(nt, bump.outputs[0], bsdf.inputs["Normal"])
+    if glow:
+        bsdf.inputs["Emission Color"].default_value = hexcol(glow)
+        bsdf.inputs["Emission Strength"].default_value = glow_strength
+    out = N(nt, "ShaderNodeOutputMaterial")
+    L(nt, bsdf.outputs[0], out.inputs[0])
+    return m
+
+
+def mat_gem(name, col, glow_strength=0.4):
+    m = bpy.data.materials.new(name)
+    nt = nodes_clear(m)
+    bsdf = N(nt, "ShaderNodeBsdfPrincipled", Roughness=0.08)
+    bsdf.inputs["Base Color"].default_value = hexcol(col)
+    bsdf.inputs["Coat Weight"].default_value = 1.0
+    bsdf.inputs["Emission Color"].default_value = hexcol(col)
+    bsdf.inputs["Emission Strength"].default_value = glow_strength
+    out = N(nt, "ShaderNodeOutputMaterial")
+    L(nt, bsdf.outputs[0], out.inputs[0])
+    return m
+
+
+def sun_lights(w, h, key=110):
+    # A sun lamp, not an area light: parallel rays light every point of the plate the
+    # same way, so the centre slice tiles without a seam.
+    d = bpy.data.lights.new("sun", "SUN")
+    d.energy = key / 40
+    d.angle = math.radians(8)
+    d.color = (1.0, 0.9, 0.74)
+    o = bpy.data.objects.new("sun", d)
+    bpy.context.scene.collection.objects.link(o)
+    o.rotation_euler = (Vector((0.25, -0.9, -1.4))).to_track_quat("-Z", "Y").to_euler()
+    # Daylight dome. Flat metal mirrors the zenith straight back at the camera, so the
+    # zenith is bright warm sky (gold leaf reads bright, not bronze); bevels turned to
+    # the top of the image catch more sun, bevels turned down fall into shade.
+    sc = bpy.context.scene
+    nt = nodes_clear(sc.world)
+    tc = N(nt, "ShaderNodeTexCoord")
+    sep = N(nt, "ShaderNodeSeparateXYZ")
+    L(nt, tc.outputs["Generated"], sep.inputs[0])
+    y = maprange(nt, sep.outputs["Y"], -1.0, 1.0, 0.0, 1.0, smooth=False)
+    col = ramp(nt, y, [(0.0, (0.02, 0.012, 0.006)), (0.3, (0.16, 0.1, 0.05)), (0.5, (0.8, 0.64, 0.44)), (0.75, (1.3, 1.08, 0.76)), (1.0, (1.6, 1.35, 1.0))])
+    bg = N(nt, "ShaderNodeBackground", Strength=1.0)
+    L(nt, col, bg.inputs["Color"])
+    out = N(nt, "ShaderNodeOutputWorld")
+    L(nt, bg.outputs[0], out.inputs[0])
+    sc.view_settings.view_transform = "Standard"
+    sc.view_settings.look = "None"
+    sc.view_settings.exposure = -0.15
+
+
+def hexagon(w, h, p):
+    """Long hexagon with pointed ends of depth p (CCW)."""
+    x, y = w / 2, h / 2
+    return [(-x + p, -y), (x - p, -y), (x, 0), (x - p, y), (-x + p, y), (-x, 0)]
+
+
+def poly_slab(name, pts, z0, z1, mat, bevel=0.0, seg=2, profile=0.5):
     bm = bmesh.new()
     vs = [bm.verts.new((x, y, z0)) for x, y in pts]
     f = bm.faces.new(vs)
@@ -387,86 +450,142 @@ def arch_mark(scale, z0, z1, mat, oy=0.0):
     for v in [e for e in ext["geom"] if isinstance(e, bmesh.types.BMVert)]:
         v.co.z = z1
     bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
-    top = [e for e in bm.edges if all(v.co.z > z1 - 1e-4 for v in e.verts)]
-    bmesh.ops.bevel(bm, geom=top, offset=0.012, segments=2, affect="EDGES", clamp_overlap=True)
+    if bevel > 0:
+        top = [e for e in bm.edges if all(v.co.z > z1 - 1e-4 for v in e.verts)]
+        bmesh.ops.bevel(bm, geom=top, offset=bevel, segments=seg, profile=profile, affect="EDGES", clamp_overlap=True)
     bmesh.ops.triangulate(bm, faces=list(bm.faces))
-    ob = mesh_obj("mark", bm, mat, smooth=False)
-    # a line under the arch: the causeway
-    box("road", 0, (17 - 28.5) * scale + oy, 26 * scale, 1.4 * scale, z0, z1, mat, bevel=0.008)
-    return ob
+    return mesh_obj(name, bm, mat)
 
 
-def medallion(name, stone, bezel="gold", rays=0, glyph="arch"):
-    """A cabochon set in a cast bezel: the jewel on the face of a button."""
+def render_strip(name, cap, tile=TILE):
+    """Render the plate, then keep [left cap | one centre tile | right cap] for 3-slice use."""
+    import numpy as np
+
+    sc = bpy.context.scene
+    tmp = os.path.join(OUT, f".{name}.png")
+    sc.render.image_settings.file_format = "PNG"
+    sc.render.filepath = tmp
+    bpy.ops.render.render(write_still=True)
+    img = bpy.data.images.load(tmp)
+    iw, ih = img.size
+    a = np.array(img.pixels[:], np.float32).reshape(ih, iw, 4)
+    c = round(cap * PPU)
+    t = round(tile * PPU)
+    m0 = iw // 2 - t // 2
+    strip = np.ascontiguousarray(np.concatenate([a[:, :c], a[:, m0:m0 + t], a[:, iw - c:]], axis=1))
+    o = bpy.data.images.new(name, strip.shape[1], ih, alpha=True)
+    o.pixels[:] = strip.ravel()
+    o.filepath_raw = os.path.join(OUT, f"{name}.webp")
+    o.file_format = "WEBP"
+    sc.render.image_settings.quality = 90
+    o.save()
+    os.remove(tmp)
+    print("wrote", o.filepath_raw, strip.shape[1], "x", ih, "cap px", c)
+
+
+def keystone_plate(name, face, rim, line, cap_mat, gem, W=4.5, H=1.5, P=0.46, CAP=0.75, ticks="bar", relief=1.0, key=180):
+    """The round-3 plate: a long hexagon with pointed, gilt-capped ends.
+
+    Rim (gold, highest) -> face (pillowed) -> a fine gold line top and bottom ->
+    a band of small carved ticks along each edge -> gilt chevron ferrules on the
+    points with a set stone inside each. Between the caps everything repeats every
+    TILE/8 along X (geometry) or every TILE (textures), so CSS can tile the centre
+    slice with `border-image-repeat: round` and never stretch the carving."""
+    global PPU
+    saved, PPU = PPU, 192  # 288 px tall: crisp on 3x phone screens
+    reset()
+    face, rim, line, cap_mat, gem = (f() for f in (face, rim, line, cap_mat, gem))  # materials made after the reset
+    sun_lights(W, H, key)
+    rimw = 0.075
+    zr = 0.16 * relief
+    zf = 0.11 * relief
+    outer = hexagon(W, H, P)
+    inner = inset_outline(outer, rimw)
+    ring("rim", outer, inner, 0.0, zr, rim, bevel=0.035, seg=4, profile=0.6)
+    poly_slab("face", inset_outline(outer, rimw - 0.01), 0.0, zf, face, bevel=0.09, seg=6, profile=0.5)
+    h = H / 2 - rimw
+    k = P / (H / 2)  # x run per unit of y along the slanted edges
+    tc = 0.2  # ferrule width
+    xt = W / 2 - rimw * 1.05
+    xb = xt - h * k
+    for sx in (-1, 1):
+        pts = [(xb - tc, -h), (xb, -h), (xt, 0), (xb, h), (xb - tc, h), (xt - tc, 0)]
+        if sx < 0:
+            pts = [(-x, y) for x, y in reversed(pts)]
+        poly_slab("cap", pts, 0.0, zr * 0.96, cap_mat, bevel=0.03, seg=3, profile=0.6)
+        # a set stone just inside the ferrule, in a small gilt lozenge
+        gx = sx * (xt - tc - 0.2)
+        lo = [(gx + 0.14 * math.cos(a), 0.14 * math.sin(a)) for a in [i * math.pi / 2 for i in range(4)]]
+        li = [(gx + 0.095 * math.cos(a), 0.095 * math.sin(a)) for a in [i * math.pi / 2 for i in range(4)]]
+        ring("setting", lo, li, zf - 0.02, zf + 0.035, cap_mat, bevel=0.01, seg=2)
+        bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, radius=0.085, location=(gx, 0, zf))
+        g = bpy.context.active_object
+        g.scale.z = 0.55
+        bpy.ops.object.shade_smooth()
+        g.data.materials.append(gem)
+    # the fine gold lines, running into the ferrules; the tick bands stop at the cap slice
+    ly = h - 0.17
+    half = xt - tc - ly * k + 0.02
+    xs = W / 2 - CAP - 0.02
+    n = int(xs / (TILE / 8))
+    for sy in (-1, 1):
+        box("line", 0, sy * ly, 2 * half, 0.026, zf - 0.02, zf + 0.012, line, bevel=0.006)
+        for i in range(-n, n + 1):
+            x = i * TILE / 8
+            if ticks == "bar":
+                box("tick", x, sy * (h - 0.085), 0.022, 0.075, zf - 0.02, zf + 0.006, line, bevel=0.004)
+            else:
+                stud("dot", x, sy * (h - 0.085), 0.02, zf, line, h=0.014)
+    camera(W, H)
+    render_strip(name, CAP)
+    PPU = saved
+
+
+def concept_b(name, base, low):
+    """Concept B (not shipped): the round-2 chamfered tablet, all gold leaf and fret."""
     reset()
     M = mats()
-    R = 1.0
-    # bezel: a torus-profiled ring
-    bpy.ops.mesh.primitive_torus_add(major_radius=0.86 * R, minor_radius=0.13 * R, major_segments=96, minor_segments=18, location=(0, 0, 0.05))
-    tor = bpy.context.active_object
-    tor.scale.z = 0.8
-    bpy.ops.object.shade_smooth()
-    tor.data.materials.append(M[bezel])
-    # beaded outer rim
-    for k in range(36):
-        a = 2 * math.pi * k / 36
-        stud("bead", math.cos(a) * 0.985 * R, math.sin(a) * 0.985 * R, 0.035 * R, 0.0, M[bezel], h=0.03)
-    if rays:
-        for k in range(rays):
-            a = 2 * math.pi * (k + 0.5) / rays
-            bm = bmesh.new()
-            r0, r1, hw = 0.93 * R, 1.0 * R, 0.07
-            ca, sa = math.cos(a), math.sin(a)
-            tx, ty = -sa, ca
-            pts = [(ca * r0 + tx * hw, sa * r0 + ty * hw), (ca * r1, sa * r1), (ca * r0 - tx * hw, sa * r0 - ty * hw)]
-            vs = [bm.verts.new((x, y, 0.0)) for x, y in pts]
-            f = bm.faces.new(vs)
-            if f.normal.z < 0:
-                f.normal_flip()
-            ext = bmesh.ops.extrude_face_region(bm, geom=[f])
-            for v in [e for e in ext["geom"] if isinstance(e, bmesh.types.BMVert)]:
-                v.co.z = 0.06
-            bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
-            mesh_obj("ray", bm, M[bezel], smooth=False)
-    # the stone: a low dome
-    bpy.ops.mesh.primitive_uv_sphere_add(segments=64, ring_count=32, radius=0.8 * R, location=(0, 0, -0.05))
-    dome = bpy.context.active_object
-    dome.scale.z = 0.36
-    bpy.ops.object.shade_smooth()
-    dome.data.materials.append(M[stone])
-    if glyph == "arch":
-        arch_mark(0.029 * R, 0.13, 0.26, M["gold"], oy=0.02)
-    elif glyph == "sun":
-        # a raised gold disc with a ring of dots: the sun coin
-        bpy.ops.mesh.primitive_cylinder_add(vertices=64, radius=0.26 * R, depth=0.12, location=(0, 0, 0.2))
-        c = bpy.context.active_object
-        bev = c.modifiers.new("b", "BEVEL")
-        bev.width = 0.04
-        bev.segments = 4
-        bpy.ops.object.shade_smooth()
-        c.data.materials.append(M["gold"])
-        for k in range(12):
-            a = 2 * math.pi * k / 12
-            stud("dot", math.cos(a) * 0.44 * R, math.sin(a) * 0.44 * R, 0.045 * R, 0.19, M["gold"], h=0.04)
-    lights(2.2, 2.2)
-    camera(2.1, 2.1)
+    leaf = mat_leaf("leafface", base=base, low=low, rough=0.24, crinkle=0.08)
+    w, h, chamfer, frame_w = 6.0, 2.0, 0.34, 0.2
+    outer = crect(w, h, chamfer)
+    inner = inset_outline(outer, frame_w)
+    ring("frame", outer, inner, 0.0, 0.18, M["gold"], bevel=0.07, seg=4, profile=0.62)
+    slab("face", inset_outline(outer, frame_w + 0.03), 0.0, 0.08, leaf, bevel=0.11, seg=6)
+    corner_frets(w, h, frame_w + 0.16, 0.26, 0.045, 0.07, 0.11, M["bronze"])
+    sun_lights(w, h)
+    camera(w, h)
     render(name)
 
 
 PIECES = {
-    # 9-slice plaques (768x256, slice 80 px)
-    "plaque-jade": lambda: plaque("plaque-jade", "jade", "bronze", "gold"),
-    "plaque-ember": lambda: plaque("plaque-ember", "ember", "gold", "gold", relief=1.1),
-    "plaque-stone": lambda: plaque("plaque-stone", "obsidian", "darkbronze", "bronze", relief=0.8),
-    # 9-slice frame, open centre (1024x512, slice 80 px)
+    # 3-slice plates, 288 px tall: cap 144 px | centre tile 192 px | cap 144 px
+    "plate-sun": lambda: keystone_plate(
+        "plate-sun",
+        face=lambda: mat_sandstone("sand"),
+        rim=lambda: mat_leaf("rim", base="#e9b95c", low="#b77c2c", rough=0.3),
+        line=lambda: mat_leaf("line", base="#cf9542", low="#9c6424", rough=0.35, crinkle=0),
+        cap_mat=lambda: mat_leaf("cap", base="#f3c86e", low="#c68b35", rough=0.24),
+        gem=lambda: mat_gem("gem", "#2f9c80", 0.15),
+    ),
+    "plate-gold": lambda: keystone_plate(
+        "plate-gold",
+        face=lambda: mat_leaf("face", base="#ffd97a", low="#f2aa45", rough=0.2, crinkle=0.07),
+        rim=lambda: mat_leaf("rim", base="#c98530", low="#8a5220", rough=0.32),
+        line=lambda: mat_leaf("line", base="#fff0bf", low="#e8b965", rough=0.18, crinkle=0),
+        cap_mat=lambda: mat_leaf("cap", base="#d68d34", low="#9c5d22", rough=0.28),
+        gem=lambda: mat_gem("gem", "#ff7a2a", 1.2),
+        ticks="dot",
+        relief=1.1,
+        key=150,
+    ),
+    "concept-b-run": lambda: concept_b("concept-b-run", "#f1c56c", "#c98f3a"),
+    "concept-b-cash": lambda: concept_b("concept-b-cash", "#ff9a4a", "#c0461c"),
+    # 9-slice frame, open centre (1024x512, slice 80 px): the sheets' frame
     "frame-panel": lambda: panel_frame("frame-panel"),
-    # medallions (269x269)
-    "medal-jade": lambda: medallion("medal-jade", "jade", glyph="arch"),
-    "medal-sun": lambda: medallion("medal-sun", "amber", rays=16, glyph="sun"),
 }
 
 if __name__ == "__main__":
     for key, fn in PIECES.items():
-        if ONLY and not any(o in key for o in ONLY):
+        if (ONLY and key not in ONLY) or (not ONLY and key.startswith("concept")):
             continue
         fn()

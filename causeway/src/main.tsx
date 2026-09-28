@@ -9,7 +9,6 @@ import './ui/styles.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AudioEngine } from './audio/engine';
-import { Game } from './render/game';
 import { WorkerRoundService } from './service/WorkerRoundService';
 import { Controller } from './state/controller';
 import { useStore } from './state/store';
@@ -36,6 +35,8 @@ async function boot() {
   const quality = useStore.getState().settings.quality;
   const audio = new AudioEngine();
   const service = new WorkerRoundService({ seed: params.get('seed') });
+  // three.js and the world load as a separate chunk, so the title and loading bar paint first.
+  const { Game } = await import('./render/game');
   const [game] = await Promise.all([
     Game.create(canvas, quality, (progress, label) => useStore.getState().set({ loading: { progress, label } })),
     // The session is cheap; fetch it alongside the assets.

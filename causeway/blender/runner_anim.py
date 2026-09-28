@@ -157,23 +157,36 @@ DASH = dict(SPRINT, stride=[(t, h * 1.12, k * 1.06, a) for t, h, k, a in SPRINT[
 
 
 def loco(ph, G, k=1.0):
-    """Pose and (x, z) root for gait G at cycle phase ph (0 = left strike), amplitude k."""
+    """Pose and (x, z) root for gait G at cycle phase ph (0 = left strike), amplitude k.
+
+    Weight and follow-through: the pelvis yaws with the driving leg and drops on the swing side
+    just after each strike; the chest counter-twists (arms swing across the body on the forward
+    stroke and out on the back stroke, the forearm lagging the upper arm, the hand flopping at the
+    end of each stroke); the head is stabilised against the bob and the roll."""
     P = {}
     tw = 2 * math.pi
     hy = G["hyaw"] * math.cos(tw * (ph - 0.85)) * k
     for s, off in (("L", 0.0), ("R", 0.5)):
         t = (ph + off) % 1.0
         hip, knee, ankle = sample(G["stride"], t)
-        toe = G["toe"] * math.exp(-((t - G["ts"]) / 0.07) ** 2)
-        leg(P, s, hip * k, knee * (0.5 + 0.5 * k), ankle * (0.4 + 0.6 * k), toe * k, out=0.035, yaw=hy * 0.8)
-        a = math.cos(tw * (t - G["peak"]))  # +1 when this leg drives forward: the opposite arm is forward
+        # Heel strike → flat → toe-off: the toes bend as the heel lifts, then flick.
+        toe = G["toe"] * math.exp(-((t - G["ts"]) / 0.07) ** 2) - 0.12 * math.exp(-((t - 0.03) / 0.04) ** 2)
+        leg(P, s, hip * k, knee * (0.5 + 0.5 * k), ankle * (0.4 + 0.6 * k), toe * k, out=0.035 + 0.012 * math.sin(tw * t), yaw=hy * 0.8)
+        a = math.cos(tw * (t - G["peak"]))          # +1 when this leg drives forward: the opposite arm is forward
+        lag = math.cos(tw * (t - G["peak"] - 0.08))  # the forearm follows through a beat later
+        flop = math.sin(tw * (t - G["peak"] - 0.12))
         m = mirror(s)
-        arm(P, m, fwd=(G["arm_c"] + G["arm_a"] * a) * k + 0.05 * (1 - k), elbow=(G["elbow"] + G["elbow_a"] * a) * (0.5 + 0.5 * k),
-            out=G["out"] - 0.05 * a, wrist=0.12, twist=0.1 * a, curl=G["curl"], prot=0.07 * a * k)
-    roll = G["hroll"] * math.cos(tw * (ph - 0.1)) * k
+        arm(P, m, fwd=(G["arm_c"] + G["arm_a"] * a) * k + 0.05 * (1 - k), elbow=(G["elbow"] + G["elbow_a"] * lag) * (0.5 + 0.5 * k),
+            out=G["out"] - 0.085 * a * k, wrist=0.1 + 0.14 * flop * k, twist=0.16 * a * k, curl=G["curl"] + 0.08 * lag,
+            prot=0.1 * a * k, shrug=0.035 * max(0.0, a) * k)
+    # Hip drop: a sharp dip on the swing side just after each strike, easing back by mid-stance.
+    drop = math.exp(-(((ph % 0.5) - 0.07) / 0.09) ** 2) * (1 if ph % 1.0 < 0.5 else -1)
+    roll = (G["hroll"] * math.cos(tw * (ph - 0.1)) * 0.6 + G["hroll"] * 0.8 * drop) * k
     pump = 0.025 * math.cos(2 * tw * (ph - 0.12)) * k
-    torso(P, lean=G["lean"] * (0.3 + 0.7 * k) + pump, look=(G["lean"] + G["hp"]) * (0.3 + 0.7 * k) - 0.08 + G["look"] - pump,
-          yaw=-0.45 * hy, roll=-roll * 0.9, hp=G["hp"] * k, hyaw=hy, hroll=roll, head_yaw=0.0, head_roll=-roll * 0.2)
+    # The head rides the bob: it nods against the vertical and holds level against the roll.
+    nod = 0.035 * math.cos(2 * tw * (ph - 0.02)) * k
+    torso(P, lean=G["lean"] * (0.3 + 0.7 * k) + pump, look=(G["lean"] + G["hp"]) * (0.3 + 0.7 * k) - 0.08 + G["look"] - pump - nod,
+          yaw=-0.55 * hy, roll=-roll * 0.9, hp=G["hp"] * k, hyaw=hy, hroll=roll, head_yaw=0.0, head_roll=-roll * 0.15)
     x = 0.012 * math.cos(tw * (ph - 0.1)) * k
     return P, x
 
@@ -258,6 +271,31 @@ def build(rig):
         P["shoulder.R"] = (0.02 * br + 0.08 * tug, 0, 0)
         key(f + 1, P, x=0.012 * sway)
 
+    # ---------------------------------------------------------- idle_b: weight onto one hip, roll the neck and
+    # shoulders, look up at the ruins, brush dust off the forearm, settle (plays in turn with idle)
+    new_action("idle_b")
+    for f in range(0, 181, 5):
+        t = f / 180
+        br = math.sin(t * 2 * math.pi * 3)
+        hipk = ease(f / 25) * (1 - ease((f - 150) / 25))          # weight onto the right leg
+        neck = ease((f - 20) / 12) * (1 - ease((f - 56) / 14))    # a slow neck roll
+        nroll = math.sin((f - 20) / 36 * 2 * math.pi) if 20 <= f <= 56 else 0.0
+        up = ease((f - 62) / 16) * (1 - ease((f - 104) / 16))     # looks up at the heights
+        brush = ease((f - 108) / 8) * (1 - ease((f - 142) / 10))  # brushes the left forearm
+        stroke = math.sin((f - 108) / 34 * 3 * 2 * math.pi) if 108 <= f <= 142 else 0.0
+        P = {}
+        torso(P, lean=0.03 + 0.1 * brush + 0.01 * br, look=0.05 + 0.5 * up - 0.25 * brush + 0.2 * neck * nroll, yaw=0.06 * hipk - 0.1 * brush,
+              roll=-0.03 * hipk, hroll=0.06 * hipk, hyaw=-0.04 * hipk, head_yaw=0.25 * up - 0.2 * brush + 0.15 * neck,
+              head_roll=0.18 * neck * math.cos((f - 20) / 36 * 2 * math.pi) if 20 <= f <= 56 else 0.0, breath=0.016 * br)
+        leg(P, "R", hip=0.02, knee=0.02, ankle=0.0, out=0.08 + 0.02 * hipk)
+        leg(P, "L", hip=0.1 + 0.12 * hipk, knee=0.12 + 0.3 * hipk, ankle=0.08 + 0.12 * hipk, out=0.06 - 0.02 * hipk)
+        arm(P, "L", fwd=0.06 + 0.75 * brush, elbow=0.25 + 1.2 * brush, out=0.1 - 0.02 * brush, twist=0.5 * brush, curl=0.5 - 0.2 * brush)
+        arm(P, "R", fwd=0.04 + 0.6 * brush + 0.05 * stroke * brush, elbow=0.3 + 1.4 * brush, out=0.1 - 0.12 * brush + 0.04 * stroke * brush,
+            twist=0.3 * brush, curl=0.45 - 0.35 * brush)
+        P["shoulder.L"] = (0.02 * br + 0.1 * neck * max(0.0, nroll), 0, 0)
+        P["shoulder.R"] = (0.02 * br + 0.1 * neck * max(0.0, -nroll), 0, 0)
+        key(f + 1, P, x=-0.03 * hipk)
+
     # ---------------------------------------------------------- ready: coiled, rocking gently on the balls of the feet
     new_action("ready")
     for f in range(0, 41, 4):
@@ -265,31 +303,54 @@ def build(rig):
         key(f + 1, ready_pose(br), y=0.015 * br)
 
     # ---------------------------------------------------------- start: the burst out of the crouch into the run
+    # Anticipation (sink and cock the arms), an explosive push off the front foot with the rear knee
+    # driving through, then three accelerating steps — short and low, rising to the run by the fourth
+    # plant (a left strike, where the run cycle begins).
     new_action("start")
     key(1, ready_pose())
+    P = ready_pose()
+    torso(P, lean=0.7, look=0.66, hp=0.24, yaw=0.12, hyaw=0.06)
+    leg(P, "L", hip=1.05, knee=1.7, ankle=-0.45)
+    leg(P, "R", hip=-0.05, knee=1.05, ankle=0.35, toe=0.6)
+    arm(P, "R", fwd=1.05, elbow=1.45, out=0.14, curl=0.85)
+    arm(P, "L", fwd=-0.9, elbow=1.0, out=0.2, curl=0.85)
+    key(4, P)
     P = {}
-    torso(P, lean=0.62, look=0.6, hp=0.18, hyaw=-0.12, yaw=0.1)
-    leg(P, "L", hip=-0.12, knee=0.35, ankle=0.7, toe=0.6)
-    leg(P, "R", hip=1.05, knee=1.95, ankle=0.2)
-    arm(P, "L", fwd=1.25, elbow=1.35, curl=0.8, prot=0.1)
-    arm(P, "R", fwd=-0.95, elbow=1.0, out=0.2, curl=0.8)
-    key(4, P, lift=0.02)
+    torso(P, lean=0.78, look=0.72, hp=0.22, hyaw=-0.16, yaw=0.14)
+    leg(P, "L", hip=-0.2, knee=0.2, ankle=0.75, toe=0.7)
+    leg(P, "R", hip=1.2, knee=2.0, ankle=0.25)
+    arm(P, "L", fwd=1.45, elbow=1.3, curl=0.9, prot=0.14, out=0.06)
+    arm(P, "R", fwd=-1.1, elbow=0.9, out=0.22, curl=0.9)
+    key(7, P, lift=0.015)
     P = {}
-    torso(P, lean=0.5, look=0.5, hp=0.15, hyaw=-0.05)
-    leg(P, "R", hip=0.35, knee=0.35, ankle=0.0)
-    leg(P, "L", hip=-0.45, knee=1.0, ankle=0.6)
-    arm(P, "L", fwd=0.2, elbow=1.4, curl=0.8)
-    arm(P, "R", fwd=0.1, elbow=1.3, curl=0.8)
-    key(8, P)
+    torso(P, lean=0.7, look=0.64, hp=0.2, hyaw=-0.06)
+    leg(P, "R", hip=0.42, knee=0.55, ankle=-0.05)
+    leg(P, "L", hip=-0.42, knee=1.1, ankle=0.55)
+    arm(P, "L", fwd=0.5, elbow=1.45, curl=0.85)
+    arm(P, "R", fwd=-0.3, elbow=1.2, curl=0.85)
+    key(9, P)
     P = {}
-    torso(P, lean=0.42, look=0.45, hp=0.13, hyaw=0.12, yaw=-0.08)
-    leg(P, "R", hip=-0.45, knee=0.35, ankle=0.7, toe=0.5)
-    leg(P, "L", hip=0.95, knee=1.9, ankle=0.2)
-    arm(P, "R", fwd=1.1, elbow=1.35, curl=0.8, prot=0.08)
-    arm(P, "L", fwd=-0.85, elbow=1.05, out=0.2, curl=0.8)
-    key(12, P, lift=0.03)
+    torso(P, lean=0.62, look=0.6, hp=0.18, hyaw=0.14, yaw=-0.12)
+    leg(P, "R", hip=-0.42, knee=0.3, ankle=0.72, toe=0.6)
+    leg(P, "L", hip=1.1, knee=1.95, ankle=0.22)
+    arm(P, "R", fwd=1.3, elbow=1.35, curl=0.85, prot=0.12, out=0.07)
+    arm(P, "L", fwd=-1.0, elbow=0.95, out=0.2, curl=0.85)
+    key(13, P, lift=0.025)
+    P = {}
+    torso(P, lean=0.55, look=0.55, hp=0.16, hyaw=0.05)
+    leg(P, "L", hip=0.4, knee=0.45, ankle=-0.05)
+    leg(P, "R", hip=-0.4, knee=1.2, ankle=0.55)
+    arm(P, "R", fwd=0.45, elbow=1.4, curl=0.8)
+    arm(P, "L", fwd=-0.25, elbow=1.2, curl=0.8)
+    key(16, P)
+    P, x = loco(0.25, SPRINT, 0.85)
+    key(19, P, z=gait_root(0.25, SPRINT, 0.85), x=x)
+    P, x = loco(0.5, RUN, 0.95)
+    key(23, P, z=gait_root(0.5, RUN, 0.95), x=x)
+    P, x = loco(0.75, RUN)
+    key(26, P, z=gait_root(0.75, RUN), x=x)
     P0, x0 = loco(0.0, RUN)
-    key(16, P0, z=gait_root(0.0, RUN), x=x0)
+    key(29, P0, z=gait_root(0.0, RUN), x=x0)
 
     # ---------------------------------------------------------- chasm: skid, teeter and windmill at the edge, sit back hard
     new_action("fall_chasm")
@@ -340,6 +401,13 @@ def build(rig):
     arm(P, "L", fwd=-0.75, elbow=0.1, out=0.35, wrist=-0.7, curl=0.1)
     arm(P, "R", fwd=-0.8, elbow=0.12, out=0.35, wrist=-0.7, curl=0.1)
     key(46, P, y=-0.38)
+    P = {}
+    torso(P, lean=0.16, look=-0.2, hp=-0.24, head_roll=0.06)
+    leg(P, "L", hip=1.5, knee=0.62, ankle=-0.12)
+    leg(P, "R", hip=1.4, knee=1.3, ankle=0.05, out=0.09)
+    arm(P, "L", fwd=-0.7, elbow=0.2, out=0.36, wrist=-0.75, curl=0.15)
+    arm(P, "R", fwd=-0.72, elbow=0.2, out=0.36, wrist=-0.75, curl=0.15)
+    key(50, P, y=-0.38, lift=-0.015)
     for fr, br in ((58, 0.0), (68, 1.0), (78, 0.0)):
         P = {}
         torso(P, lean=0.08 + 0.03 * br, look=-0.12 + 0.05 * br, hp=-0.22, head_yaw=0.1, breath=0.02 * br)
@@ -627,6 +695,13 @@ def extra_clips():
     arm(P, "L", fwd=1.9, elbow=1.3, out=0.6, curl=0.6)
     arm(P, "R", fwd=-0.8, elbow=0.15, out=0.35, wrist=-0.7, curl=0.1)
     key(16, P, y=-0.55)
+    P = {}
+    torso(P, lean=-0.1, look=0.15, hp=-0.26, head_roll=-0.08)
+    leg(P, "L", hip=1.4, knee=0.55, ankle=-0.2)
+    leg(P, "R", hip=1.15, knee=1.35, ankle=0.0, out=0.1)
+    arm(P, "L", fwd=1.95, elbow=1.25, out=0.6, curl=0.6)
+    arm(P, "R", fwd=-0.85, elbow=0.2, out=0.35, wrist=-0.75, curl=0.1)
+    key(20, P, y=-0.58, lift=-0.01)
     for fr, t, br in ((28, 0.0, 0.0), (44, 0.3, 1.0), (62, 0.7, 0.0), (80, 1.0, 1.0), (95, 1.0, 0.0)):
         P = {}
         torso(P, lean=-0.2 + 0.25 * t, look=0.35 - 0.15 * t, hp=-0.28, head_yaw=0.35 * math.sin(t * 3), breath=0.02 * br)
@@ -789,7 +864,14 @@ def extra_clips():
     arm(P, "R", fwd=1.0, elbow=1.2, out=0.5, curl=1.2)
     arm(P, "L", fwd=0.9, elbow=0.2, out=0.4, wrist=-0.7, curl=0.1)
     key(27, P, )
-    key(33, P, )
+    P = {}
+    torso(P, lean=0.68, look=0.3, hp=0.3)
+    leg(P, "L", hip=1.45, knee=2.2, ankle=-0.35)
+    leg(P, "R", hip=0.6, knee=2.2, ankle=0.4, toe=0.55)
+    arm(P, "R", fwd=0.9, elbow=1.3, out=0.5, curl=1.2)
+    arm(P, "L", fwd=1.0, elbow=0.15, out=0.4, wrist=-0.8, curl=0.1)
+    key(30, P, )
+    key(35, P, )
     P = {}
     torso(P, lean=0.2, look=0.2)
     standing(P, wide=0.1, bend=0.2)
@@ -846,7 +928,7 @@ def previews(rig, which):
             shot(rig, "sprint", f, side)
         for f in (1, 5, 9):
             shot(rig, "sprint", f, (0.4, -3.6, 1.8), tag="sprintback")
-        for f in (1, 4, 8, 12, 16):
+        for f in (1, 4, 7, 9, 13, 16, 19, 23):
             shot(rig, "start", f, side)
     if which in ("react", "all"):
         for f in (9, 19, 29, 46, 78):
