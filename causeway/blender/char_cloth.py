@@ -13,8 +13,9 @@ from char_forms import V, HC, smooth01
 from char_sculpt import (Meta, voxel_remesh, keep_faces, displace, solidify, smooth_mesh, duplicate, build, sweep,
                          catmull, rect, circle, ring, cyl, rounded_box, ellipsoid, mirror_x, bvh_of, apply_mods)
 
-SLEEVE_T = 1.1   # the rolled sleeve sits just below the elbow (0 shoulder, 1 elbow, 2 wrist)
-HEM_Z = 0.984    # shirt tucked in to here (under the belt)
+SLEEVE_T = 0.56  # the short sleeve ends mid upper arm (0 shoulder, 1 elbow, 2 wrist)
+UNDER_T = 0.9    # the blue-grey undershirt sleeve shows below it, to just above the elbow
+HEM_Z = 0.905    # the shirt is worn untucked: its tail hangs to the top of the seat (higher at the sides)
 WAIST_Z = 1.018  # trouser waistband top
 BOOT_Z = 0.215   # trousers end inside the boot shaft
 
@@ -74,22 +75,33 @@ def in_v(c, grow=0.0):
     return c.y > 0.0 and c.z > 1.352 - grow and abs(c.x) < 0.006 + grow + (c.z - 1.352) * 0.92
 
 
+def hem_z(c):
+    """A shirt-tail hem: longest at the back and the front, curving up over the hips."""
+    a = math.atan2(c.x, c.y)
+    return HEM_Z + 0.024 * math.sin(a) ** 2 - 0.008 * max(0.0, -math.cos(a))
+
+
 # ------------------------------------------------------------------ zones on the body surface
 def shirt_zone(c, n=None):
-    if c.z < HEM_Z:
-        return False
-    arm, t, *_ = arm_info(c)
-    if arm:
+    arm, t, d, *_ = arm_info(c)
+    if arm and (d < 0.05 or c.z > 1.1):
         return t < SLEEVE_T
+    if c.z < hem_z(c):
+        return False
     if in_neck(c):
         return False
     return not in_v(c)
 
 
+def under_zone(c, n=None):
+    arm, t, d, *_ = arm_info(c)
+    return arm and (d < 0.05 or c.z > 1.1) and SLEEVE_T - 0.12 < t < UNDER_T
+
+
 def skin_zone(c, n=None):
     arm, t, *_ = arm_info(c)
     if arm:
-        return SLEEVE_T - 0.12 < t < 2.02
+        return UNDER_T - 0.08 < t < 2.02
     if in_neck(c, 0.02):
         return True
     return in_v(c, 0.03)
@@ -102,29 +114,39 @@ def trouser_zone(c, n=None):
     return not (arm and d < 0.05)
 
 
+def under_disp(c, n):
+    """A snug knit undershirt sleeve: soft bunching toward the elbow."""
+    arm, t, dist, p, ax = arm_info(c)
+    nz = noise.noise(c * 20)
+    off = 0.0035 + 0.002 * smooth01((t - 0.5) / 0.3)
+    off += 0.0014 * smooth01((t - 0.6) / 0.2) * math.sin(t * 90 + nz * 3)
+    return c + n * off
+
+
 # ------------------------------------------------------------------ displacement (folds)
 def shirt_disp(c, n):
     arm, t, dist, p, ax = arm_info(c)
     nz = noise.noise(c * 18)
     off = 0.0055
-    if arm:
-        # A loose linen sleeve, fuller toward the roll; compression folds near the roll and the crook.
+    if arm and (dist < 0.05 or c.z > 1.1):
+        # A short linen sleeve, flaring open toward its hem; soft folds hanging from the shoulder seam.
         r = c - p
         ang = math.atan2(r.dot(Vector((0, 1, 0)).cross(ax).normalized()), r.y)
-        off += 0.001 + 0.009 * smooth01((t - 0.15) / 0.85)
-        k = smooth01((t - 0.35) / 0.4)
-        off += 0.0032 * k * math.sin(t * 58 + 2.2 * math.sin(ang * 2 + 1.3) + nz * 2.5)
-        off += 0.002 * math.sin(ang * 5 + t * 9 + nz * 2) * (1 - k) * smooth01(t / 0.2)
+        off += 0.001 + 0.013 * smooth01((t - 0.08) / (SLEEVE_T - 0.08))
+        off += 0.0035 * smooth01((t - 0.2) / 0.3) * math.sin(ang * 3 + t * 11 + nz * 2.2)
+        off += 0.002 * math.sin(ang * 5 + t * 9 + nz * 2) * smooth01(t / 0.2)
         # Pull toward the underarm, where the sleeve meets the body.
         off -= 0.004 * bell(t, 0.05, 0.08) * max(0.0, -r.normalized().x * (1 if c.x > 0 else -1))
     else:
         x, y, z = c
         back = smooth01((-y + 0.02) / 0.1)
-        # Blousing over the belt, more at the back; gathers where the shirt is tucked.
-        b = bell(z, 1.045, 0.05)
-        off += b * (0.008 + 0.012 * back)
+        # Untucked: the tail hangs straight from the ribs over the waist and the seat, clear of the
+        # trousers, with a few long vertical drape folds and a slightly wavy hem.
+        hang = smooth01((1.12 - z) / 0.14)
+        off += hang * (0.017 + 0.009 * back) + 0.007 * bell(z, 1.03, 0.05)
         a = math.atan2(x, y)
-        off += 0.0045 * bell(z, 1.0, 0.04) * math.sin(a * 24 + nz * 3.0)
+        off += hang * 0.0045 * math.sin(a * 11 + nz * 2.5 + 0.8 * math.sin(a * 3))
+        off += 0.0025 * bell(z, hem_z(c) + 0.012, 0.012) * math.sin(a * 17 + nz * 3.0)
         # Diagonal tension folds from the chest and shoulder blades toward the waist, on the flanks.
         flank = smooth01((abs(x) - 0.05) / 0.07) * bell(z, 1.18, 0.12)
         off += 0.0028 * flank * math.sin((z * 1.0 - abs(x) * 1.25) * 72 + nz * 2.2)
@@ -258,7 +280,7 @@ def collar(body_bvh, shirt_bvh):
 
 def placket(shirt_bvh):
     """The button band from the V to the belt, and its buttons; the open fronts turned back."""
-    pts = [conform(shirt_bvh, Vector((0.0, 0.2, z)), 0.0015) for z in (1.35, 1.29, 1.22, 1.15, 1.08, 1.0, 0.975)]
+    pts = [conform(shirt_bvh, Vector((0.0, 0.2, z)), 0.0015) for z in (1.35, 1.29, 1.22, 1.15, 1.08, 1.0, 0.94, HEM_Z + 0.006)]
     pts = catmull(pts, 3)
     ups = []
     for p in pts:
@@ -266,7 +288,7 @@ def placket(shirt_bvh):
         ups.append(nrm)
     band = build("placket", sweep(pts, rect(0.03, 0.0026, 0.001), ups=ups))
     buttons = []
-    for z in (1.325, 1.245, 1.165, 1.085):
+    for z in (1.325, 1.245, 1.165, 1.085, 1.005, 0.935):
         loc, nrm, _, _ = shirt_bvh.find_nearest(Vector((0, 0.2, z)))
         p = loc + nrm * 0.003
         b = build(f"button", cyl(p - nrm * 0.0015, p + nrm * 0.0015, 0.0058, seg=10, bevel=0.35))
@@ -341,10 +363,10 @@ def chest_pockets(shirt_bvh):
 
 
 def rolled_cuffs(body_bvh):
-    """Two turns of rolled linen above each elbow, uneven and creased."""
+    """A turned-up hem round each short sleeve, uneven and creased."""
     out = []
     for s in "LR":
-        for k, (t, minor, extra) in enumerate(((SLEEVE_T - 0.03, 0.0125, 0.016), (SLEEVE_T - 0.13, 0.0115, 0.019))):
+        for k, (t, minor, extra) in enumerate(((SLEEVE_T - 0.035, 0.0075, 0.0165),)):
             c, ax = arm_at(s, t)
             e1 = ax.cross(Vector((0, 1, 0))).normalized()
             e2 = ax.cross(e1).normalized()

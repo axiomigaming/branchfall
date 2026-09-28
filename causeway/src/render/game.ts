@@ -75,6 +75,7 @@ export class Game {
   private s = 0;
   private speed = 0;
   private yawPrev = 0;
+  private stairCool = 0;
   private timeScale = 1;
   private worldT = 0;
   private fx = { danger: 0, cold: 0, gold: 0, flash: 0, fade: 0, bloom: 0 };
@@ -702,13 +703,20 @@ export class Game {
 
   private footstep(foot: 'L' | 'R', k: number) {
     const f = this.track.path.sample(this.s);
-    const side = new THREE.Vector3(Math.cos(f.yaw), 0, -Math.sin(f.yaw)).multiplyScalar(foot === 'L' ? -0.13 : 0.13);
-    const p = this.runner.root.position.clone().add(side);
+    // The foot lands just inside its hip line and a stride-length ahead of the pelvis at speed.
+    const side = new THREE.Vector3(Math.cos(f.yaw), 0, -Math.sin(f.yaw)).multiplyScalar(foot === 'L' ? -0.08 : 0.08);
+    const ahead = new THREE.Vector3(-Math.sin(f.yaw), 0, -Math.cos(f.yaw)).multiplyScalar(this.stage === 'run' ? 0.2 : 0.1);
+    const p = this.runner.root.position.clone().add(side).add(ahead);
     const wood = this.track.sectionAt(this.s)?.type === 'bridge';
     const skid = this.stage === 'crash';
-    this.particles.burst(p, (1 + k * 2) * (skid ? 3 : 1), { spread: skid ? 0.5 : 0.2, up: 0.35 + k * 0.4, speed: (0.6 + k * 0.6) * (skid ? 2 : 1), size: (0.1 + k * 0.08) * (skid ? 2 : 1), life: skid ? 1.2 : 0.7, color: wood ? DUST_DARK : DUST, alpha: skid ? 0.24 : 0.16, grow: 1.4 });
+    // Dust at each plant, a bigger, lower puff the harder they run; at the top tiers the push-off
+    // kicks up grit too.
+    const drive = this.stage === 'run' ? this.runner.drive / 4 : 0;
+    const puff = (1 + k * 2 + drive * 3) * (skid ? 3 : 1);
+    this.particles.burst(p, puff, { spread: skid ? 0.5 : 0.2 + 0.15 * drive, up: 0.3 + k * 0.35, speed: (0.6 + k * 0.6 + drive * 0.8) * (skid ? 2 : 1), size: (0.1 + k * 0.08 + drive * 0.1) * (skid ? 2 : 1), life: skid ? 1.2 : 0.7 + 0.4 * drive, color: wood ? DUST_DARK : DUST, alpha: skid ? 0.24 : 0.15 + 0.07 * drive, grow: 1.4 + drive });
+    if (drive > 0.4 && !wood) this.particles.burst(p, 2 + 4 * drive, { spread: 0.15, up: 1.2 + drive, speed: 1.2, size: 0.035, life: 0.5, color: DUST_DARK, alpha: 0.6, gravity: 9, drag: 0.4, grow: 0 });
     this.sounds.footstep(k, wood ? 'wood' : 'stone');
-    this.rig.footfall(k, foot);
+    this.rig.footfall(k * (0.8 + 0.3 * drive), foot);
   }
 
   private placeRunner(dt: number) {
@@ -800,6 +808,13 @@ export class Game {
       const ya = this.track.path.sample(this.s + 0.7, this.cframe).pos.y;
       const yb = this.track.path.sample(this.s - 0.7, this.cframe).pos.y;
       this.runner.slope = (ya - yb) / 1.4;
+      // Reaching a flight of steps: a quick check of the stride, eyes to the treads.
+      const grade = (this.track.path.sample(this.s + 1.6, this.cframe).pos.y - ya) / 0.9;
+      this.stairCool -= dt;
+      if (Math.abs(grade) > 0.22 && Math.abs(this.runner.slope) < 0.12 && this.stairCool <= 0) {
+        this.runner.catchStep(grade);
+        this.stairCool = 2.5;
+      }
     } else this.runner.slope = 0;
     // Where the head turns: to the hazard once the fall has landed; now and then to the lens at rest.
     if (this.stage === 'crash') this.runner.lookAt(this.stageT > 0.7 ? this.rig.focus : null, 0.55);
