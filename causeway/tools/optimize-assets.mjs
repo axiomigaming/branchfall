@@ -28,9 +28,9 @@ const DIR = join(ROOT, 'public', 'assets');
 /** Max texture edge per set, by texture name. */
 const SETS = {
   // Roughness (ORM) carries low-frequency detail: half the colour resolution is indistinguishable.
-  high: { simplify: null, cap: (name) => (/_orm$/.test(name) ? 1024 : 2048), quality: { color: 76, normal: 70, orm: 60 } },
+  high: { simplify: null, cap: (name) => (/_(orm|normal)$/.test(name) ? 1024 : 2048), quality: { color: 76, normal: 62, orm: 60 } },
   // Phones also get lighter geometry: at most 0.2 % of a piece's radius of deviation (≈1 cm on a 5 m wall).
-  mobile: { simplify: { ratio: 0.5, error: 0.002 }, cap: (name) => (/^(wood|bark|flora)_/.test(name) || /_orm$/.test(name) ? 512 : 1024), quality: { color: 74, normal: 70, orm: 60 } },
+  mobile: { simplify: { ratio: 0.5, error: 0.002 }, cap: (name) => (/^(wood|bark|flora)_/.test(name) || /_(orm|normal)$/.test(name) ? 512 : 1024), quality: { color: 72, normal: 62, orm: 60 } },
 };
 const SOURCES = ['kit', 'runner'];
 const SHARED = ['backdrop.webp', 'env.hdr', 'backdrop.json'];

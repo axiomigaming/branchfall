@@ -1,32 +1,32 @@
 {
   "generated": "npm run assets:optimize (tools/optimize-assets.mjs)",
-  "pipeline": "bdb33d5b18",
+  "pipeline": "66cfda283a",
   "sets": {
     "high": {
       "kit": {
         "file": "kit.high.glb",
-        "bytes": 14874564,
-        "v": "36a2873c10",
+        "bytes": 10159888,
+        "v": "4912ad5e8f",
         "src": "a46c0982b0"
       },
       "runner": {
         "file": "runner.high.glb",
-        "bytes": 1475908,
-        "v": "d611cbace7",
+        "bytes": 1288560,
+        "v": "a05d4fcc80",
         "src": "bb8a6ccb3f"
       }
     },
     "mobile": {
       "kit": {
         "file": "kit.mobile.glb",
-        "bytes": 5884048,
-        "v": "837569ad9c",
+        "bytes": 4765016,
+        "v": "e64bd1f118",
         "src": "028b5a98a1"
       },
       "runner": {
         "file": "runner.mobile.glb",
-        "bytes": 971888,
-        "v": "3ff1b1c92b",
+        "bytes": 891480,
+        "v": "7395a77e71",
         "src": "4c64e63cef"
       }
     }
