@@ -25,7 +25,6 @@ export function TopBar() {
     }
     prev.current = balance;
   }, [balance]);
-  const live = phase === 'running' || phase === 'lead' || phase === 'cashing' || phase === 'placing';
   const open = (m: 'fair' | 'settings' | 'menu' | 'history') => {
     ctl?.audio.ui('open');
     set({ modal: m });
@@ -34,16 +33,14 @@ export function TopBar() {
 
   return (
     <header className="topbar">
-      <button className="brand" onClick={() => !live && open('menu')} aria-label="Causeway menu">
+      <button className="brand" onClick={() => open('menu')} aria-label="Causeway menu">
         <Mark />
         <span className="brand-name">CAUSEWAY</span>
         <span className="tag">Demo</span>
       </button>
       <button className="history" onClick={() => open('history')} aria-label="Previous runs">
         {history.length === 0 ? (
-          <span className="chip none">
-            No runs yet
-          </span>
+          <span className="chip none">No runs yet</span>
         ) : (
           history.slice(0, 14).map((h) => (
             <span key={h.id} className={`chip ${tierOf(h.crash)}${h.id === newest ? ' fresh' : ''}${h.outcome === 'cashout' ? ' mine' : ''}`} title={h.outcome === 'cashout' ? `You left at ${formatMult(h.cashoutMult!)}×` : undefined}>
@@ -52,29 +49,28 @@ export function TopBar() {
           ))
         )}
       </button>
-      <div className="top-right">
-        <div className={`balance${bump ? ' bump' : ''}`} aria-live="polite">
-          <div className="k">
-            <span className="k-demo">Demo </span>Balance
-          </div>
-          <div className="v num">
-            {formatCredits(balance)}
-            <small>CR</small>
-          </div>
+      <div className={`balance${bump ? ' bump' : ''}`} aria-live="polite">
+        <div className="k">Demo balance</div>
+        <div className="v num">
+          {formatCredits(balance)}
+          <small>CR</small>
         </div>
+      </div>
+      <nav className="tools" aria-label="Game">
         <button className="icon-btn" onClick={() => setSettings({ muted: !settings.muted })} aria-label={settings.muted ? 'Unmute' : 'Mute'} aria-pressed={settings.muted}>
           <IconSound off={settings.muted} />
         </button>
-        <button className="icon-btn" onClick={() => open('fair')} aria-label="Provably fair">
+        {/* On phones these two live in the menu. */}
+        <button className="icon-btn wide-only" onClick={() => open('fair')} aria-label="Provably fair">
           <IconShield />
         </button>
-        <button className="icon-btn" onClick={() => open('settings')} aria-label="Settings">
+        <button className="icon-btn wide-only" onClick={() => open('settings')} aria-label="Settings">
           <IconSliders />
         </button>
-        <button className="icon-btn" onClick={() => open('menu')} aria-label="Menu" disabled={live}>
+        <button className="icon-btn" onClick={() => open('menu')} aria-label="Menu">
           <IconMenu />
         </button>
-      </div>
+      </nav>
     </header>
   );
 }
