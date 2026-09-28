@@ -5,8 +5,8 @@
   <img src="docs/screenshots/run-arch.jpg" alt="A cliff gorge with waterfalls, the golden face gate at the vanishing point" width="49%">
 </p>
 <p align="center">
-  <img src="docs/screenshots/title.jpg" alt="Mid-run at 1.78x with the gold CASH OUT plate" width="49%">
-  <img src="docs/screenshots/crash-gate.jpg" alt="The way falls: a carved slab gate seals the path" width="49%">
+  <img src="docs/screenshots/title.jpg" alt="Mid-run with the amber CASH OUT slab" width="49%">
+  <img src="docs/screenshots/crash-gate.jpg" alt="An escape: the runner celebrates among the ruined columns" width="49%">
 </p>
 <p align="center">
   <img src="docs/screenshots/mobile-run.jpg" alt="Mobile: the multiplier and a thumb-reach cash-out" width="24%">

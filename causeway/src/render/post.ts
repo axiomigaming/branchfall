@@ -142,7 +142,7 @@ class SunShaftsEffect extends Effect {
         float r = length(vec2((uv.x - sunPos.x) * aspectRatio, uv.y - sunPos.y));
         float fall = exp(-r * 1.45);
         // In-scatter: warm haze in the light's path, gated by how much sky the pixel can see.
-        vec3 veil = tint * open * exp(-r * 3.0) * 0.07;
+        vec3 veil = tint * open * exp(-r * 3.0) * 0.04;
         outputColor = vec4(inputColor.rgb + (acc * tint * fall + veil) * strength, inputColor.a);
       }`,
       {
@@ -201,7 +201,7 @@ class LensEffect extends Effect {
             vec2 d = uv - sunPos;
             d.x *= aspectRatio;
             float r = length(d);
-            vec3 add = sunTint * (exp(-r * 3.0) * 0.06 + exp(-r * 10.0) * 0.3 + exp(-r * 34.0) * 2.0);
+            vec3 add = sunTint * (exp(-r * 3.5) * 0.03 + exp(-r * 10.0) * 0.26 + exp(-r * 34.0) * 2.0);
             float ang = atan(d.y, d.x);
             float rays = pow(abs(cos(ang * 3.0 + 0.4)), 90.0) + 0.6 * pow(abs(cos(ang * 5.0 + 1.3)), 160.0);
             add += sunTint * rays * exp(-r * 7.0) * 0.7;
@@ -504,7 +504,7 @@ export class Post {
     this.blur = q.speedBlur ? new MotionBlurEffect(q.blurSamples, this.cameraBlur) : null;
     if (this.blur) this.composer.addPass(new EffectPass(this.camera, this.blur));
     this.hasPrev = false;
-    this.bloom = q.bloom ? new BloomEffect({ mipmapBlur: true, luminanceThreshold: 0.9, luminanceSmoothing: 0.3, intensity: 0.95, radius: 0.78 }) : null;
+    this.bloom = q.bloom ? new BloomEffect({ mipmapBlur: true, luminanceThreshold: 1.0, luminanceSmoothing: 0.25, intensity: 0.75, radius: 0.62 }) : null;
     this.lens = new LensEffect(q.lensFlare);
     this.flareOn = q.lensFlare;
     const tone = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
@@ -564,7 +564,7 @@ export class Post {
     g.get('gold')!.value = p.gold;
     g.get('flash')!.value = p.flash;
     g.get('fade')!.value = p.fade;
-    if (this.bloom) this.bloom.intensity = 0.95 + p.bloomBoost;
+    if (this.bloom) this.bloom.intensity = 0.75 + 0.5 * p.bloomBoost;
     this.vignette.darkness = 0.5 + p.speed * 0.2 + p.cold * 0.25;
     if (this.lens) this.lens.uniforms.get('exposure')!.value = EXPOSURE * (1 - 0.12 * p.cold);
   }

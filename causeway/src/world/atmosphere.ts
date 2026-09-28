@@ -30,9 +30,9 @@ export const ATMOSPHERE: AtmosphereOptions = {
   // warm gold looking into the light.
   color: 0x9db7bb,
   sunColor: 0xf6d6a0,
-  density: 0.0042,
+  density: 0.0032,
   falloff: 0.05,
-  mistDensity: 0.03,
+  mistDensity: 0.022,
   mistHeight: 1.1,
 };
 
@@ -129,7 +129,7 @@ export function installAtmosphere(scene: THREE.Scene, sunDir: THREE.Vector3, o: 
       float mOpt = ${o.mistDensity.toFixed(4)} * fogMist.y * fogDist * exp(-mb * mh) * fogLayer(mb, fogDy);
       vec3 fogP = cameraPosition + fogW;
       float bank = 0.55 + 0.45 * sin(fogP.x * 0.07 + fogMist.x * 0.11) * sin(fogP.z * 0.05 - fogMist.x * 0.07 + 1.3);
-      float mist = (1.0 - exp(-mOpt * bank)) * 0.8;
+      float mist = (1.0 - exp(-mOpt * bank)) * 0.65;
       vec3 mistCol = mix(vec3(0.86, 0.9, 0.88), ${glslVec3(sun)} * 1.1, pow(fogSun, 3.0) * 0.7);
       gl_FragColor.rgb = mix(gl_FragColor.rgb, mistCol, mist);
     }
