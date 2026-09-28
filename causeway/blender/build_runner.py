@@ -1,22 +1,24 @@
-"""The runner: modelled, rigged, painted, animated and exported → public/assets/runner.glb.
+"""The runner: sculpted, dressed, rigged, baked, animated and exported → public/assets/runner.glb.
 
-An original character (not a likeness of anyone): a field archaeologist in a
-bleached linen shirt with an open collar and rolled sleeves, a rust neckerchief
-knotted at the nape, olive canvas trousers tucked into laced leather boots, a
-belt with pouches, and a leather pack with a bedroll and a coil of rope — a
-strong, readable silhouette from behind, which is where the chase camera sees
-them.
+An original character (not a likeness of anyone): a field archaeologist in his thirties, heroic
+7.5-head proportions, in a sun-bleached khaki shirt worn open at the collar with the sleeves
+rolled below the elbow, olive canvas trousers bloused over laced leather field boots, a belt with a
+canteen and a pouch, a rust neckerchief, and a worn leather rucksack with a bedroll and a coil of
+rope — a strong, readable silhouette from behind, which is where the chase camera sees him.
 
-Geometry: a skin-modifier body (auto weights) plus separately modelled head,
-hair, eyes, ears, hands (curled fingers on their own bone), boots, clothing
-details and kit (rigid or hand-weighted to bones). Secondary-motion bones
-(`pack`, `bedroll`, `scarf.0-2`) are driven procedurally at runtime.
+Pipeline (see char_*.py):
+  1. Sculpt: anatomy from overlapping masses (metaballs), a head from a displaced surface with real
+     lids and ears, hands from masses; everything fused by voxel remeshing.
+  2. Tailor: shirt and trousers are shells cut from the body and displaced into folds, seams and
+     stitches; collar, placket, pockets, rolled cuffs, boots and kit are built on top of them.
+  3. Paint: colour and material channels on the dense surfaces (skin, stubble, weave, leather, dirt).
+  4. Bake: the dense surfaces onto decimated game meshes (colour, normal, roughness, AO, metal).
+  5. Rig: body weights by bone heat on a proxy, transferred to the clothes; rigid kit on its bones.
+  6. Animate (runner_anim.py) and export.
 
-Animation: gait cycles are generated from stride key-poses with a foot-contact
-solver (the stance foot stays on the ground, flight phases are ballistic);
-reactions are keyed poses whose root height is also solved from contacts.
+    python3 blender/build_runner.py [--preview[=model|run|react|react2|all]] [--reuse]
 
-    python3 blender/build_runner.py [--preview[=model|run|react|all]]
+`--reuse` skips 1–5 and loads the last built model from blender/cache (for animation work).
 """
 import math
 import os
@@ -25,80 +27,75 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 import bpy
 import bmesh
-from mathutils import Vector, Matrix, Euler, noise
-from mathutils.bvhtree import BVHTree
+import numpy as np
+from mathutils import Vector, Matrix, noise
 
-from common import reset, hexcol, new_mesh_obj, link, bake_group, ensure_uvs, export_glb, OUT, CACHE, preview
-from common import nodes_clear, N, L, mix, ramp, maprange, math_node
+from common import reset, hexcol, link, export_glb, OUT, CACHE, nodes_clear, N, L, mix, ramp, maprange, math_node
+import char_sculpt as S
+import char_forms as F
+import char_cloth as C
+import char_gear as G
 
 PREVIEW = next((a.split("=", 1)[1] if "=" in a else "all" for a in sys.argv if a.startswith("--preview")), None)
-reset()
+REUSE = "--reuse" in sys.argv
+MODEL_BLEND = os.path.join(CACHE, "runner_model.blend")
+TEX = 1024 if (PREVIEW and not REUSE and "--full" not in sys.argv) else 2048
+V = F.V
+HC = F.HC
 FPS = 30
-bpy.context.scene.render.fps = FPS
-noise.seed_set(7)
 
-# ------------------------------------------------------------------ joints
-J = {
-    "root": (0, 0, 0),
-    "pelvis": (0, 0.0, 0.99),
-    "spine": (0, -0.005, 1.14),
-    "chest": (0, 0.0, 1.31),
-    "neck": (0, 0.01, 1.50),
-    "head": (0, 0.025, 1.62),
-    "crown": (0, 0.02, 1.78),
-}
-for s, x in (("L", 1), ("R", -1)):
-    J.update({
-        f"clav.{s}": (x * 0.05, 0.0, 1.45),
-        f"shoulder.{s}": (x * 0.205, -0.01, 1.44),
-        f"elbow.{s}": (x * 0.24, -0.03, 1.16),
-        f"wrist.{s}": (x * 0.26, 0.0, 0.93),
-        f"hand.{s}": (x * 0.268, 0.006, 0.84),
-        f"hip.{s}": (x * 0.1, 0.0, 0.95),
-        f"knee.{s}": (x * 0.105, 0.025, 0.53),
-        f"ankle.{s}": (x * 0.11, -0.01, 0.1),
-        f"toe.{s}": (x * 0.115, 0.15, 0.035),
-    })
-V = {k: Vector(v) for k, v in J.items()}
-HC = Vector((0, 0.03, 1.655))  # head centre
+# ------------------------------------------------------------------ palette (linear) and material channels
+SKIN = hexcol("#b98b6f")
+SKIN_RED = hexcol("#b8796a")
+SKIN_TAN = hexcol("#a87a5d")
+LIP = hexcol("#9a5a4f")
+SHIRT = hexcol("#c8b489")
+SHIRT_DARK = hexcol("#b29d72")
+BUTTON = hexcol("#3a2b20")
+TROUSER = hexcol("#4b4e37")
+TROUSER_WORN = hexcol("#5d5d45")
+BOOT = hexcol("#5a3924")
+BOOT_WORN = hexcol("#7a5438")
+SOLE = hexcol("#241b15")
+LACE = hexcol("#6e5238")
+BELT = hexcol("#4a2e1c")
+BRASS = hexcol("#a78648")
+STEEL = hexcol("#7d7a72")
+LEATHER = hexcol("#6d4a2d")
+LEATHER_DARK = hexcol("#533620")
+STRAP = hexcol("#4a311e")
+CANVAS = hexcol("#6a6346")
+ROLL = hexcol("#786a4c")
+ROPE = hexcol("#a28a5f")
+SCARF = hexcol("#8c3322")
+HAIR = hexcol("#24170f")
+SCLERA = hexcol("#d9d0c4")
+IRIS = hexcol("#4a3a22")
+PUPIL = hexcol("#0d0a08")
 
-# ------------------------------------------------------------------ palette (linear)
-SKIN = hexcol("#c28a66")
-SKIN_DARK = hexcol("#a5704f")
-LIP = hexcol("#a4665a")
-HAIR = hexcol("#35231a")
-BROW = hexcol("#2e1f17")
-SHIRT = hexcol("#dccfae")
-SHIRT_SHADOW = hexcol("#c7b793")
-BUTTON = hexcol("#e9dfc6")
-TROUSER = hexcol("#4a5038")
-TROUSER_DARK = hexcol("#3a3f2c")
-BOOT = hexcol("#553623")
-BOOT_DARK = hexcol("#3e281b")
-SOLE = hexcol("#241a13")
-LACE = hexcol("#9c8466")
-BELT = hexcol("#5b3a22")
-BRASS = hexcol("#b08e52")
-PACK = hexcol("#6d4a2d")
-PACK_DARK = hexcol("#4f3420")
-ROLL = hexcol("#7c6c4e")
-ROPE = hexcol("#a88f62")
-SCARF = hexcol("#8f3423")
-SCARF_DARK = hexcol("#6e271a")
-EYE_W = hexcol("#d8d0c4")
-IRIS = hexcol("#3a2a1c")
+# Mat = (roughness, weave, hair streaks, stubble); Mat2 = (skin, leather, dirt, metal).
+def ch(rough, weave=0.0, hair=0.0, stubble=0.0, skin=0.0, leather=0.0, dirt=0.0, metal=0.0):
+    return (rough, weave, hair, stubble), (skin, leather, dirt, metal)
 
-# Material channels (second colour layer "Mat"): roughness, weave, hair streaks, stubble.
-M_SKIN = (0.55, 0.0, 0.0, 0.0)
-M_STUBBLE = (0.6, 0.0, 0.0, 1.0)
-M_HAIR = (0.62, 0.0, 1.0, 0.0)
-M_CLOTH = (0.9, 1.0, 0.0, 0.0)
-M_CANVAS = (0.88, 0.8, 0.0, 0.0)
-M_LEATHER = (0.58, 0.0, 0.0, 0.0)
-M_RUBBER = (0.8, 0.0, 0.0, 0.0)
-M_METAL = (0.32, 0.0, 0.0, 0.0)
-M_EYE = (0.18, 0.0, 0.0, 0.0)
-M_ROPE = (0.9, 0.6, 0.6, 0.0)
+
+CH_SKIN = ch(0.52, skin=1.0)
+CH_CLOTH = ch(0.9, weave=1.0)
+CH_CANVAS = ch(0.88, weave=0.8)
+CH_LEATHER = ch(0.6, leather=1.0)
+CH_METAL = ch(0.38, metal=1.0)
+CH_RUBBER = ch(0.85)
+CH_HAIR = ch(0.6, hair=1.0)
+CH_ROPE = ch(0.9, weave=0.6, hair=0.6)
+CH_EYE = ch(0.12)
+
+
+def bell(x, c, w):
+    return math.exp(-((x - c) / w) ** 2)
+
+
+def lerpc(a, b, t):
+    t = max(0.0, min(1.0, t))
+    return tuple(x + (y - x) * t for x, y in zip(a, b))
 
 
 def smooth(x):
@@ -106,368 +103,392 @@ def smooth(x):
     return x * x * (3 - 2 * x)
 
 
-def gauss(d2, s):
-    return math.exp(-d2 / (2 * s * s))
+# ------------------------------------------------------------------ paint
+def paint(ob, fn):
+    """Point-domain colour attributes Col / Mat / Mat2 from fn(co, normal) → (col, (mat, mat2))."""
+    me = ob.data
+    n = len(me.vertices)
+    cols = np.zeros((n, 4), np.float32)
+    m1 = np.zeros((n, 4), np.float32)
+    m2 = np.zeros((n, 4), np.float32)
+    for i, v in enumerate(me.vertices):
+        col, (a, b) = fn(v.co, v.normal)
+        cols[i] = col
+        m1[i] = a
+        m2[i] = b
+    for name, arr in (("Col", cols), ("Mat", m1), ("Mat2", m2)):
+        if name in me.color_attributes:
+            me.color_attributes.remove(me.color_attributes[name])
+        at = me.color_attributes.new(name, "FLOAT_COLOR", "POINT")
+        at.data.foreach_set("color", arr.ravel())
 
 
-# ------------------------------------------------------------------ body (skin modifier)
-RADII = {
-    "pelvis": (0.165, 0.122), "spine": (0.15, 0.11), "chest": (0.19, 0.122), "neck": (0.068, 0.068),
-    "head": (0.05, 0.05),
-}
-for s in "LR":
-    RADII.update({
-        f"clav.{s}": (0.115, 0.092), f"shoulder.{s}": (0.072, 0.07), f"elbow.{s}": (0.054, 0.052),
-        f"wrist.{s}": (0.034, 0.028), f"hip.{s}": (0.105, 0.102), f"knee.{s}": (0.072, 0.072),
-        f"ankle.{s}": (0.058, 0.058),
-    })
-EDGES = [("pelvis", "spine"), ("spine", "chest"), ("chest", "neck"), ("neck", "head")]
-for s in "LR":
-    EDGES += [("chest", f"clav.{s}"), (f"clav.{s}", f"shoulder.{s}"), (f"shoulder.{s}", f"elbow.{s}"),
-              (f"elbow.{s}", f"wrist.{s}"), ("pelvis", f"hip.{s}"),
-              (f"hip.{s}", f"knee.{s}"), (f"knee.{s}", f"ankle.{s}")]
-
-names = list(RADII)
-me = bpy.data.meshes.new("body")
-me.from_pydata([V[k] for k in names], [(names.index(a), names.index(b)) for a, b in EDGES], [])
-body = bpy.data.objects.new("runner_body", me)
-link(body)
-sk = body.modifiers.new("skin", "SKIN")
-sk.branch_smoothing = 0.6
-sk.use_smooth_shade = True
-for i, k in enumerate(names):
-    body.data.skin_vertices[0].data[i].radius = RADII[k]
-body.data.skin_vertices[0].data[names.index("pelvis")].use_root = True
-sub = body.modifiers.new("sub", "SUBSURF")
-sub.levels = 2
-bpy.context.view_layer.objects.active = body
-body.select_set(True)
-bpy.ops.object.modifier_apply(modifier="skin")
-bpy.ops.object.modifier_apply(modifier="sub")
+def flat(col, chn):
+    return lambda c, n: (col, chn)
 
 
-def arm_axis(c, s):
-    """Closest point on the (shoulder→elbow→wrist) polyline for side s."""
-    best = None
-    for a, b in ((f"shoulder.{s}", f"elbow.{s}"), (f"elbow.{s}", f"wrist.{s}")):
-        pa, pb_ = V[a], V[b]
-        d = pb_ - pa
-        t = max(0.0, min(1.0, (c - pa).dot(d) / d.length_squared))
-        p = pa + d * t
-        if best is None or (c - p).length < (c - best).length:
-            best = p
-    return best
+def head_paint(c, n):
+    q = c - HC
+    x, y, z = q
+    ax = abs(x)
+    col = SKIN
+    rough, _, _, stub = CH_SKIN[0]
+    stub = 0.0
+    front = smooth((y - 0.02) / 0.05)
+    # Warmth: ears, nose tip, cheeks and lips carry more blood; the brow and temples more sun.
+    red = 0.0
+    red += 0.7 * smooth((ax - 0.07) / 0.008)
+    red += 0.4 * bell(ax, 0.0, 0.012) * bell(z, -0.033, 0.012) * front
+    red += 0.2 * bell(ax, 0.042, 0.018) * bell(z, -0.02, 0.018) * front
+    col = lerpc(col, SKIN_RED, red)
+    col = lerpc(col, SKIN_TAN, 0.5 * smooth((z - 0.03) / 0.04))
+    # Lips.
+    if front > 0.5 and ax < 0.024 - 0.25 * max(0.0, abs(z + 0.0625) - 0.0) and -0.072 < z < -0.052:
+        k = smooth((0.022 - ax) / 0.006)
+        col = lerpc(col, LIP, 0.8 * k)
+        rough = 0.42
+    # Stubble: jaw, chin, upper lip, the cheeks below the cheekbones; thins toward the cheekbone.
+    if y > -0.03 or z < -0.06:
+        top = -0.04 - 0.012 * smooth((0.03 - ax) / 0.02) + 0.02 * smooth((0.02 - y) / 0.04)
+        stub = smooth((top - z) / 0.012)
+        if ax < 0.025 and -0.072 < z < -0.052 and front > 0.5:
+            stub = 0.0
+        # The neck under the jaw fades out.
+        stub *= smooth((z + 0.14) / 0.03)
+    # Eyelid margins and the sockets: a touch darker and cooler.
+    for sx in (-1, 1):
+        e = F.eye_centre(sx) - HC
+        de = Vector((x - e.x, (y - e.y) * 0.3, (z - e.z) * 1.4)).length
+        col = lerpc(col, hexcol("#8e5a45"), 0.35 * bell(de, 0.0, 0.014) * front)
+    return col, ((rough, 0.0, 0.0, stub), (1.0, 0.0, 0.0, 0.0))
 
 
-def leg_axis(c, s):
-    best = None
-    for a, b in ((f"hip.{s}", f"knee.{s}"), (f"knee.{s}", f"ankle.{s}")):
-        pa, pb_ = V[a], V[b]
-        d = pb_ - pa
-        t = max(0.0, min(1.0, (c - pa).dot(d) / d.length_squared))
-        p = pa + d * t
-        if best is None or (c - p).length < (c - best).length:
-            best = p
-    return best
+def eye_paint(sx):
+    ec = F.eye_centre(sx)
+    fwd = Matrix.Rotation(sx * 0.12, 3, "Z") @ Vector((0, 1, 0))
 
-
-# Sculpt in code: back and chest volume, traps, glutes, loose sleeves, shirt blousing, trouser folds.
-bm = bmesh.new()
-bm.from_mesh(body.data)
-bm.normal_update()
-for v in bm.verts:
-    c = v.co
-    n = v.normal.copy()
-    side = "L" if c.x > 0 else "R"
-    is_arm = abs(c.x) > 0.17 and c.z > 0.88 and c.z < 1.47 and abs(c.x) > 0.13 + (1.46 - c.z) * 0.0
-    # Chest and shoulder blades.
-    if 1.2 < c.z < 1.47 and abs(c.x) < 0.2:
-        k = math.sin((c.z - 1.2) / 0.27 * math.pi)
-        c.y += 0.02 * k * (1 if c.y > 0 else 0.7)
-    # Trapezius: slope from neck to shoulder.
-    if 1.43 < c.z < 1.53 and 0.05 < abs(c.x) < 0.17:
-        c.z += 0.018 * math.sin((abs(c.x) - 0.05) / 0.12 * math.pi) * (1 if c.y < 0.04 else 0.5)
-    # Lats: V-taper under the arms.
-    if 1.16 < c.z < 1.36 and abs(c.x) < 0.2 and abs(c.x) > 0.08:
-        c.x *= 1 + 0.05 * math.sin((c.z - 1.16) / 0.2 * math.pi)
-    # Glutes and hamstrings.
-    if 0.78 < c.z < 1.02 and c.y < -0.03 and abs(c.x) < 0.2:
-        c.y -= 0.02 * math.sin((c.z - 0.78) / 0.24 * math.pi)
-    # Loose linen sleeves between shoulder and roll.
-    if abs(c.x) > 0.17 and 1.19 < c.z < 1.46:
-        a = arm_axis(c, side)
-        r = c - a
-        blouse = 1.1 + 0.035 * noise.noise(c * 38)
-        if c.z < 1.25:
-            blouse = 1.1 + (1.25 - c.z) * 1.2
-        c.xyz = a + r * blouse
-    # Shirt blousing over the belt.
-    if 1.03 < c.z < 1.12 and not (abs(c.x) > 0.2):
-        k = math.sin((c.z - 1.03) / 0.09 * math.pi)
-        c.x *= 1 + 0.05 * k
-        c.y *= 1 + 0.06 * k
-    # Shirt folds (horizontal-ish creases, pulled towards the belt).
-    if 1.04 < c.z < 1.36 and abs(c.x) < 0.2:
-        c.xyz += n * 0.004 * math.sin(c.z * 95 + c.x * 22 + noise.noise(c * 9) * 3)
-    # Trousers: loose thighs, creases behind the knee, stacking above the boot.
-    if 0.14 < c.z < 0.96 and abs(c.x) > 0.02:
-        a = leg_axis(c, side)
-        r = c - a
-        loose = 1.0 + 0.08 * smooth((0.9 - c.z) / 0.15) * smooth((c.z - 0.6) / 0.1)
-        c.xyz = a + r * loose
-        fold = 0.0
-        if 0.45 < c.z < 0.62:
-            fold += 0.006 * math.sin(c.z * 160 + c.x * 30) * (1.2 if c.y < 0.02 else 0.5)
-        if 0.14 < c.z < 0.3:
-            fold += 0.007 * math.sin(c.z * 120 + math.atan2(r.y, r.x) * 2)
-        fold += 0.003 * noise.noise(c * 22)
-        c.xyz += n * fold
-bm.to_mesh(body.data)
-bm.free()
-
-# BVH for placing details on the body surface.
-_bvh_bm = bmesh.new()
-_bvh_bm.from_mesh(body.data)
-BODY_BVH = BVHTree.FromBMesh(_bvh_bm)
-
-
-def surf(origin, direction, off=0.0):
-    """Cast from inside the body outwards; returns the surface point pushed out by `off`."""
-    d = Vector(direction).normalized()
-    hit = BODY_BVH.ray_cast(Vector(origin), d, 2.0)
-    if hit[0] is None:
-        return Vector(origin) + d * 0.1
-    return hit[0] + d * off
-
-
-# ------------------------------------------------------------------ body paint
-def body_region(c):
-    if c.z > 1.47 and abs(c.x) < 0.075:
-        return SKIN, M_SKIN
-    armx = 0.212 if c.z < 1.0 else 0.196
-    if abs(c.x) > armx and 0.84 < c.z < 1.21:
-        return SKIN, M_SKIN
-    if c.z > 1.035:
-        return (SHIRT if (c.x * 7 + c.z * 13) % 1 > 0.03 else SHIRT_SHADOW), M_CLOTH
-    if c.z > 0.97:
-        return BELT, M_LEATHER
-    if c.z > 0.16:
-        # Seat and knee wear patches read as darker canvas.
-        if (c.y < -0.05 and 0.84 < c.z < 0.97) or (c.y > 0.04 and 0.48 < c.z < 0.58):
-            return TROUSER_DARK, M_CANVAS
-        return TROUSER, M_CANVAS
-    return BOOT, M_LEATHER
-
-
-def paint(bm, fn, per_vertex=False):
-    """Colour and material channels per face (crisp regions) or per vertex (soft features)."""
-    cl = bm.loops.layers.float_color.get("Col") or bm.loops.layers.float_color.new("Col")
-    ml = bm.loops.layers.float_color.get("Mat") or bm.loops.layers.float_color.new("Mat")
-    cache = {}
-    for f in bm.faces:
-        if not per_vertex:
-            col, mt = fn(f.calc_center_median(), f)
-        for lp in f.loops:
-            if per_vertex:
-                v = lp.vert
-                if v not in cache:
-                    cache[v] = fn(v.co.copy(), f)
-                col, mt = cache[v]
-            lp[cl] = col
-            lp[ml] = mt
-
-
-bm = bmesh.new()
-bm.from_mesh(body.data)
-paint(bm, lambda c, f: body_region(c))
-bm.to_mesh(body.data)
-bm.free()
-
-
-# ------------------------------------------------------------------ geometry helpers
-def solid(name, bmfn, color, group, mat=M_CLOTH, recalc=True, per_vertex=False):
-    """Build a mesh object; `color`/`mat` may be callables of the face centre; `group` a bone name or
-    a callable co → {bone: weight}."""
-    bm = bmesh.new()
-    bmfn(bm)
-    if recalc:
-        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-
-    def fn(c, f):
-        return (color(c) if callable(color) else color), (mat(c) if callable(mat) else mat)
-    paint(bm, fn, per_vertex)
-    ob = new_mesh_obj(name, bm)
-    for p in ob.data.polygons:
-        p.use_smooth = True
-    if callable(group):
-        groups = {}
-        for v in ob.data.vertices:
-            for g, w in group(v.co).items():
-                if w <= 0:
-                    continue
-                if g not in groups:
-                    groups[g] = ob.vertex_groups.new(name=g)
-                groups[g].add([v.index], w, "REPLACE")
-    else:
-        vg = ob.vertex_groups.new(name=group)
-        vg.add(list(range(len(ob.data.vertices))), 1.0, "REPLACE")
-    return ob
-
-
-def rounded_box(size, loc, bevel=0.03, seg=3, rot=None, shape=None):
-    def f(bm):
-        tmp = bmesh.new()
-        bmesh.ops.create_cube(tmp, size=1)
-        for v in tmp.verts:
-            v.co = Vector((v.co.x * size[0], v.co.y * size[1], v.co.z * size[2]))
-        bmesh.ops.bevel(tmp, geom=list(tmp.edges), offset=min(bevel, min(size) * 0.45), segments=seg, affect="EDGES", clamp_overlap=True)
-        if shape:
-            for v in tmp.verts:
-                shape(v.co)
-        m = Matrix.Translation(Vector(loc)) @ (Euler(rot).to_matrix().to_4x4() if rot else Matrix())
-        bmesh.ops.transform(tmp, matrix=m, verts=tmp.verts)
-        _merge(bm, tmp)
+    def f(c, n):
+        d = (c - ec).normalized()
+        k = d.dot(fwd)
+        if k > 0.972:
+            return PUPIL, CH_EYE
+        if k > 0.8:
+            t = (k - 0.8) / 0.172
+            return lerpc(IRIS, hexcol("#6a5a30"), t * 0.6), CH_EYE
+        if k > 0.78:
+            return hexcol("#2a2014"), CH_EYE
+        return lerpc(SCLERA, hexcol("#c9a898"), smooth((0.6 - k) / 0.6) * 0.5), CH_EYE
     return f
 
 
-def _merge(bm, tmp):
-    me_ = bpy.data.meshes.new("_m")
-    tmp.to_mesh(me_)
-    tmp.free()
-    bm.from_mesh(me_)
-    bpy.data.meshes.remove(me_)
+def skin_paint(c, n):
+    # Forearms and neck: sun-browned, darker toward the hands; fine arm hair via the stubble speckle.
+    tan = smooth((1.3 - c.z) / 0.3) if abs(c.x) > 0.15 else 0.0
+    col = lerpc(SKIN, SKIN_TAN, 0.6 * tan)
+    hair = 0.35 * tan if abs(c.x) > 0.15 else 0.0
+    return col, ((0.55, 0.0, 0.0, hair), (1.0, 0.0, 0.0, 0.0))
 
 
-def ellipsoid(center, radii, seg=12, rings=8, rot=None, shape=None):
-    def f(bm):
-        tmp = bmesh.new()
-        bmesh.ops.create_uvsphere(tmp, u_segments=seg, v_segments=rings, radius=1.0)
-        for v in tmp.verts:
-            v.co = Vector((v.co.x * radii[0], v.co.y * radii[1], v.co.z * radii[2]))
-            if shape:
-                shape(v.co)
-        m = Matrix.Translation(Vector(center)) @ (Euler(rot).to_matrix().to_4x4() if rot else Matrix())
-        bmesh.ops.transform(tmp, matrix=m, verts=tmp.verts)
-        _merge(bm, tmp)
-    return f
+def hand_paint(c, n):
+    col = lerpc(SKIN, SKIN_TAN, 0.6)
+    # Knuckles redder; nails paler on the fingertips' backs.
+    red = bell(c.z, 0.848, 0.012) * smooth((abs(c.x) - 0.268) / 0.006)
+    col = lerpc(col, SKIN_RED, 0.6 * red)
+    return col, CH_SKIN
 
 
-def ring(center, radius, minor, axis="Z", seg=20, flat=1.0, sy=1.0, mseg=8):
-    def f(bm):
-        rot = {"Z": Matrix(), "X": Matrix.Rotation(math.pi / 2, 4, "Y"), "Y": Matrix.Rotation(math.pi / 2, 4, "X")}[axis]
-        verts = []
-        for i in range(seg):
-            a = 2 * math.pi * i / seg
-            rv = []
-            for j in range(mseg):
-                b = 2 * math.pi * j / mseg
-                p = Vector(((radius + minor * math.cos(b)) * math.cos(a), (radius + minor * math.cos(b)) * math.sin(a) * sy, minor * math.sin(b) * flat))
-                rv.append(bm.verts.new((Matrix.Translation(Vector(center)) @ rot) @ p))
-            verts.append(rv)
-        for i in range(seg):
-            for j in range(mseg):
-                bm.faces.new((verts[i][j], verts[(i + 1) % seg][j], verts[(i + 1) % seg][(j + 1) % mseg], verts[i][(j + 1) % mseg]))
-    return f
+def shirt_paint(c, n):
+    # Sun-bleached on the shoulders, sweat and dust darker at the back and the waist.
+    t = 0.5 + 0.5 * noise.noise(c * 6)
+    col = lerpc(SHIRT, SHIRT_DARK, 0.35 * t)
+    col = lerpc(col, SHIRT_DARK, 0.5 * smooth((1.12 - c.z) / 0.12))
+    col = lerpc(col, hexcol("#d6c69d"), 0.5 * smooth((c.z - 1.42) / 0.06))
+    dirt = 0.4 * smooth((1.08 - c.z) / 0.1) + 0.3 * smooth((-c.y - 0.08) / 0.05) * bell(c.z, 1.3, 0.1)
+    return col, ((0.9, 1.0, 0.0, 0.0), (0.0, 0.0, dirt, 0.0))
 
 
-def cyl(p0, p1, r, seg=16, bevel=0.3, r2=None):
-    def f(bm):
-        tmp = bmesh.new()
-        d = Vector(p1) - Vector(p0)
-        bmesh.ops.create_cone(tmp, cap_ends=True, segments=seg, radius1=r, radius2=r2 or r, depth=d.length)
-        if bevel:
-            bmesh.ops.bevel(tmp, geom=[e for e in tmp.edges if e.calc_face_angle(0) > 1.0], offset=r * bevel, segments=2, affect="EDGES")
-        q = d.to_track_quat("Z", "Y")
-        bmesh.ops.transform(tmp, matrix=Matrix.Translation((Vector(p0) + Vector(p1)) / 2) @ q.to_matrix().to_4x4(), verts=tmp.verts)
-        _merge(bm, tmp)
-    return f
+def trouser_paint(c, n):
+    t = 0.5 + 0.5 * noise.noise(c * 5)
+    col = lerpc(TROUSER, TROUSER_WORN, 0.3 * t)
+    # Worn knees and seat, dust climbing from the boots.
+    x, y, z = c
+    wear = bell(z, 0.53, 0.05) * smooth((y - 0.02) / 0.04) + bell(z, 0.9, 0.06) * smooth((-y - 0.05) / 0.04)
+    col = lerpc(col, TROUSER_WORN, 0.7 * wear)
+    dirt = 0.45 * smooth((0.4 - z) / 0.25) + 0.15 * wear
+    return col, ((0.88, 0.8, 0.0, 0.0), (0.0, 0.0, dirt, 0.0))
 
 
-def catmull(pts, n=4, closed=False):
-    """Subdivide a polyline with Catmull-Rom."""
-    P = [Vector(p) for p in pts]
-    out = []
-    m = len(P)
-    rng_ = range(m) if closed else range(m - 1)
-    for i in rng_:
-        p0 = P[(i - 1) % m] if closed else P[max(0, i - 1)]
-        p1 = P[i]
-        p2 = P[(i + 1) % m]
-        p3 = P[(i + 2) % m] if closed else P[min(m - 1, i + 2)]
-        for k in range(n):
-            u = k / n
-            out.append(0.5 * ((2 * p1) + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u * u + (-p0 + 3 * p1 - 3 * p2 + p3) * u ** 3))
-    if not closed:
-        out.append(P[-1])
+def boot_paint(c, n):
+    ax = abs(c.x)
+    col = BOOT
+    worn = smooth((c.y - 0.1) / 0.05) + 0.6 * bell(c.z, 0.225, 0.012)
+    col = lerpc(col, BOOT_WORN, 0.6 * worn)
+    return col, ((0.55, 0.0, 0.0, 0.0), (0.0, 1.0, 0.15 + 0.35 * smooth((0.06 - c.z) / 0.05), 0.0))
+
+
+def pack_paint(c, n):
+    t = 0.5 + 0.5 * noise.noise(c * 9)
+    col = lerpc(LEATHER, LEATHER_DARK, 0.5 * t)
+    return col, ((0.58, 0.0, 0.0, 0.0), (0.0, 1.0, 0.25 * smooth((1.1 - c.z) / 0.05), 0.0))
+
+
+def hair_paint(c, n):
+    return HAIR, CH_HAIR
+
+
+# ------------------------------------------------------------------ build (or reuse)
+def build_model():
+    reset()
+    bpy.context.scene.render.fps = FPS
+    noise.seed_set(7)
+    body = F.body_mass()
+    BB = S.bvh_of(body)
+    head = F.head_mass()
+    HB = S.bvh_of(head)
+    shirt = C.shell(body, "shirt_hi", C.shirt_zone, C.shirt_disp)
+    trousers = C.shell(body, "trousers_hi", C.trouser_zone, C.trouser_disp)
+    skin = C.shell(body, "skin_hi", C.skin_zone, lambda c, n: c, smooth=0)
+    SB = S.bvh_of(shirt)
+    TB = S.bvh_of(trousers)
+    tmp = S.join([S.duplicate(shirt, "w1"), S.duplicate(trousers, "w2")], "waist")
+    WB = S.bvh_of(tmp)
+    bpy.data.objects.remove(tmp)
+
+    # Pieces: (hi, low tris or None = same mesh, paint, weights, uv weight, flap)
+    P = []
+
+    def add(hi, tris, pnt, w, uvw=1.0, flap=False, sym=False, bake_solid=0.0):
+        P.append(dict(hi=hi, tris=tris, paint=pnt, w=w, uvw=uvw, flap=flap, sym=sym, solid=bake_solid))
+
+    add(head, 3400, head_paint, "headneck", uvw=2.2)
+    for sx in (1, -1):
+        add(F.eyeball(sx), None, eye_paint(sx), "head", uvw=2.5)
+        add(F.hand_mass(sx), 1000, hand_paint, "hand", uvw=1.5)
+    add(skin, 1300, skin_paint, "transfer", uvw=1.3, sym=True)
+    add(shirt, 3900, shirt_paint, "transfer", flap=False, sym=True, bake_solid=0.0025)
+    add(trousers, 2500, trouser_paint, "transfer", flap=False, sym=True, bake_solid=0.0025)
+    add(C.collar(BB, SB), 600, shirt_paint, "transfer")
+    band, buttons, revs = C.placket(SB)
+    add(band, None, shirt_paint, "transfer")
+    for b in buttons:
+        add(b, None, flat(BUTTON, ch(0.35)), "transfer")
+    for r in revs:
+        add(r, None, shirt_paint, "transfer")
+    for o in C.chest_pockets(SB):
+        add(o, 160, shirt_paint, "transfer")
+    for o in C.rolled_cuffs(BB):
+        add(o, 280, shirt_paint, "transfer")
+    for o in C.cargo_pocket(TB, 1):
+        add(o, 160, trouser_paint, "transfer")
+    for sx in (1, -1):
+        up, sole, tongue, lace = C.boot_hi(sx)
+        s = "L" if sx > 0 else "R"
+        add(up, 1100, boot_paint, ("boot", s), uvw=1.2)
+        add(sole, 300, flat(SOLE, ch(0.8, dirt=0.8)), ("boot", s))
+        add(tongue, 160, boot_paint, ("boot", s))
+        add(lace, 380, flat(LACE, ch(0.7, leather=0.5, dirt=0.3)), ("boot", s))
+    for o in G.belt(WB):
+        metal = o.name.startswith("buckle")
+        add(o, 100 if metal else None, flat(BRASS if metal else BELT, CH_METAL if metal else CH_LEATHER), "hips")
+    for o in G.canteen(WB):
+        add(o, 360 if o.name == "canteen" else 120, flat(STEEL if "cap" in o.name else (LEATHER_DARK if "tab" in o.name else CANVAS),
+                                                   CH_METAL if "cap" in o.name else (CH_LEATHER if "tab" in o.name else CH_CANVAS)), "canteen")
+    for o in G.pouch(WB):
+        add(o, None, flat(BRASS if "stud" in o.name else LEATHER, CH_METAL if "stud" in o.name else CH_LEATHER), "hips")
+    for o in G.pack():
+        nm = o.name
+        if nm.startswith("rope"):
+            pnt = flat(ROPE, CH_ROPE)
+        elif "buckle" in nm:
+            pnt = flat(BRASS, CH_METAL)
+        elif "strap" in nm:
+            pnt = flat(STRAP, CH_LEATHER)
+        else:
+            pnt = pack_paint
+        add(o, 1300 if nm == "pack" else (260 if nm == "pack_flap" else (150 if nm.startswith("rope") else None)), pnt, "pack")
+    for o in G.bedroll():
+        add(o, 480 if o.name == "bedroll" else 120, flat(ROLL, CH_CANVAS) if o.name == "bedroll" else flat(STRAP, CH_LEATHER), "bedroll")
+    for o in G.straps(SB):
+        metal = "buckle" in o.name or "clip" in o.name
+        add(o, 120 if metal else 260, flat(BRASS if metal else STRAP, CH_METAL if metal else CH_LEATHER), "transfer")
+    band, knot, tails = G.neckerchief(BB)
+    add(band, None, flat(SCARF, CH_CLOTH), "neck")
+    add(knot, None, flat(hexcol("#7a2b1d"), CH_CLOTH), "neck")
+    for t in tails:
+        add(t, None, flat(SCARF, CH_CLOTH), "scarf")
+    cap = G.scalp_cap(head)
+    add(cap, 650, hair_paint, "head", uvw=1.5)
+    cards = G.hair_cards(HB)
+    brows = G.brow_cards(HB)
+    proxy = S.duplicate(body, "proxy")
+    S.decimate(proxy, 16000)
+    bpy.data.objects.remove(body)
+
+    # Paint the dense surfaces, then make the game meshes.
+    his, los = [], []
+    for p in P:
+        hi = p["hi"]
+        paint(hi, p["paint"])
+        for poly in hi.data.polygons:
+            poly.use_smooth = True
+        lo = S.duplicate(hi, hi.name + "_lo")
+        if p["tris"] is not None:
+            S.decimate(lo, p["tris"])
+        if p["flap"]:
+            S.rim_flap(lo, 0.0045)
+        if p["solid"]:
+            S.solidify(hi, p["solid"], offset=-1.0)
+        for name in [a.name for a in lo.data.color_attributes]:
+            lo.data.color_attributes.remove(lo.data.color_attributes[name])
+        lo["w"] = p["w"] if isinstance(p["w"], str) else "%s:%s" % p["w"]
+        lo["uvw"] = p["uvw"]
+        his.append(hi)
+        los.append(lo)
+        print(f"  {hi.name:18s} hi {S.tri_count(hi):7d}  lo {S.tri_count(lo):6d}", flush=True)
+    print("hi tris:", sum(S.tri_count(o) for o in his), " lo tris:", sum(S.tri_count(o) for o in los),
+          "+ hair", S.tri_count(cards) + S.tri_count(brows), flush=True)
+
+    rig = build_rig()
+    skin_proxy(rig, proxy)
+    for lo in los:
+        weigh(lo, lo["w"], proxy)
+    for o in (cards, brows):
+        weigh(o, "head", proxy)
+    bpy.data.objects.remove(proxy)
+
+    mesh = atlas_uvs(los)
+    bake(his, mesh)
+    hair_mat = hair_material()
+    hair = S.join([cards, brows], "hair_cards")
+    hair.data.materials.clear()
+    hair.data.materials.append(hair_mat)
+    mesh = S.join([mesh, hair], "runner_mesh")
+    finish_skin(mesh, rig)
+    print("runner tris:", S.tri_count(mesh), flush=True)
+    return rig, mesh
+
+
+# ------------------------------------------------------------------ rig
+SECONDARY = ["pack", "bedroll", "canteen", "scarf.0", "scarf.1", "scarf.2", "fingers.L", "fingers.R"]
+
+
+def build_rig():
+    arm_data = bpy.data.armatures.new("rig")
+    rig = bpy.data.objects.new("runner", arm_data)
+    link(rig)
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.select_all(action="DESELECT")
+    rig.select_set(True)
+    bpy.ops.object.mode_set(mode="EDIT")
+    eb = arm_data.edit_bones
+
+    def bone(name, head, tail, parent=None, connect=False):
+        b = eb.new(name)
+        b.head, b.tail = Vector(head), Vector(tail)
+        if parent:
+            b.parent = eb[parent]
+            b.use_connect = connect
+        return b
+    K = F.KNUCKLE
+    bone("root", (0, 0, 0), (0, 0.3, 0))
+    bone("hips", V["pelvis"], V["spine"], "root")
+    bone("spine", V["spine"], V["chest"], "hips", True)
+    bone("chest", V["chest"], V["neck"], "spine", True)
+    bone("neck", V["neck"], V["head"], "chest", True)
+    bone("head", V["head"], V["crown"], "neck", True)
+    for s in "LR":
+        sx = 1 if s == "L" else -1
+        bone(f"shoulder.{s}", V["chest"] + Vector((0, 0, 0.12)), V[f"shoulder.{s}"], "chest")
+        bone(f"upper_arm.{s}", V[f"shoulder.{s}"], V[f"elbow.{s}"], f"shoulder.{s}", True)
+        bone(f"forearm.{s}", V[f"elbow.{s}"], V[f"wrist.{s}"], f"upper_arm.{s}", True)
+        bone(f"hand.{s}", V[f"wrist.{s}"], Vector((sx * K.x, K.y, K.z)), f"forearm.{s}", True)
+        bone(f"fingers.{s}", Vector((sx * K.x, K.y, K.z)), Vector((sx * K.x, K.y, 0.79)), f"hand.{s}", True)
+        bone(f"thigh.{s}", V[f"hip.{s}"], V[f"knee.{s}"], "hips")
+        bone(f"shin.{s}", V[f"knee.{s}"], V[f"ankle.{s}"], f"thigh.{s}", True)
+        bone(f"foot.{s}", V[f"ankle.{s}"], V[f"toe.{s}"] + Vector((0, -0.05, 0.0)), f"shin.{s}", True)
+        bone(f"toe.{s}", V[f"toe.{s}"] + Vector((0, -0.05, 0.0)), V[f"toe.{s}"] + Vector((0, 0.04, 0)), f"foot.{s}", True)
+    bone("pack", (0, -0.15, 1.43), (0, -0.2, 1.08), "chest")
+    bone("bedroll", (0, -0.16, 1.462), (0, -0.3, 1.462), "pack")
+    cb = G.CANTEEN_HANG
+    bone("canteen", cb, cb + Vector((0, 0, -0.12)), "hips")
+    SP = G.SCARF_PTS
+    bone("scarf.0", SP[0], SP[1], "neck")
+    bone("scarf.1", SP[1], SP[2], "scarf.0", True)
+    bone("scarf.2", SP[2], SP[3], "scarf.1", True)
+    # Uniform roll so local X is the hinge axis for every limb (flexion = rotation about X).
+    for b in eb:
+        b.align_roll(Vector((0, 0, 1)) if abs(b.vector.normalized().z) < 0.7 else Vector((0, -1, 0)))
+    bpy.ops.object.mode_set(mode="OBJECT")
+    return rig
+
+
+def skin_proxy(rig, proxy):
+    """Bone-heat weights on a closed proxy of the body (the clothes take theirs from it)."""
+    ad = rig.data
+    for n_ in SECONDARY:
+        ad.bones[n_].use_deform = False
+    bpy.ops.object.select_all(action="DESELECT")
+    proxy.select_set(True)
+    rig.select_set(True)
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.parent_set(type="ARMATURE_AUTO")
+    for n_ in SECONDARY:
+        ad.bones[n_].use_deform = True
+    proxy.parent = None
+    for m in list(proxy.modifiers):
+        proxy.modifiers.remove(m)
+
+
+def set_weights(ob, fn):
+    groups = {}
+    for v in ob.data.vertices:
+        for g, w in fn(v.co).items():
+            if w <= 1e-4:
+                continue
+            if g not in groups:
+                groups[g] = ob.vertex_groups.get(g) or ob.vertex_groups.new(name=g)
+            groups[g].add([v.index], w, "REPLACE")
+
+
+def hand_weights(co):
+    s = "L" if co.x > 0 else "R"
+    sx = 1 if s == "L" else -1
+    K = F.KNUCKLE
+    c = Vector((abs(co.x), co.y, co.z))
+    # Thumb stays with the hand; fingers past the knuckle line go to the fingers bone.
+    W = Vector((0.26, 0.0, 0.93))
+    t0 = W + Vector((-0.006, 0.022, -0.022))
+    t3 = t0 + Vector((-0.036, 0.042, -0.082))
+    d = t3 - t0
+    tt = max(0.0, min(1.0, (c - t0).dot(d) / d.length_squared))
+    thumb = (c - (t0 + d * tt)).length < 0.017
+    f = 0.0 if thumb else smooth((K.z + 0.006 - c.z) / 0.014)
+    fore = smooth((c.z - 0.92) / 0.025)
+    out = {f"fingers.{s}": f * (1 - fore), f"hand.{s}": (1 - f) * (1 - fore), f"forearm.{s}": fore}
     return out
 
 
-def sweep(pts, prof, ups=None, closed=False, cap=True, twist_up=None):
-    """Sweep a 2D profile (list of (side, up) offsets or callable i→list) along `pts`.
-    `ups` gives the 'up' direction at each point (defaults to a transported frame)."""
-    def f(bm):
-        n = len(pts)
-        rings_ = []
-        up_prev = None
-        for i, p in enumerate(pts):
-            p = Vector(p)
-            t = (Vector(pts[(i + 1) % n]) - Vector(pts[i - 1])) if closed else (Vector(pts[min(n - 1, i + 1)]) - Vector(pts[max(0, i - 1)]))
-            t.normalize()
-            if ups is not None:
-                up = Vector(ups[i])
-            elif up_prev is None:
-                up = Vector((0, 0, 1)) if abs(t.z) < 0.9 else Vector((0, 1, 0))
-            else:
-                up = up_prev
-            side = t.cross(up).normalized()
-            up = side.cross(t).normalized()
-            up_prev = up
-            pr = prof(i) if callable(prof) else prof
-            rings_.append([bm.verts.new(p + side * a + up * b) for a, b in pr])
-        m = len(rings_[0])
-        last = n if closed else n - 1
-        for i in range(last):
-            ra, rb = rings_[i], rings_[(i + 1) % n]
-            for j in range(m):
-                bm.faces.new((ra[j], rb[j], rb[(j + 1) % m], ra[(j + 1) % m]))
-        if cap and not closed:
-            for r_ in (rings_[0], rings_[-1]):
-                bm.faces.new(r_)
-    return f
-
-
-def rect(w, h, bevel=0.0):
-    hw, hh = w / 2, h / 2
-    if bevel <= 0:
-        return [(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)]
-    b = min(bevel, hw * 0.9, hh * 0.9)
-    return [(-hw + b, -hh), (hw - b, -hh), (hw, -hh + b), (hw, hh - b), (hw - b, hh), (-hw + b, hh), (-hw, hh - b), (-hw, -hh + b)]
-
-
-def circle(r, seg=6, sx=1.0):
-    return [(r * sx * math.cos(2 * math.pi * k / seg), r * math.sin(2 * math.pi * k / seg)) for k in range(seg)]
-
-
-def mirror_obj(bmfn):
-    """Wrap a bmesh builder so its output is mirrored in X (for the right side)."""
-    def f(bm):
-        tmp = bmesh.new()
-        bmfn(tmp)
-        bmesh.ops.scale(tmp, vec=Vector((-1, 1, 1)), verts=tmp.verts)
-        bmesh.ops.reverse_faces(tmp, faces=tmp.faces)
-        _merge(bm, tmp)
-    return f
+def boot_weights(s):
+    def w(co):
+        if co.z > 0.16:
+            return {f"shin.{s}": 1.0}
+        if co.z > 0.1:
+            k = (co.z - 0.1) / 0.06
+            return {f"shin.{s}": k, f"foot.{s}": 1 - k}
+        if co.y > 0.1:
+            k = smooth((co.y - 0.1) / 0.04)
+            return {f"toe.{s}": k, f"foot.{s}": 1 - k}
+        return {f"foot.{s}": 1.0}
+    return w
 
 
 def chain_weights(pts, bones):
-    """Weights for a vertex from its projection along a polyline split evenly into `bones`."""
     P = [Vector(p) for p in pts]
     seglen = [(P[i + 1] - P[i]).length for i in range(len(P) - 1)]
     total = sum(seglen)
 
     def w(co):
-        best, bt = 1e9, 0.0
-        acc = 0.0
+        best, bt, acc = 1e9, 0.0, 0.0
         for i in range(len(P) - 1):
             d = P[i + 1] - P[i]
             t = max(0.0, min(1.0, (co - P[i]).dot(d) / max(1e-9, d.length_squared)))
@@ -485,540 +506,295 @@ def chain_weights(pts, bones):
     return w
 
 
-extras = []
-
-# ------------------------------------------------------------------ head
-HR = Vector((0.079, 0.1, 0.116))
-
-
-def head_offset(p):
-    """Displace a point on the base ellipsoid (head-local) into a face."""
-    x, y, z = p
-    d = Vector((x / HR.x, y / HR.y, z / HR.z))
-    fy = max(0.0, d.y)
-    q = Vector(p)
-    # Flatter face plane, fuller back of the skull.
-    if d.y > 0:
-        q.y *= 1 - 0.08 * fy * fy
-    if d.y < -0.2 and z > -0.03:
-        q += d.normalized() * 0.006
-    # Jaw: taper to the chin at the front, pull in under the skull at the back into the neck.
-    if z < -0.015:
-        t = smooth((-z - 0.015) / 0.095)
-        q.x *= 1 - 0.42 * t * smooth((d.y + 0.25) / 0.9)
-        if d.y < 0.3:
-            back = smooth((0.3 - d.y) / 0.9)
-            q.y = q.y * (1 - 0.35 * t * back)
-            q.x *= 1 - 0.18 * t * back
-    # Jaw angle: a hint of width just under the ears.
-    q.x += math.copysign(0.006, x) * gauss((z + 0.05) ** 2 + (y - 0.02) ** 2, 0.022)
-    # Chin forward and a touch square.
-    q.y += 0.012 * gauss(x * x + (z + 0.097) ** 2, 0.018) * fy
-    if fy > 0.35:
-        # Brow ridge.
-        q.y += 0.013 * math.exp(-((z - 0.032) / 0.012) ** 2) * math.exp(-(x / 0.05) ** 4)
-        # Temples and the hollows under the cheekbones.
-        for sx in (-1, 1):
-            q += Vector((sx, 0.3, 0)) * -0.005 * gauss((x - sx * 0.062) ** 2 + (z - 0.03) ** 2, 0.014)
-            q.y -= 0.006 * gauss((x - sx * 0.042) ** 2 + (z + 0.045) ** 2, 0.012)
-        # Eye sockets.
-        for sx in (-1, 1):
-            q.y -= 0.015 * gauss((x - sx * 0.031) ** 2 + (z - 0.008) ** 2, 0.012)
-        # Nose: bridge rising to the tip, wings either side.
-        if -0.05 < z < 0.03:
-            u = (0.025 - z) / 0.06  # 0 at bridge, 1 at tip
-            prof = 0.004 + 0.024 * smooth(u) if u < 1.0 else 0.028 * (1 - smooth((u - 1.0) / 0.25))
-            wid = 0.007 + 0.007 * smooth(u)
-            q.y += max(0.0, prof) * math.exp(-(x / wid) ** 2)
-        for sx in (-1, 1):
-            q.y += 0.009 * gauss((x - sx * 0.014) ** 2 + (z + 0.034) ** 2, 0.007)
-        # Cheekbones.
-        for sx in (-1, 1):
-            q += Vector((sx * 0.4, 0.6, 0)) * 0.011 * gauss((x - sx * 0.05) ** 2 + (z + 0.01) ** 2, 0.015)
-        # Lips and the mouth line.
-        q.y += 0.006 * math.exp(-(x / 0.021) ** 4) * math.exp(-((z + 0.06) / 0.009) ** 2)
-        q.y -= 0.003 * math.exp(-(x / 0.019) ** 4) * math.exp(-((z + 0.0625) / 0.0022) ** 2)
-    return q
+def weigh(ob, how, proxy):
+    if how == "transfer":
+        for g in proxy.vertex_groups:
+            if g.name not in ob.vertex_groups:
+                ob.vertex_groups.new(name=g.name)
+        m = ob.modifiers.new("dt", "DATA_TRANSFER")
+        m.object = proxy
+        m.use_vert_data = True
+        m.data_types_verts = {"VGROUP_WEIGHTS"}
+        m.vert_mapping = "POLYINTERP_NEAREST"
+        m.layers_vgroup_select_src = "ALL"
+        m.layers_vgroup_select_dst = "NAME"
+        S.apply_mods(ob)
+    elif how == "headneck":
+        set_weights(ob, lambda co: {"head": smooth((co.z - 1.53) / 0.05), "neck": 1 - smooth((co.z - 1.53) / 0.05)})
+    elif how == "hand":
+        set_weights(ob, hand_weights)
+    elif how.startswith("boot:"):
+        set_weights(ob, boot_weights(how.split(":")[1]))
+    elif how == "scarf":
+        set_weights(ob, chain_weights(G.SCARF_PTS, ["scarf.0", "scarf.1", "scarf.2"]))
+    else:
+        set_weights(ob, lambda co: {how: 1.0})
 
 
-def hairline(q):
-    """Height (head-local z) above which there is hair, for a head-local point."""
-    x, y, z = q
-    d = Vector((x / HR.x, y / HR.y, z / HR.z)).normalized()
-    front = smooth((d.y - 0.1) / 0.6)
-    temple = 0.05 * smooth((abs(x) - 0.02) / 0.04)
-    h_front = 0.066 - temple * 0.25
-    h_side = 0.028 - 0.035 * smooth((-d.y + 0.2) / 0.9)  # down to the nape at the back
-    return h_side + (h_front - h_side) * front + 0.002 * noise.noise(Vector(q) * 25)
+def finish_skin(mesh, rig):
+    with bpy.context.temp_override(object=mesh, active_object=mesh, selected_objects=[mesh], selected_editable_objects=[mesh]):
+        bpy.ops.object.vertex_group_clean(group_select_mode="ALL", limit=0.01)
+        bpy.ops.object.vertex_group_limit_total(group_select_mode="ALL", limit=4)
+        bpy.ops.object.vertex_group_normalize_all(lock_active=False)
+    # Any vertex left without weights follows the nearest body bone.
+    unweighted = [v.index for v in mesh.data.vertices if not v.groups]
+    if unweighted:
+        print("unweighted verts:", len(unweighted), flush=True)
+        g = mesh.vertex_groups.get("chest") or mesh.vertex_groups.new(name="chest")
+        g.add(unweighted, 1.0, "REPLACE")
+    mesh.parent = rig
+    m = mesh.modifiers.new("arm", "ARMATURE")
+    m.object = rig
 
 
-def build_head(bm):
-    NU, NV = 44, 30
-    rows = []
-    for j in range(1, NV):
-        v = j / NV
-        # Denser rings through the face.
-        th = math.pi * (1 - v)
-        th = th + 0.12 * math.sin(2 * (th - math.pi / 2))
-        row = []
-        for i in range(NU):
-            s_ = -1 + 2 * i / NU
-            ph = math.pi / 2 + math.pi * math.copysign(abs(s_) ** 1.35, s_)
-            d = Vector((math.cos(ph) * math.sin(th), math.sin(ph) * math.sin(th), math.cos(th)))
-            p = Vector((d.x * HR.x, d.y * HR.y, d.z * HR.z))
-            row.append(bm.verts.new(HC + head_offset(p)))
-        rows.append(row)
-    top = bm.verts.new(HC + head_offset(Vector((0, 0, HR.z))))
-    bot = bm.verts.new(HC + head_offset(Vector((0, 0, -HR.z))))
-    for j in range(len(rows) - 1):
-        for i in range(NU):
-            bm.faces.new((rows[j][i], rows[j][(i + 1) % NU], rows[j + 1][(i + 1) % NU], rows[j + 1][i]))
-    for i in range(NU):
-        bm.faces.new((rows[-1][i], rows[-1][(i + 1) % NU], top))
-        bm.faces.new((rows[0][(i + 1) % NU], rows[0][i], bot))
+# ------------------------------------------------------------------ UVs and bake
+def atlas_uvs(los):
+    """One atlas for everything but the hair: texel density raised on the face and hands."""
+    for lo in los:
+        me = lo.data
+        at = me.attributes.new("orig", "FLOAT_VECTOR", "POINT")
+        co = np.zeros(len(me.vertices) * 3, np.float32)
+        me.vertices.foreach_get("co", co)
+        at.data.foreach_set("vector", co)
+        k = float(lo["uvw"])
+        if k != 1.0:
+            me.vertices.foreach_set("co", co * k)
+        if not me.uv_layers:
+            me.uv_layers.new(name="UVMap")
+    mesh = S.join(los, "runner_mesh")
+    bpy.ops.object.select_all(action="DESELECT")
+    mesh.select_set(True)
+    bpy.context.view_layer.objects.active = mesh
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(angle_limit=math.radians(58), island_margin=0.002, correct_aspect=True, scale_to_bounds=False)
+    bpy.ops.uv.select_all(action="SELECT")
+    bpy.ops.uv.average_islands_scale()
+    bpy.ops.uv.pack_islands(margin=0.0025, rotate=True, shape_method="CONCAVE")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    me = mesh.data
+    co = np.zeros(len(me.vertices) * 3, np.float32)
+    me.attributes["orig"].data.foreach_get("vector", co)
+    me.vertices.foreach_set("co", co)
+    me.attributes.remove(me.attributes["orig"])
+    me.update()
+    for p in me.polygons:
+        p.use_smooth = True
+    return mesh
 
 
-def head_paint(c):
-    q = c - HC
-    x, y, z = q
-    d = Vector((x / HR.x, y / HR.y, z / HR.z))
-    if z > hairline(q) + 0.006:
-        return HAIR, M_HAIR
-    if d.y > 0.5:
-        if 0.025 < z < 0.035 - 0.12 * max(0.0, abs(x) - 0.03) and 0.012 < abs(x) < 0.052:
-            return BROW, M_HAIR
-        if abs(x) < 0.022 and -0.068 < z < -0.053:
-            return (hexcol("#6f3e34") if -0.0645 < z < -0.0605 else LIP), M_SKIN
-        # Lids: a darker ring around the eyes.
-        for sx in (-1, 1):
-            if (x - sx * 0.031) ** 2 + ((z - 0.008) * 1.6) ** 2 < 0.0185 ** 2:
-                return SKIN_DARK, M_SKIN
-    # Stubble along the jaw, chin and upper lip.
-    if z < -0.035 and d.y > -0.35 and not (abs(x) < 0.022 and -0.068 < z < -0.053):
-        return SKIN, M_STUBBLE
-    return SKIN, M_SKIN
+def hi_material():
+    """The procedural look, read from the painted channels, baked down to the atlas."""
+    mat = bpy.data.materials.new("runner_paint")
+    nt = nodes_clear(mat)
+    out = N(nt, "ShaderNodeOutputMaterial")
+    bsdf = N(nt, "ShaderNodeBsdfPrincipled")
+    L(nt, bsdf.outputs[0], out.inputs[0])
+
+    def attr(name):
+        a = N(nt, "ShaderNodeAttribute", _attribute_name=name)
+        a.attribute_type = "GEOMETRY"
+        return a
+    vc = attr("Col")
+    m1 = N(nt, "ShaderNodeSeparateColor")
+    L(nt, attr("Mat").outputs["Color"], m1.inputs[0])
+    m2 = N(nt, "ShaderNodeSeparateColor")
+    L(nt, attr("Mat2").outputs["Color"], m2.inputs[0])
+    rough_c, weave_c, hair_c, stub_c = m1.outputs[0], m1.outputs[1], m1.outputs[2], None
+    m1a = attr("Mat").outputs["Alpha"]
+    m2a = attr("Mat2").outputs["Alpha"]
+    skin_c, leather_c, dirt_c = m2.outputs[0], m2.outputs[1], m2.outputs[2]
+    tc = N(nt, "ShaderNodeTexCoord")
+    obj = tc.outputs["Object"]
+
+    # Linen/canvas weave: two crossed fine stripes, and slubs.
+    wx = N(nt, "ShaderNodeTexWave", Scale=300.0, Distortion=0.8, Detail=1.0)
+    wx.wave_type = "BANDS"
+    wx.bands_direction = "X"
+    wz = N(nt, "ShaderNodeTexWave", Scale=300.0, Distortion=0.8, Detail=1.0)
+    wz.wave_type = "BANDS"
+    wz.bands_direction = "Z"
+    for w_ in (wx, wz):
+        L(nt, obj, w_.inputs["Vector"])
+    weave = math_node(nt, "MULTIPLY", wx.outputs[1], wz.outputs[1])
+    col = mix(nt, weave_c, vc.outputs["Color"], mix(nt, 1.0, vc.outputs["Color"], ramp(nt, weave, [(0.0, (0.94, 0.94, 0.94)), (0.6, (1.03, 1.03, 1.03))]), "MULTIPLY"), "MIX")
+    # Fabric: faded patches and discoloration.
+    fade = N(nt, "ShaderNodeTexNoise", Scale=14.0, Detail=4.0, Distortion=0.6)
+    L(nt, obj, fade.inputs["Vector"])
+    col = mix(nt, weave_c, col, mix(nt, 1.0, col, ramp(nt, fade.outputs[0], [(0.35, (0.9, 0.9, 0.88)), (0.7, (1.06, 1.05, 1.03))]), "MULTIPLY"), "MIX")
+    # Skin: blotchy warmth, freckle-ish flecks, pores.
+    mot = N(nt, "ShaderNodeTexNoise", Scale=70.0, Detail=5.0)
+    L(nt, obj, mot.inputs["Vector"])
+    col = mix(nt, math_node(nt, "MULTIPLY", skin_c, 0.7), col, mix(nt, 1.0, col, ramp(nt, mot.outputs[0], [(0.35, (0.92, 0.95, 0.96)), (0.65, (1.05, 1.0, 0.98))]), "MULTIPLY"), "MIX")
+    pores = N(nt, "ShaderNodeTexVoronoi", Scale=1400.0)
+    L(nt, obj, pores.inputs["Vector"])
+    # Hair streaks (scalp cap).
+    hmap = N(nt, "ShaderNodeMapping")
+    hmap.inputs["Scale"].default_value = (90.0, 90.0, 16.0)
+    L(nt, obj, hmap.inputs["Vector"])
+    hn = N(nt, "ShaderNodeTexNoise", Scale=2.0, Detail=5.0)
+    L(nt, hmap.outputs[0], hn.inputs["Vector"])
+    col = mix(nt, hair_c, col, mix(nt, 1.0, col, ramp(nt, hn.outputs[0], [(0.35, (0.75, 0.75, 0.75)), (0.65, (1.1, 1.05, 1.0))]), "MULTIPLY"), "MIX")
+    # Stubble: fine dark speckle, denser toward the jaw.
+    sn = N(nt, "ShaderNodeTexNoise", Scale=1100.0, Detail=1.0)
+    L(nt, obj, sn.inputs["Vector"])
+    stub_amt = math_node(nt, "MULTIPLY", m1a, maprange(nt, sn.outputs[0], 0.46, 0.62, 0.02, 0.4))
+    col = mix(nt, stub_amt, col, hexcol("#2e2119"), "MIX")
+    # Leather: grain, scuffed lighter streaks, darker creases.
+    lmap = N(nt, "ShaderNodeMapping")
+    lmap.inputs["Scale"].default_value = (30.0, 110.0, 30.0)
+    L(nt, obj, lmap.inputs["Vector"])
+    ln_ = N(nt, "ShaderNodeTexNoise", Scale=3.0, Detail=6.0)
+    L(nt, lmap.outputs[0], ln_.inputs["Vector"])
+    col = mix(nt, math_node(nt, "MULTIPLY", leather_c, maprange(nt, ln_.outputs[0], 0.6, 0.74, 0.0, 0.3)), col, hexcol("#8a6548"), "MIX")
+    grain = N(nt, "ShaderNodeTexNoise", Scale=450.0, Detail=2.0, Distortion=2.0)
+    L(nt, obj, grain.inputs["Vector"])
+    # Dust and dried mud.
+    dust = N(nt, "ShaderNodeTexNoise", Scale=7.0, Detail=6.0, Roughness=0.65)
+    L(nt, obj, dust.inputs["Vector"])
+    col = mix(nt, math_node(nt, "MULTIPLY", dirt_c, maprange(nt, dust.outputs[0], 0.42, 0.62, 0.0, 0.75)), col, hexcol("#8f7552"), "MIX")
+    L(nt, col, bsdf.inputs["Base Color"])
+
+    rvar = N(nt, "ShaderNodeTexNoise", Scale=20.0, Detail=3.0)
+    L(nt, obj, rvar.inputs["Vector"])
+    rough = math_node(nt, "ADD", rough_c, math_node(nt, "MULTIPLY", math_node(nt, "SUBTRACT", rvar.outputs[0], 0.5), 0.14))
+    rough = math_node(nt, "ADD", rough, math_node(nt, "MULTIPLY", dirt_c, 0.1))
+    L(nt, rough, bsdf.inputs["Roughness"])
+    L(nt, m2a, bsdf.inputs["Metallic"])
+    # Masks for the bake: R = metal, G = skin.
+    cm = N(nt, "ShaderNodeCombineColor")
+    L(nt, m2a, cm.inputs[0])
+    L(nt, skin_c, cm.inputs[1])
+    L(nt, cm.outputs[0], bsdf.inputs["Emission Color"])
+    bsdf.inputs["Emission Strength"].default_value = 1.0
+
+    b1 = N(nt, "ShaderNodeBump", Distance=0.0012)
+    L(nt, math_node(nt, "MULTIPLY", weave_c, 0.1), b1.inputs["Strength"])
+    L(nt, weave, b1.inputs["Height"])
+    b2 = N(nt, "ShaderNodeBump", Distance=0.0006)
+    L(nt, math_node(nt, "MULTIPLY", skin_c, 0.25), b2.inputs["Strength"])
+    L(nt, pores.outputs["Distance"], b2.inputs["Height"])
+    L(nt, b1.outputs[0], b2.inputs["Normal"])
+    b3 = N(nt, "ShaderNodeBump", Distance=0.0008)
+    L(nt, math_node(nt, "MULTIPLY", leather_c, 0.35), b3.inputs["Strength"])
+    L(nt, grain.outputs[0], b3.inputs["Height"])
+    L(nt, b2.outputs[0], b3.inputs["Normal"])
+    b4 = N(nt, "ShaderNodeBump", Distance=0.002)
+    L(nt, math_node(nt, "MULTIPLY", hair_c, 0.6), b4.inputs["Strength"])
+    L(nt, hn.outputs[0], b4.inputs["Height"])
+    L(nt, b3.outputs[0], b4.inputs["Normal"])
+    L(nt, b4.outputs[0], bsdf.inputs["Normal"])
+    return mat
 
 
-extras.append(solid("head", build_head, lambda c: head_paint(c)[0], "head", mat=lambda c: head_paint(c)[1], per_vertex=True))
+def bake(his, mesh):
+    sc = bpy.context.scene
+    sc.render.engine = "CYCLES"
+    sc.render.bake.margin = 8
+    mat = hi_material()
+    for o in his:
+        o.data.materials.clear()
+        o.data.materials.append(mat)
+    hi_all = S.join(his, "hi_all")
+    his = [hi_all]
+    lo_mat = bpy.data.materials.new("bake_target")
+    lt = nodes_clear(lo_mat)
+    tex = lt.nodes.new("ShaderNodeTexImage")
+    lt.nodes.active = tex
+    mesh.data.materials.clear()
+    mesh.data.materials.append(lo_mat)
+    size = TEX
+    imgs = {}
+    for key, cs in (("color", "sRGB"), ("normal", "Non-Color"), ("rough", "Non-Color"), ("ao", "Non-Color"), ("mask", "Non-Color")):
+        im = bpy.data.images.new(f"runner_{key}", size, size, alpha=False, float_buffer=False)
+        im.colorspace_settings.name = cs
+        imgs[key] = im
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in his:
+        o.select_set(True)
+    mesh.select_set(True)
+    bpy.context.view_layer.objects.active = mesh
+    kw = dict(use_selected_to_active=True, cage_extrusion=0.012, max_ray_distance=0.03, margin=8, use_clear=True)
+    for key, typ, samples, extra in (("color", "DIFFUSE", 1, dict(pass_filter={"COLOR"})), ("normal", "NORMAL", 1, {}),
+                                     ("rough", "ROUGHNESS", 1, {}), ("mask", "EMIT", 1, {}), ("ao", "AO", 12 if TEX < 2048 else 32, {})):
+        tex.image = imgs[key]
+        sc.cycles.samples = samples
+        print(f"  bake runner:{key} …", flush=True)
+        bpy.ops.object.bake(type=typ, **kw, **extra)
 
-HEAD_BM = bmesh.new()
-HEAD_BM.from_mesh(extras[-1].data)
-HEAD_BVH = BVHTree.FromBMesh(HEAD_BM)
-
-
-def head_surf(x, z, off=0.0):
-    hit = HEAD_BVH.ray_cast(Vector((x, 0.3, HC.z + z)), Vector((0, -1, 0)), 1.0)
-    return hit[0] + Vector((0, off, 0))
-
-
-# Hair: a shell over the scalp, thick and tousled on top, feathered to nothing at the hairline.
-def build_hair(bm):
-    """A shell over the scalp whose thickness is a signed function of the distance above the
-    hairline: below it the shell dips under the skin, so the visible edge is the smooth curve where
-    the shell meets the head, not the stair-step of the face boundary."""
-    src = HEAD_BM.copy()
-    src.normal_update()
-    for f in list(src.faces):
-        c = f.calc_center_median() - HC
-        if c.z < hairline(c) - 0.03:
-            src.faces.remove(f)
-    for v in list(src.verts):
-        if not v.link_faces:
-            src.verts.remove(v)
-    src.normal_update()
-    for v in src.verts:
-        q = v.co - HC
-        above = q.z - hairline(q)
-        top = smooth((q.z - 0.02) / 0.09)
-        tuft = 0.5 + 0.5 * noise.noise(q * 55)
-        full = 0.006 + 0.012 * top + 0.009 * tuft * (0.4 + top)
-        k = max(-1.0, min(1.0, above / 0.014))
-        thick = full * smooth(k) if k > 0 else 0.004 * k
-        v.co += v.normal * thick
-        if k > 0.5 and q.y > 0.02 and q.z > 0.04:
-            v.co.y -= 0.004 * top
-            v.co.z += 0.004
-    _merge(bm, src)
-
-
-extras.append(solid("hair", build_hair, HAIR, "head", mat=M_HAIR, recalc=False))
-
-for s, sx in (("L", 1), ("R", -1)):
-    # Eyes.
-    ep = head_surf(sx * 0.031, 0.008, -0.0075)
-
-    def eye_col(c, ep=ep):
-        d = (c - ep).normalized()
-        return IRIS if d.y > 0.82 else EYE_W
-    extras.append(solid(f"eye_{s}", ellipsoid(ep, (0.0115, 0.0115, 0.0115), seg=10, rings=7), eye_col, "head", mat=M_EYE))
-
-    # Ears: a flattened shell with a rim and a hollow, tilted back.
-    def ear_shape(co):
-        if co.x > 0.0:
-            r = math.sqrt((co.y / 0.026) ** 2 + (co.z / 0.033) ** 2)
-            if r < 0.7:
-                co.x -= 0.006 * (1 - r / 0.7)
-    eb_ = ellipsoid((0, 0, 0), (0.01, 0.022, 0.029), seg=12, rings=8, shape=ear_shape)
-    ear = eb_ if sx > 0 else mirror_obj(eb_)
-    eo = solid(f"ear_{s}", ear, SKIN, "head", mat=M_SKIN)
-    eo.matrix_world = Matrix.Translation(HC + Vector((sx * 0.075, -0.01, -0.004))) @ Euler((0.18, 0, sx * 0.12)).to_matrix().to_4x4()
-    extras.append(eo)
-
-# ------------------------------------------------------------------ hands: palm, curled fingers, thumb
-FINGERS = [(0.024, 0.074, 0.0095), (0.008, 0.08, 0.0098), (-0.008, 0.077, 0.0094), (-0.023, 0.062, 0.0085)]
-KNUCKLE_Z = 0.848
+    def arr(im):
+        return np.array(im.pixels[:], dtype=np.float32).reshape(size, size, 4)
+    col = arr(imgs["color"])
+    ao = arr(imgs["ao"])[:, :, 0:1]
+    rough = arr(imgs["rough"])[:, :, 0:1]
+    mask = arr(imgs["mask"])
+    metal = mask[:, :, 0:1]
+    skin = mask[:, :, 1:2]
+    # AO into albedo; on skin the shadow is warmer (light scattered through), elsewhere neutral.
+    neutral = 0.42 + 0.58 * ao
+    warm = np.concatenate([0.62 + 0.38 * ao ** 0.7, 0.5 + 0.5 * ao ** 1.0, 0.46 + 0.54 * ao ** 1.15], axis=2)
+    col[:, :, 0:3] *= neutral * (1 - skin) + warm * skin
+    imgs["color"].pixels[:] = col.ravel()
+    orm = np.concatenate([ao, rough, metal, np.ones_like(ao)], axis=2)
+    om = bpy.data.images.new("runner_orm", size, size, alpha=False)
+    om.colorspace_settings.name = "Non-Color"
+    om.pixels[:] = orm.ravel()
+    om.scale(size // 2, size // 2)  # AO/roughness/metal are low-frequency: half resolution
+    imgs["orm"] = om
+    for k in ("color", "normal", "orm"):
+        im = imgs[k]
+        im.filepath_raw = os.path.join(CACHE, f"runner_{k}.png")
+        im.file_format = "PNG"
+        im.save()
+    bpy.data.objects.remove(hi_all)
+    from common import textured_material
+    pbr = textured_material("runner", imgs["color"], imgs["normal"], imgs["orm"])
+    mesh.data.materials.clear()
+    mesh.data.materials.append(pbr)
 
 
-def build_hand_L(bm, part):
-    w = V["wrist.L"]
-    hx = 0.266
-    if part == "palm":
-        def palm_shape(co):
-            # A slab, not an egg: flatter across the palm, broad over the knuckles, narrower at the wrist.
-            co.x = math.copysign(min(abs(co.x), 0.0125), co.x)
-            k = smooth((0.03 - co.z) / 0.07)
-            co.y *= 0.82 + 0.25 * k
-        ellipsoid((hx, 0.004, 0.886), (0.017, 0.043, 0.05), seg=12, rings=8, shape=palm_shape)(bm)
-        # Thumb: from the heel of the palm, forward and across.
-        pts = []
-        p = Vector((hx - 0.008, 0.03, 0.9))
-        d = Vector((-0.35, 0.55, -0.76)).normalized()
-        for k in range(5):
-            pts.append(p.copy())
-            p += d * 0.015
-            d = (Matrix.Rotation(-0.18, 3, "Z") @ Matrix.Rotation(0.12, 3, "Y") @ d).normalized()
-        sweep(pts, lambda i: circle(0.0115 - 0.0006 * i, 6, 1.0))(bm)
-        return
-    for (fy, ln, r) in FINGERS:
-        pts = []
-        p = Vector((hx, fy, KNUCKLE_Z + 0.006))
-        d = Vector((0, 0, -1))
-        n = 6
-        curl = 2.15
-        for k in range(n + 1):
-            pts.append(p.copy())
-            p += d * (ln / n)
-            d = (Matrix.Rotation(curl / n, 3, "Y") @ d).normalized()
-        sweep(pts, lambda i, r=r: circle(r * (1 - 0.18 * i / n), 6, 1.0))(bm)
+def hair_material():
+    im = G.hair_texture(os.path.join(CACHE, "runner_hair.png"))
+    m = bpy.data.materials.new("M_hair")
+    nt = nodes_clear(m)
+    out = N(nt, "ShaderNodeOutputMaterial")
+    bsdf = N(nt, "ShaderNodeBsdfPrincipled")
+    L(nt, bsdf.outputs[0], out.inputs[0])
+    t = N(nt, "ShaderNodeTexImage", _image=im)
+    L(nt, t.outputs[0], bsdf.inputs["Base Color"])
+    L(nt, t.outputs[1], bsdf.inputs["Alpha"])
+    bsdf.inputs["Roughness"].default_value = 0.5
+    m.blend_method = "CLIP"
+    m.alpha_threshold = 0.4
+    m.use_backface_culling = False
+    return m
 
 
-for s, sx in (("L", 1), ("R", -1)):
-    for part, grp in (("palm", f"hand.{s}"), ("fingers", f"fingers.{s}")):
-        fn = (lambda bm, part=part: build_hand_L(bm, part))
-        extras.append(solid(f"hand_{part}_{s}", fn if sx > 0 else mirror_obj(fn), SKIN, grp, mat=M_SKIN))
-
-# ------------------------------------------------------------------ boots
-def boot_weights(s):
-    def w(co):
-        if co.z > 0.16:
-            return {f"shin.{s}": 1.0}
-        if co.z > 0.1:
-            k = (co.z - 0.1) / 0.06
-            return {f"shin.{s}": k, f"foot.{s}": 1 - k}
-        if co.y > 0.1:
-            k = smooth((co.y - 0.1) / 0.04)
-            return {f"toe.{s}": k, f"foot.{s}": 1 - k}
-        return {f"foot.{s}": 1.0}
-    return w
-
-
-def build_boot_L(bm, part):
-    ax, ay = 0.11, -0.012
-    if part == "upper":
-        def foot_shape(co):
-            # Flat underneath, a lower rounded toe box, a square-ish heel.
-            if co.z < -0.036:
-                co.z = -0.036 + (co.z + 0.036) * 0.15
-            t = smooth((co.y - 0.0) / 0.13)
-            if co.z > 0:
-                co.z *= 1 - 0.42 * t
-            if co.y < -0.08:
-                co.y = -0.08 + (co.y + 0.08) * 0.5
-            co.x *= 1 - 0.1 * smooth((co.y - 0.07) / 0.07)
-        ellipsoid((0.112, 0.06, 0.058), (0.053, 0.142, 0.052), seg=16, rings=10, shape=foot_shape)(bm)
-        # Shaft, slightly flared at the top.
-        cyl((ax, ay, 0.07), (ax, ay, 0.235), 0.063, seg=16, bevel=0.15, r2=0.066)(bm)
-        # Folded top.
-        ring((ax, ay, 0.232), 0.064, 0.012, seg=16, sy=1.06, mseg=6)(bm)
-        # Tongue and laces over the instep.
-        pts = [Vector((0.112, 0.12, 0.09)), Vector((0.112, 0.08, 0.108)), Vector((0.112, 0.062, 0.15)), Vector((0.112, 0.064, 0.222))]
-        sweep(catmull(pts, 3), rect(0.042, 0.01, 0.003), ups=None)(bm)
-        return
-    if part == "laces":
-        for k, (y, z) in enumerate(((0.11, 0.1), (0.088, 0.112), (0.072, 0.132), (0.068, 0.157), (0.068, 0.182), (0.069, 0.207))):
-            rounded_box((0.052, 0.006, 0.0055), (0.112, y + 0.004, z + 0.002), 0.002, 1, rot=(0.3 + k * 0.12, 0, 0.35 if k % 2 else -0.35))(bm)
-        return
-    # Sole with a stacked heel.
-    def sole_shape(co):
-        # The upper's footprint plus a small welt: heel squared off, toe narrowed.
-        if co.y < -0.08:
-            co.y = -0.08 + (co.y + 0.08) * 0.5
-        co.x *= 1 - 0.1 * smooth((co.y - 0.07) / 0.07)
-    ellipsoid((0.112, 0.06, 0.012), (0.056, 0.146, 0.012), seg=16, rings=6, shape=sole_shape)(bm)
-    rounded_box((0.078, 0.05, 0.026), (0.112, -0.022, 0.014), 0.008, 2)(bm)
-
-
-for s, sx in (("L", 1), ("R", -1)):
-    for part, col, mt in (("upper", lambda c: BOOT if c.z < 0.2 else BOOT_DARK, M_LEATHER), ("laces", LACE, M_ROPE), ("sole", SOLE, M_RUBBER)):
-        fn = (lambda bm, part=part: build_boot_L(bm, part))
-        extras.append(solid(f"boot_{part}_{s}", fn if sx > 0 else mirror_obj(fn), col, boot_weights(s), mat=mt))
-
-# ------------------------------------------------------------------ shirt details: collar, placket, buttons, rolled sleeves, tail
-extras.append(solid("collar_band", ring((0, 0.008, 1.482), 0.066, 0.016, seg=20, flat=0.85, mseg=6), SHIRT_SHADOW, "chest", mat=M_CLOTH))
-for s, sx in (("L", 1), ("R", -1)):
-    # Collar point: lies from the side of the neck down onto the chest.
-    a = surf((sx * 0.045, 0.0, 1.47), (sx * 0.6, 0.8, 0.3), 0.004)
-    b = surf((sx * 0.05, 0.0, 1.41), (sx * 0.25, 1, 0), 0.006)
-    mid = (a + b) / 2 + Vector((0, 0.008, 0))
-    extras.append(solid(f"collar_{s}", sweep([a, mid, b], lambda i: [(-0.02 * (1 - i * 0.35), -0.003), (0.02 * (1 - i * 0.35), -0.003), (0.02 * (1 - i * 0.35), 0.003), (-0.02 * (1 - i * 0.35), 0.003)],
-                                             ups=[Vector((sx * 0.3, 1, 0.2))] * 3), SHIRT, "chest", mat=M_CLOTH))
-placket = [surf((0, 0.0, z), (0, 1, 0), 0.003) for z in (1.405, 1.33, 1.25, 1.17, 1.1, 1.05)]
-extras.append(solid("placket", sweep(catmull(placket, 2), rect(0.028, 0.006, 0.002), ups=[Vector((0, 1, 0))] * 11), SHIRT_SHADOW, "chest", mat=M_CLOTH))
-for z in (1.37, 1.28, 1.19, 1.11):
-    p = surf((0, 0.0, z), (0, 1, 0), 0.007)
-    extras.append(solid(f"button_{z}", cyl(p - Vector((0, 0.002, 0)), p + Vector((0, 0.002, 0)), 0.0065, seg=8, bevel=0.3), BUTTON, "chest" if z > 1.2 else "spine", mat=M_METAL))
-# Chest pockets with flaps.
-for sx in (1, -1):
-    p = surf((sx * 0.085, 0.0, 1.3), (0, 1, 0), 0.004)
-    extras.append(solid(f"pocket_{sx}", rounded_box((0.075, 0.01, 0.028), p + Vector((0, 0, 0.025)), 0.004, 2, rot=(-0.15, 0, 0)), SHIRT_SHADOW, "chest", mat=M_CLOTH))
-for s, sx in (("L", 1), ("R", -1)):
-    e, sh = V[f"elbow.{s}"], V[f"shoulder.{s}"]
-    axis_q = (sh - e).to_track_quat("Z", "Y").to_matrix().to_4x4()
-    for k, (t, r, mr) in enumerate(((0.12, 0.062, 0.02), (0.2, 0.06, 0.016))):
-        ob = solid(f"cuff_{s}{k}", ring((0, 0, 0), r, mr, seg=16, flat=1.25, mseg=6), SHIRT_SHADOW if k == 0 else SHIRT, f"upper_arm.{s}", mat=M_CLOTH)
-        ob.matrix_world = Matrix.Translation(e + (sh - e) * t) @ axis_q @ Matrix.Rotation(0.12 * (k - 0.5), 4, "X")
-        extras.append(ob)
-# Shirt tail hanging out over the belt at the back.
-tail = []
-for k in range(9):
-    a = math.radians(205 + k * 16.25)
-    p = surf((0, 0, 0.985), (math.cos(a), math.sin(a), 0), 0.012)
-    tail.append(p)
-extras.append(solid("shirt_tail", sweep(tail, lambda i: [(0, 0.04), (0, -0.035 - 0.012 * math.sin(i / 8 * math.pi)), (0.006, -0.035 - 0.012 * math.sin(i / 8 * math.pi)), (0.006, 0.04)],
-                                         ups=[Vector((0, 0, 1))] * 9), SHIRT, "hips", mat=M_CLOTH))
-
-# ------------------------------------------------------------------ belt and pouches
-belt_pts = [surf((0, 0, 1.0), (math.cos(2 * math.pi * k / 28), math.sin(2 * math.pi * k / 28), 0), 0.007) for k in range(28)]
-extras.append(solid("belt", sweep(belt_pts, rect(0.012, 0.042, 0.003), ups=[Vector((0, 0, 1))] * 28, closed=True), BELT, "hips", mat=M_LEATHER))
-bf = surf((0, 0, 1.0), (0, 1, 0), 0.014)
-extras.append(solid("buckle", rounded_box((0.058, 0.01, 0.048), bf, 0.006, 2), BRASS, "hips", mat=M_METAL))
-pp = surf((0, 0, 0.975), (-0.82, 0.57, 0), 0.03)
-extras.append(solid("pouch", rounded_box((0.05, 0.1, 0.09), pp, 0.014, 2, rot=(0, 0, -0.6)), PACK, "hips", mat=M_LEATHER))
-extras.append(solid("pouch_flap", rounded_box((0.055, 0.105, 0.035), pp + Vector((0, 0, 0.035)), 0.01, 2, rot=(0, 0, -0.6)), PACK_DARK, "hips", mat=M_LEATHER))
-bp = surf((0, 0, 0.975), (0.55, -0.83, 0), 0.028)
-extras.append(solid("back_pouch", rounded_box((0.1, 0.045, 0.075), bp, 0.014, 2, rot=(0, 0, 0.55)), PACK_DARK, "hips", mat=M_LEATHER))
-
-# ------------------------------------------------------------------ neckerchief
-SCARF_PTS = [Vector((0, -0.07, 1.513)), Vector((0.008, -0.145, 1.542)), Vector((0.016, -0.215, 1.55)), Vector((0.024, -0.285, 1.536))]
-extras.append(solid("scarf_band", ring((0, 0.008, 1.515), 0.068, 0.021, seg=20, flat=1.1, sy=1.02, mseg=6), SCARF, "neck", mat=M_CLOTH))
-extras.append(solid("scarf_knot", ellipsoid((0, -0.066, 1.508), (0.026, 0.018, 0.022), seg=10, rings=6), SCARF_DARK, "neck", mat=M_CLOTH))
-for k, (dx, ln, wid) in enumerate(((0.016, 1.0, 0.042), (-0.02, 0.82, 0.036))):
-    pts = catmull([SCARF_PTS[0] + Vector((dx * 0.3, 0, 0))] + [SCARF_PTS[0] + (p - SCARF_PTS[0]) * ln + Vector((dx * (i + 1) / 3, 0, -0.004 * k)) for i, p in enumerate(SCARF_PTS[1:])], 3)
-    nn = len(pts)
-    extras.append(solid(f"scarf_tail{k}", sweep(pts, lambda i, nn=nn, wid=wid: rect(wid * (1 - 0.55 * (i / (nn - 1)) ** 1.5), 0.005), ups=[Vector((0, 0, 1))] * nn),
-                        SCARF, chain_weights(SCARF_PTS, ["scarf.0", "scarf.1", "scarf.2"]), mat=M_CLOTH))
-
-# ------------------------------------------------------------------ pack, bedroll, rope, straps
-PACK_C = Vector((0, -0.215, 1.235))
-
-
-def pack_col(c):
-    return PACK if c.z > PACK_C.z - 0.12 else PACK_DARK
-
-
-extras += [
-    solid("pack", rounded_box((0.3, 0.155, 0.34), PACK_C, 0.045), pack_col, "pack", mat=M_LEATHER),
-    solid("pack_flap", rounded_box((0.312, 0.165, 0.13), PACK_C + Vector((0, -0.006, 0.12)), 0.03), PACK_DARK, "pack", mat=M_LEATHER),
-    solid("pack_pocket", rounded_box((0.2, 0.06, 0.13), PACK_C + Vector((0, -0.098, -0.07)), 0.022), PACK_DARK, "pack", mat=M_LEATHER),
-    solid("pack_pocket_flap", rounded_box((0.206, 0.066, 0.045), PACK_C + Vector((0, -0.1, -0.01)), 0.015), PACK, "pack", mat=M_LEATHER),
-    solid("pack_side", rounded_box((0.05, 0.1, 0.15), PACK_C + Vector((0.165, 0, -0.06)), 0.02), PACK_DARK, "pack", mat=M_LEATHER),
-]
-for sx in (1, -1):
-    # Flap straps and buckles.
-    x = sx * 0.075
-    extras.append(solid(f"flap_strap_{sx}", rounded_box((0.026, 0.006, 0.15), PACK_C + Vector((x, -0.092, 0.055)), 0.003, 1), BELT, "pack", mat=M_LEATHER))
-    extras.append(solid(f"flap_buckle_{sx}", rounded_box((0.032, 0.008, 0.026), PACK_C + Vector((x, -0.097, 0.005)), 0.004, 1), BRASS, "pack", mat=M_METAL))
-# Rope coil on the right side of the pack.
-extras.append(solid("rope", ring(PACK_C + Vector((-0.172, 0.0, -0.03)), 0.066, 0.016, axis="X", seg=18, mseg=6), ROPE, "pack", mat=M_ROPE))
-extras.append(solid("rope2", ring(PACK_C + Vector((-0.19, 0.0, -0.035)), 0.06, 0.014, axis="X", seg=18, mseg=6), ROPE, "pack", mat=M_ROPE))
-# Bedroll strapped across the top.
-ROLL_C = Vector((0, -0.21, 1.458))
-extras.append(solid("bedroll", cyl(ROLL_C + Vector((-0.215, 0, 0)), ROLL_C + Vector((0.215, 0, 0)), 0.074, seg=16, bevel=0.35), ROLL, "bedroll", mat=M_CANVAS))
-for sx in (1, -1):
-    extras.append(solid(f"roll_tie_{sx}", ring(ROLL_C + Vector((sx * 0.13, 0, 0)), 0.076, 0.007, axis="X", seg=16, mseg=4), BELT, "bedroll", mat=M_LEATHER))
-# Shoulder straps: over the trapezius, down the chest, under the arm and back to the pack.
-for s, sx in (("L", 1), ("R", -1)):
-    spec = [
-        ((sx * 0.085, -0.05, 1.4), (0, -1, 0.15)),
-        ((sx * 0.1, -0.05, 1.3), (0, -0.3, 1)),
-        ((sx * 0.105, 0.03, 1.3), (0, 0.3, 1)),
-        ((sx * 0.105, 0.0, 1.4), (sx * 0.1, 1, 0.25)),
-        ((sx * 0.11, 0.0, 1.3), (sx * 0.15, 1, 0)),
-        ((sx * 0.12, 0.0, 1.2), (sx * 0.4, 1, 0)),
-        ((0.0, 0.0, 1.13), (sx * 1, 0.25, 0)),
-        ((0.0, -0.02, 1.1), (sx * 0.8, -0.6, 0)),
-    ]
-    pts, ups = [], []
-    for o, d in spec:
-        dd = Vector(d).normalized()
-        pts.append(surf(o, dd, 0.01))
-        ups.append(dd)
-    cp = catmull(pts, 3)
-    cu = [ups[min(len(ups) - 1, i // 3)].lerp(ups[min(len(ups) - 1, i // 3 + 1)], (i % 3) / 3) for i in range(len(cp))]
-    extras.append(solid(f"strap_{s}", sweep(cp, rect(0.042, 0.008, 0.002), ups=cu), BELT, "chest", mat=M_LEATHER))
-    # Adjuster buckle on the chest.
-    bpos = surf((sx * 0.11, 0.0, 1.33), (sx * 0.15, 1, 0), 0.016)
-    extras.append(solid(f"strap_buckle_{s}", rounded_box((0.048, 0.008, 0.03), bpos, 0.004, 1, rot=(0, 0, sx * 0.15)), BRASS, "chest", mat=M_METAL))
-# Sternum strap.
-sa, sb = surf((0.105, 0.0, 1.345), (0.1, 1, 0), 0.016), surf((-0.105, 0.0, 1.345), (-0.1, 1, 0), 0.016)
-sm = surf((0, 0, 1.345), (0, 1, 0), 0.02)
-extras.append(solid("sternum", sweep(catmull([sa, sm, sb], 3), rect(0.018, 0.006, 0.002), ups=[Vector((0, 1, 0))] * 7), BELT, "chest", mat=M_LEATHER))
-extras.append(solid("sternum_clip", rounded_box((0.03, 0.008, 0.022), sm + Vector((0, 0.004, 0)), 0.004, 1), BRASS, "chest", mat=M_METAL))
-
-# ------------------------------------------------------------------ armature
-arm_data = bpy.data.armatures.new("rig")
-rig = bpy.data.objects.new("runner", arm_data)
-link(rig)
-bpy.context.view_layer.objects.active = rig
-bpy.ops.object.select_all(action="DESELECT")
-rig.select_set(True)
-bpy.ops.object.mode_set(mode="EDIT")
-eb = arm_data.edit_bones
-
-
-def bone(name, head, tail, parent=None, connect=False):
-    b = eb.new(name)
-    b.head, b.tail = Vector(head), Vector(tail)
-    if parent:
-        b.parent = eb[parent]
-        b.use_connect = connect
-    return b
-
-
-bone("root", (0, 0, 0), (0, 0.3, 0))
-bone("hips", V["pelvis"], V["spine"], "root")
-bone("spine", V["spine"], V["chest"], "hips", True)
-bone("chest", V["chest"], V["neck"], "spine", True)
-bone("neck", V["neck"], V["head"], "chest", True)
-bone("head", V["head"], V["crown"], "neck", True)
-SECONDARY = ["pack", "bedroll", "scarf.0", "scarf.1", "scarf.2", "fingers.L", "fingers.R"]
-for s in "LR":
-    sx = 1 if s == "L" else -1
-    bone(f"shoulder.{s}", V["chest"] + Vector((0, 0, 0.12)), V[f"shoulder.{s}"], "chest")
-    bone(f"upper_arm.{s}", V[f"shoulder.{s}"], V[f"elbow.{s}"], f"shoulder.{s}", True)
-    bone(f"forearm.{s}", V[f"elbow.{s}"], V[f"wrist.{s}"], f"upper_arm.{s}", True)
-    bone(f"hand.{s}", V[f"wrist.{s}"], Vector((sx * 0.266, 0.004, KNUCKLE_Z)), f"forearm.{s}", True)
-    bone(f"fingers.{s}", Vector((sx * 0.266, 0.004, KNUCKLE_Z)), Vector((sx * 0.266, 0.004, 0.79)), f"hand.{s}", True)
-    bone(f"thigh.{s}", V[f"hip.{s}"], V[f"knee.{s}"], "hips")
-    bone(f"shin.{s}", V[f"knee.{s}"], V[f"ankle.{s}"], f"thigh.{s}", True)
-    bone(f"foot.{s}", V[f"ankle.{s}"], V[f"toe.{s}"] + Vector((0, -0.05, 0.0)), f"shin.{s}", True)
-    bone(f"toe.{s}", V[f"toe.{s}"] + Vector((0, -0.05, 0.0)), V[f"toe.{s}"] + Vector((0, 0.04, 0)), f"foot.{s}", True)
-bone("pack", (0, -0.15, 1.43), (0, -0.2, 1.08), "chest")
-bone("bedroll", (0, -0.16, 1.458), (0, -0.3, 1.458), "pack")
-bone("scarf.0", SCARF_PTS[0], SCARF_PTS[1], "neck")
-bone("scarf.1", SCARF_PTS[1], SCARF_PTS[2], "scarf.0", True)
-bone("scarf.2", SCARF_PTS[2], SCARF_PTS[3], "scarf.1", True)
-# Uniform roll so local X is the hinge axis for every limb (flexion = rotation about X).
-for b in eb:
-    b.align_roll(Vector((0, 0, 1)) if abs(b.vector.normalized().z) < 0.7 else Vector((0, -1, 0)))
-bpy.ops.object.mode_set(mode="OBJECT")
-
-# Bind the body with automatic (heat) weights, from the body bones only.
-for n_ in SECONDARY:
-    arm_data.bones[n_].use_deform = False
-bpy.ops.object.select_all(action="DESELECT")
-body.select_set(True)
-rig.select_set(True)
-bpy.context.view_layer.objects.active = rig
-bpy.ops.object.parent_set(type="ARMATURE_AUTO")
-for n_ in SECONDARY:
-    arm_data.bones[n_].use_deform = True
-
-bpy.ops.object.select_all(action="DESELECT")
-for o in extras:
-    o.select_set(True)
-body.select_set(True)
-bpy.context.view_layer.objects.active = body
-bpy.ops.object.join()
-body.name = "runner_mesh"
-print("runner tris:", sum(len(p.vertices) - 2 for p in body.data.polygons), flush=True)
-
-# ------------------------------------------------------------------ bake a painted texture
-mat = bpy.data.materials.new("runner_paint")
-nt = nodes_clear(mat)
-out = N(nt, "ShaderNodeOutputMaterial")
-bsdf = N(nt, "ShaderNodeBsdfPrincipled")
-L(nt, bsdf.outputs[0], out.inputs[0])
-vc = N(nt, "ShaderNodeVertexColor", _layer_name="Col")
-vm = N(nt, "ShaderNodeVertexColor", _layer_name="Mat")
-msep = N(nt, "ShaderNodeSeparateColor")
-L(nt, vm.outputs[0], msep.inputs[0])
-tc = N(nt, "ShaderNodeTexCoord")
-# Linen/canvas weave: two crossed fine stripes.
-wx = N(nt, "ShaderNodeTexWave", Scale=260.0, Distortion=0.6, **{"Detail": 1.0})
-wx.wave_type = "BANDS"
-wx.bands_direction = "X"
-wz = N(nt, "ShaderNodeTexWave", Scale=260.0, Distortion=0.6, **{"Detail": 1.0})
-wz.wave_type = "BANDS"
-wz.bands_direction = "Z"
-for w_ in (wx, wz):
-    L(nt, tc.outputs["Object"], w_.inputs["Vector"])
-weave = math_node(nt, "MULTIPLY", wx.outputs[1], wz.outputs[1])
-weave_c = ramp(nt, weave, [(0.0, (0.86, 0.86, 0.86)), (0.6, (1.05, 1.05, 1.05))])
-col = mix(nt, msep.outputs[1], vc.outputs[0], mix(nt, 1.0, vc.outputs[0], weave_c, "MULTIPLY"), "MIX")
-# Broad folds and fading.
-folds = N(nt, "ShaderNodeTexNoise", Scale=9.0, Detail=3.0, Distortion=1.5)
-L(nt, tc.outputs["Object"], folds.inputs["Vector"])
-col = mix(nt, 1.0, col, ramp(nt, folds.outputs[0], [(0.3, (0.84, 0.84, 0.84)), (0.7, (1.05, 1.05, 1.05))]), "MULTIPLY")
-# Hair: streaks along the strands.
-hmap = N(nt, "ShaderNodeMapping")
-hmap.inputs["Scale"].default_value = (70.0, 70.0, 14.0)
-L(nt, tc.outputs["Object"], hmap.inputs["Vector"])
-hn = N(nt, "ShaderNodeTexNoise", Scale=2.0, Detail=4.0)
-L(nt, hmap.outputs[0], hn.inputs["Vector"])
-col = mix(nt, msep.outputs[2], col, mix(nt, 1.0, col, ramp(nt, hn.outputs[0], [(0.35, (0.72, 0.72, 0.72)), (0.65, (1.12, 1.08, 1.04))]), "MULTIPLY"), "MIX")
-# Stubble: fine dark speckle.
-sn = N(nt, "ShaderNodeTexNoise", Scale=900.0, Detail=1.0)
-L(nt, tc.outputs["Object"], sn.inputs["Vector"])
-va = N(nt, "ShaderNodeVertexColor", _layer_name="Mat")
-stub_amt = math_node(nt, "MULTIPLY", va.outputs[1], maprange(nt, sn.outputs[0], 0.45, 0.62, 0.0, 0.32))
-col = mix(nt, stub_amt, col, hexcol("#6a4a38"), "MIX")
-# Leather scuffs: lighter streaks where roughness is low-ish (leather), via stretched noise.
-lmap = N(nt, "ShaderNodeMapping")
-lmap.inputs["Scale"].default_value = (30.0, 120.0, 30.0)
-L(nt, tc.outputs["Object"], lmap.inputs["Vector"])
-ln_ = N(nt, "ShaderNodeTexNoise", Scale=3.0, Detail=6.0)
-L(nt, lmap.outputs[0], ln_.inputs["Vector"])
-is_leather = math_node(nt, "MULTIPLY", maprange(nt, msep.outputs[0], 0.62, 0.55), maprange(nt, msep.outputs[0], 0.45, 0.52))
-col = mix(nt, math_node(nt, "MULTIPLY", is_leather, maprange(nt, ln_.outputs[0], 0.58, 0.72, 0.0, 0.45)), col, hexcol("#a07a58"), "MIX")
-# Dust and dried mud climbing the boots and trouser legs.
-dust = N(nt, "ShaderNodeTexNoise", Scale=5.0, Detail=5.0)
-L(nt, tc.outputs["Object"], dust.inputs["Vector"])
-sep = N(nt, "ShaderNodeSeparateXYZ")
-L(nt, tc.outputs["Object"], sep.inputs[0])
-low = maprange(nt, sep.outputs[2], 0.5, 0.04, 0.0, 0.3)
-col = mix(nt, math_node(nt, "MULTIPLY", low, maprange(nt, dust.outputs[0], 0.4, 0.6)), col, hexcol("#9c7a55"), "MIX")
-L(nt, col, bsdf.inputs["Base Color"])
-L(nt, msep.outputs[0], bsdf.inputs["Roughness"])
-bump = N(nt, "ShaderNodeBump", Strength=0.3, Distance=0.01)
-L(nt, folds.outputs[0], bump.inputs["Height"])
-b2 = N(nt, "ShaderNodeBump", Distance=0.0015)
-L(nt, math_node(nt, "MULTIPLY", msep.outputs[1], 0.25), b2.inputs["Strength"])
-L(nt, weave, b2.inputs["Height"])
-L(nt, bump.outputs[0], b2.inputs["Normal"])
-b3 = N(nt, "ShaderNodeBump", Distance=0.002)
-L(nt, math_node(nt, "MULTIPLY", msep.outputs[2], 0.5), b3.inputs["Strength"])
-L(nt, hn.outputs[0], b3.inputs["Height"])
-L(nt, b2.outputs[0], b3.inputs["Normal"])
-L(nt, b3.outputs[0], bsdf.inputs["Normal"])
-
-ensure_uvs([body], margin=0.004, angle=55)
-bake_group([body], mat, "runner", 1024 if PREVIEW else 2048, ao_samples=8 if PREVIEW else 24, ao_strength=0.55)
+# ------------------------------------------------------------------ main
+if REUSE and os.path.exists(MODEL_BLEND):
+    bpy.ops.wm.open_mainfile(filepath=MODEL_BLEND)
+    rig = bpy.data.objects["runner"]
+    mesh = bpy.data.objects["runner_mesh"]
+    for a in list(bpy.data.actions):
+        bpy.data.actions.remove(a)
+    for o in list(bpy.data.objects):
+        if o not in (rig, mesh):
+            bpy.data.objects.remove(o)
+    im = bpy.data.images.get("runner_orm")
+    if im and im.size[0] > 1024:
+        im.scale(im.size[0] // 2, im.size[1] // 2)
+else:
+    rig, mesh = build_model()
+    if not PREVIEW or "--save" in sys.argv:
+        bpy.ops.file.pack_all()
+        bpy.ops.wm.save_as_mainfile(filepath=MODEL_BLEND, compress=True)
 
 import runner_anim  # noqa: E402
 
+bpy.context.scene.render.fps = FPS
 runner_anim.build(rig)
 if PREVIEW:
     runner_anim.previews(rig, PREVIEW)
     sys.exit(0)
-export_glb(os.path.join(OUT, "runner.glb"), [rig, body], anim=True, quality=86)
+export_glb(os.path.join(OUT, "runner.glb"), [rig, mesh], anim=True, quality=84)
+os._exit(0)  # bpy can crash on interpreter teardown after an export

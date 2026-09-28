@@ -792,6 +792,12 @@ export class Game {
       const yb = this.track.path.sample(this.s - 0.7, this.cframe).pos.y;
       this.runner.slope = (ya - yb) / 1.4;
     } else this.runner.slope = 0;
+    // Where the head turns: to the hazard once the fall has landed; now and then to the lens at rest.
+    if (this.stage === 'crash') this.runner.lookAt(this.stageT > 0.7 ? this.rig.focus : null, 0.55);
+    else if (this.stage === 'setup' || this.stage === 'title') {
+      const k = this.worldT % 13;
+      this.runner.lookAt(k > 7 && k < 9.5 ? this.rig.camera.position : null, 0.6);
+    } else this.runner.lookAt(null);
     this.runner.update(dt, this.speed);
     // Braking: the soles scour the floor.
     if (this.stage === 'crash' && this.speed > 1.5) {
