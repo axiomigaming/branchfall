@@ -3,13 +3,14 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { Rng } from '../engine/rng';
 import type { Kit } from './assets';
 import { Path, frameMatrix, type Frame, type Segment } from './path';
-import { buildLayout, nextType, type Layout, type SectionType } from './sections';
+import { buildLayout, isWaterPiece, nextType, type Layout, type SectionType } from './sections';
+import { foamTime, makeFoamMaterial, makeFoamRing, makeFoamStrip } from './water';
 import { makeWaterfallMaterial } from './waterfall';
 
 const VARIANTS: Record<SectionType, number> = {
   start: 1,
   corridor: 6,
-  bridge: 3,
+  bridge: 4,
   arcade: 3,
   gate: 2,
   tall: 3,
@@ -18,6 +19,7 @@ const VARIANTS: Record<SectionType, number> = {
   stairsUp: 2,
   cliff: 3,
   ruins: 3,
+  avenue: 3,
 };
 
 interface Variant {
@@ -26,7 +28,7 @@ interface Variant {
   inUse: number;
 }
 
-interface TileSlot {
+export interface TileSlot {
   piece: string;
   index: number;
   world: THREE.Matrix4;
@@ -48,6 +50,9 @@ export interface SectionInstance {
   falls: THREE.Mesh[];
   variant: Variant;
 }
+
+/** Length along the path of each walkable piece (metres). */
+const TILE_LENGTH: Record<string, number> = { floor_wide_0: 8 };
 
 const TILE_CAPACITY: Record<string, number> = {
   floor_0: 110,
@@ -139,10 +144,18 @@ export class Track {
   private fallMat = makeWaterfallMaterial();
   private density = { foliage: 1, scenery: 1 };
   viewDistance = 190;
+  /** QA: section types to spawn next, in order, before the pacing rules resume. */
+  forceNext: SectionType[] = [];
 
   constructor(private kit: Kit) {
     this.root.name = 'track';
     this.tiles = new TileSystem(kit, this.root);
+    // Foam is generated here rather than in Blender: it is a shader, not a texture.
+    kit.geo.set('foam_strip', makeFoamStrip());
+    kit.geo.set('foam_ring', makeFoamRing());
+    kit.matOf.set('foam_strip', 'foam');
+    kit.matOf.set('foam_ring', 'foam');
+    if (!kit.mat.has('foam')) kit.mat.set('foam', makeFoamMaterial());
   }
 
   /** Build every section variant. Yields between variants so a loading screen can animate. */
@@ -171,7 +184,9 @@ export class Track {
 
   private mergeProps(layout: Layout): THREE.Group {
     // Near the path (walls, pillars, arches) casts shadows; scenery out over the water does not,
-    // and is merged separately so both halves cull on their own tighter bounds.
+    // and is merged separately so both halves cull on their own tighter bounds. Things that float
+    // on the water (lilies, foam) are a third zone: like the far scenery they are placed relative
+    // to the water, so a section lowered by stairs moves them back up to the surface.
     const byKey = new Map<string, THREE.BufferGeometry[]>();
     const p = new THREE.Vector3();
     for (const pl of layout.props) {
@@ -181,8 +196,8 @@ export class Track {
         continue;
       }
       p.setFromMatrixPosition(pl.m);
-      const far = Math.abs(p.x) > 7.5;
-      const key = `${this.kit.matOf.get(pl.piece)!}|${far ? 'far' : 'near'}`;
+      const zone = isWaterPiece(pl.piece) ? 'water' : Math.abs(p.x) > 7.5 ? 'far' : 'near';
+      const key = `${this.kit.matOf.get(pl.piece)!}|${zone}`;
       const c = g.clone().applyMatrix4(pl.m);
       if (!byKey.has(key)) byKey.set(key, []);
       byKey.get(key)!.push(c);
@@ -196,7 +211,8 @@ export class Track {
       const [mat, zone] = key.split('|') as [string, string];
       const mesh = new THREE.Mesh(merged, this.kit.mat.get(mat)!);
       mesh.name = key;
-      mesh.castShadow = zone === 'near';
+      mesh.castShadow = zone === 'near' && mat !== 'flora';
+      if (zone === 'water') mesh.renderOrder = 1;
       mesh.receiveShadow = true;
       group.add(mesh);
     }
@@ -219,7 +235,7 @@ export class Track {
   /** Keep the route built ahead of `s` and cleared behind it. */
   update(s: number, intensity: number): void {
     while (this.path.length < s + this.viewDistance) {
-      const t = nextType(this.rng, this.lastType, this.elevation, intensity);
+      const t = this.forceNext.shift() ?? nextType(this.rng, this.lastType, this.elevation, intensity);
       this.spawn(t);
       this.lastType = t;
     }
@@ -250,12 +266,16 @@ export class Track {
     root.matrixAutoUpdate = false;
     root.matrix.copy(world);
     root.matrixWorldNeedsUpdate = true;
+    // Scenery and floating things keep to the water, whatever the path's elevation.
+    const toWater = -seg.p0.y;
     for (const child of variant.group.children) {
       const m = child as THREE.Mesh;
       const inst = new THREE.Mesh(m.geometry, m.material);
       inst.castShadow = m.castShadow;
       inst.receiveShadow = m.receiveShadow;
+      inst.renderOrder = m.renderOrder;
       inst.name = m.name;
+      if (!m.name.endsWith('|near')) inst.position.y = toWater;
       root.add(inst);
     }
     const falls: THREE.Mesh[] = [];
@@ -263,7 +283,7 @@ export class Track {
       const geo = new THREE.PlaneGeometry(f.w, f.h, 1, 12).translate(0, -f.h / 2, 0);
       const mesh = new THREE.Mesh(geo, this.fallMat);
       mesh.matrixAutoUpdate = false;
-      mesh.matrix.copy(f.m);
+      mesh.matrix.makeTranslation(0, toWater, 0).multiply(f.m);
       mesh.renderOrder = 2;
       root.add(mesh);
       falls.push(mesh);
@@ -272,14 +292,19 @@ export class Track {
 
     const inst: SectionInstance = { type, layout, s0: seg.s0, len: layout.len, seg, root, mirror, tiles: [], falls, variant };
     const tmp = new THREE.Matrix4();
-    const p = new THREE.Vector3();
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
     for (const t of layout.tiles) {
       tmp.copy(world).multiply(t.m);
-      // Tiles run 4 m along −Z from their origin (or +Z when rotated half a turn).
-      p.setFromMatrixPosition(t.m);
-      const flipped = Math.abs(Math.abs(new THREE.Euler().setFromRotationMatrix(t.m).y) - Math.PI) < 0.1;
-      const near = flipped ? -p.z - 4 : -p.z;
-      const slot: TileSlot = { piece: t.piece, index: -1, world: tmp.clone(), sNear: seg.s0 + near, sFar: seg.s0 + near + (t.piece === 'floor_wide_0' ? 8 : 4), alive: true };
+      // A tile runs `len` metres along its own −Z from its origin. Push both ends through the
+      // placement and read the extent along the section's −Z: robust to however the rotation is
+      // factored (a half turn about Y can decompose as Euler (π, 0, π)).
+      const len = TILE_LENGTH[t.piece] ?? 4;
+      a.set(0, 0, 0).applyMatrix4(t.m);
+      b.set(0, 0, -len).applyMatrix4(t.m);
+      const near = Math.min(-a.z, -b.z);
+      const far = Math.max(-a.z, -b.z);
+      const slot: TileSlot = { piece: t.piece, index: -1, world: tmp.clone(), sNear: seg.s0 + near, sFar: seg.s0 + far, alive: true };
       this.tiles.alloc(slot);
       inst.tiles.push(slot);
     }
@@ -298,23 +323,50 @@ export class Track {
     return this.sections[this.sections.length - 1];
   }
 
-  /** Remove the walkable tiles overlapping [sFrom, sTo]; returns their world matrices for debris. */
-  collapse(sFrom: number, sTo: number): { piece: string; world: THREE.Matrix4 }[] {
+  /**
+   * Remove the walkable tiles overlapping [sFrom, sTo]; returns their world matrices for debris.
+   * By default a tile only has to touch the range; `whole` keeps tiles that extend outside it
+   * (so the slab under the runner can be spared precisely), `includeFixed` also takes wide
+   * plaza slabs and stairs.
+   */
+  collapse(sFrom: number, sTo: number, opts: { whole?: boolean; includeFixed?: boolean } = {}): { piece: string; world: THREE.Matrix4 }[] {
     const out: { piece: string; world: THREE.Matrix4 }[] = [];
+    for (const t of this.tilesIn(sFrom, sTo, opts.whole)) {
+      if (!opts.includeFixed && (t.piece === 'floor_wide_0' || t.piece.startsWith('stairs'))) continue;
+      this.hideTile(t);
+      out.push({ piece: t.piece, world: t.world });
+    }
+    return out;
+  }
+
+  /** Live walkable tiles overlapping [sFrom, sTo] (or lying wholly inside it with `whole`). */
+  tilesIn(sFrom: number, sTo: number, whole = false): TileSlot[] {
+    const out: TileSlot[] = [];
     for (const sec of this.sections) {
       for (const t of sec.tiles) {
-        if (!t.alive || t.sFar < sFrom || t.sNear > sTo) continue;
-        if (t.piece === 'floor_wide_0' || t.piece.startsWith('stairs')) continue;
-        t.alive = false;
-        this.tiles.hide(t);
-        out.push({ piece: t.piece, world: t.world });
+        if (!t.alive) continue;
+        if (whole ? t.sNear >= sFrom && t.sFar <= sTo : t.sFar > sFrom && t.sNear < sTo) out.push(t);
       }
     }
     return out;
   }
 
+  /** The live tile under arc length `s`, if any. */
+  tileAt(s: number): TileSlot | undefined {
+    for (const sec of this.sections) for (const t of sec.tiles) if (t.alive && s >= t.sNear && s < t.sFar) return t;
+    return undefined;
+  }
+
+  /** Hide one walkable tile (it stays allocated until its section despawns). */
+  hideTile(t: TileSlot): void {
+    if (!t.alive) return;
+    t.alive = false;
+    this.tiles.hide(t);
+  }
+
   tick(time: number): void {
     this.fallMat.uniforms.uTime!.value = time;
+    foamTime.value = time;
   }
 
   get tileMeshes(): THREE.InstancedMesh[] {

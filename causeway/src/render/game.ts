@@ -3,6 +3,7 @@ import { QUALITY, type QualityLevel } from '../config/quality';
 import { multiplierAtSmooth } from '../engine/curve';
 import { Rng, hashString } from '../engine/rng';
 import { loadKit, wind, type Kit } from '../world/assets';
+import { installAtmosphere } from '../world/atmosphere';
 import { Debris } from '../world/debris';
 import { forward } from '../world/path';
 import { CRASH_CLIPS, crashStaging, escapeStaging, nextBeat, runDrive, runTier, type CrashKind, type CrashStaging, type EscapeStaging } from '../world/choreo';
@@ -10,6 +11,7 @@ import { Runner, type RunnerAnim } from '../world/runner';
 import { PATH_HALF } from '../world/sections';
 import { Track } from '../world/track';
 import { WATER_Y, Water } from '../world/water';
+import { Ambient } from './ambient';
 import { CameraRig } from './cameraRig';
 import { Motes, Particles } from './particles';
 import { Post } from './post';
@@ -55,8 +57,9 @@ export class Game {
   private debris!: Debris;
   private particles = new Particles(1100);
   private motes = new Motes(420);
+  private ambient = new Ambient(); // world art: birds, butterflies, leaves
   private post!: Post;
-  private sun = new THREE.DirectionalLight(0xffd6a0, 5.2);
+  private sun = new THREE.DirectionalLight(0xffd29a, 5.8);
   private sunDir = new THREE.Vector3(0.4, 0.25, -0.8);
   private clock = new THREE.Clock();
   private raf = 0;
@@ -120,7 +123,8 @@ export class Game {
     scene.environment = pmrem.fromEquirectangular(kit.env).texture;
     scene.environmentIntensity = 0.5;
     pmrem.dispose();
-    scene.fog = new THREE.FogExp2(0xd3b690, 0.0036);
+    // World art: height fog with sun in-scattering (replaces three's fog chunks before compile).
+    installAtmosphere(scene, kit.sunDir);
 
     this.sunDir.copy(kit.sunDir);
     this.sun.castShadow = true;
@@ -163,7 +167,7 @@ export class Game {
     this.runner = new Runner(kit);
     this.runner.onFootstep = (foot, k) => this.footstep(foot, k);
     scene.add(this.runner.root);
-    scene.add(this.particles.points, this.motes.points);
+    scene.add(this.particles.points, this.motes.points, this.ambient.root);
 
     onProgress(0.72, 'Laying the causeway');
     await this.track.prepare({ foliage: q.foliageDensity, scenery: q.sceneryDensity }, (i, n) => onProgress(0.72 + 0.23 * (i / n), 'Laying the causeway'));
@@ -202,6 +206,7 @@ export class Game {
     this.sun.shadow.map = null as unknown as THREE.WebGLRenderTarget;
     this.track.viewDistance = q.viewDistance;
     this.particles.budget = q.dust;
+    this.ambient.setBudget(q.ambientLife);
     this.water.setDetail(q.waterDetail);
     this.post.build(q);
     this.resize();
@@ -870,6 +875,7 @@ export class Game {
     this.debris.update(dt);
     this.particles.update(dt);
     this.motes.update(this.worldT, cam, this.renderer.domElement.height / (2 * Math.tan((cam.fov * Math.PI) / 360)), 1);
+    this.ambient.update(this.worldT, cam);
 
     // Keep the runner sharp in the blur: project the chest to screen.
     const chest = rp.clone().setY(rp.y + 1.05).project(cam);
