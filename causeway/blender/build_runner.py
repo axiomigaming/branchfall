@@ -48,7 +48,7 @@ FPS = 30
 SKIN = hexcol("#b98b6f")
 SKIN_RED = hexcol("#b8796a")
 SKIN_TAN = hexcol("#a87a5d")
-LIP = hexcol("#9a5a4f")
+LIP = hexcol("#8a4a42")
 SHIRT = hexcol("#c8b489")
 SHIRT_DARK = hexcol("#b29d72")
 BUTTON = hexcol("#3a2b20")
@@ -145,7 +145,10 @@ def head_paint(c, n):
     # Lips.
     if front > 0.5 and ax < 0.024 - 0.25 * max(0.0, abs(z + 0.0625) - 0.0) and -0.072 < z < -0.052:
         k = smooth((0.022 - ax) / 0.006)
-        col = lerpc(col, LIP, 0.8 * k)
+        col = lerpc(col, LIP, 0.85 * k)
+        # The line between the lips reads dark; the upper lip's edge a touch darker too.
+        col = lerpc(col, hexcol("#4a2620"), 0.85 * bell(z, -0.0625, 0.0012) * k)
+        col = lerpc(col, hexcol("#6e3a33"), 0.4 * bell(z, -0.053, 0.001) * k)
         rough = 0.42
     # Stubble: jaw, chin, upper lip, the cheeks below the cheekbones; thins toward the cheekbone.
     if y > -0.03 or z < -0.06:
@@ -159,7 +162,7 @@ def head_paint(c, n):
     for sx in (-1, 1):
         e = F.eye_centre(sx) - HC
         de = Vector((x - e.x, (y - e.y) * 0.3, (z - e.z) * 1.4)).length
-        col = lerpc(col, hexcol("#8e5a45"), 0.35 * bell(de, 0.0, 0.014) * front)
+        col = lerpc(col, hexcol("#9a6650"), 0.15 * bell(de, 0.0, 0.012) * front)
     return col, ((rough, 0.0, 0.0, stub), (1.0, 0.0, 0.0, 0.0))
 
 
@@ -265,7 +268,7 @@ def build_model():
         add(F.eyeball(sx), None, eye_paint(sx), "head", uvw=2.5)
         add(F.hand_mass(sx), 1000, hand_paint, "hand", uvw=1.5)
     add(skin, 1300, skin_paint, "transfer", uvw=1.3, sym=True)
-    add(shirt, 3900, shirt_paint, "transfer", flap=False, sym=True, bake_solid=0.0025)
+    add(shirt, 3900, shirt_paint, "transfer", flap=True, sym=True, bake_solid=0.0025)
     add(trousers, 2500, trouser_paint, "transfer", flap=False, sym=True, bake_solid=0.0025)
     add(C.collar(BB, SB), 600, shirt_paint, "transfer")
     band, buttons, revs = C.placket(SB)
