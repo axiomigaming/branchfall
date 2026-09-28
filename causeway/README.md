@@ -1,8 +1,8 @@
 # CAUSEWAY
 
 <p align="center">
-  <img src="docs/screenshots/run-bridge.jpg" alt="The runner crossing a plank bridge through a vine-hung arch" width="49%">
-  <img src="docs/screenshots/run-arch.jpg" alt="Speed blur on the causeway, an arch at the vanishing point" width="49%">
+  <img src="docs/screenshots/run-bridge.jpg" alt="A rope-railed plank bridge over turquoise water" width="49%">
+  <img src="docs/screenshots/run-arch.jpg" alt="The guardian avenue: colossi standing in the water either side of the causeway" width="49%">
 </p>
 <p align="center">
   <img src="docs/screenshots/title.jpg" alt="Entry screen over the live world" width="49%">
