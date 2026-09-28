@@ -2,11 +2,30 @@ import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { Kit } from './assets';
 
-/** Animation states. `run` is locomotion: the `run` and `sprint` clips blended and phase-locked by speed. */
-export type RunnerAnim = 'idle' | 'ready' | 'start' | 'run' | 'fall_chasm' | 'fall_gate' | 'fall_rock' | 'win';
+/**
+ * Animation states. `run` is locomotion: the `run`, `sprint` and `dash` clips
+ * blended by the run tier and phase-locked to one stride cycle.
+ */
+export type RunnerAnim =
+  | 'idle'
+  | 'ready'
+  | 'start'
+  | 'run'
+  | 'fall_start'
+  | 'fall_chasm'
+  | 'fall_chasm_b'
+  | 'fall_gate'
+  | 'fall_gate_b'
+  | 'fall_rock'
+  | 'fall_rock_b'
+  | 'win'
+  | 'win_cheer'
+  | 'win_salute'
+  | 'win_leap';
 
 type Foot = 'L' | 'R';
-const ONE_SHOT = new Set<string>(['start', 'fall_chasm', 'fall_gate', 'fall_rock', 'win']);
+const GAITS = ['run', 'sprint', 'dash'] as const;
+const ONE_SHOT = new Set<string>(['start', 'fall_start', 'fall_chasm', 'fall_chasm_b', 'fall_gate', 'fall_gate_b', 'fall_rock', 'fall_rock_b', 'win', 'win_cheer', 'win_salute', 'win_leap']);
 /** Foot plants inside one-shot clips (seconds, foot, strength 0..1). Skids read heavier. */
 const EVENTS: Record<string, [number, Foot, number][]> = {
   start: [[0.24, 'R', 0.7], [0.5, 'L', 0.6]],
@@ -14,6 +33,13 @@ const EVENTS: Record<string, [number, Foot, number][]> = {
   fall_chasm: [[0.12, 'L', 1], [0.28, 'R', 0.9], [1.1, 'R', 0.4]],
   fall_gate: [[0.15, 'L', 0.9], [0.43, 'R', 0.5], [0.62, 'L', 0.5], [0.83, 'R', 0.45]],
   fall_rock: [[0.12, 'L', 0.8], [0.45, 'R', 0.4]],
+  fall_start: [[0.38, 'L', 0.5], [0.6, 'R', 0.5]],
+  fall_chasm_b: [[0.12, 'L', 1], [0.3, 'R', 0.9], [0.52, 'L', 0.6]],
+  fall_gate_b: [[0.15, 'L', 0.9], [0.5, 'R', 0.6], [0.8, 'L', 0.5]],
+  fall_rock_b: [[0.12, 'L', 0.8], [0.3, 'R', 0.6], [0.52, 'L', 0.7]],
+  win_cheer: [[0.2, 'R', 0.6], [0.37, 'L', 0.8], [0.6, 'R', 0.4]],
+  win_salute: [[0.27, 'R', 0.4], [0.5, 'L', 0.25], [0.93, 'R', 0.2], [1.13, 'L', 0.2], [1.33, 'R', 0.2]],
+  win_leap: [[0.17, 'R', 0.6], [0.3, 'L', 0.8], [0.9, 'L', 1], [0.93, 'R', 0.8]],
 };
 
 const smoothstep = (a: number, b: number, x: number) => {
@@ -69,7 +95,12 @@ export class Runner {
   private fade = 0.25;
   /** Gait cycle phase, 0..1 (0 = left strike, 0.5 = right strike). */
   private phase = 0;
-  private sprintMix = 0;
+  /** Continuous run tier (see choreo.runDrive); eased so tier changes never pop. */
+  drive = 0;
+  private driveS = 0;
+  private glanceT = -1;
+  private glanceSide = 1;
+  private stumbleT = -1;
   private eventT = 0;
   onFootstep: (foot: Foot, strength: number) => void = () => {};
   /** Forward pitch (rad) and bank (rad), eased. `slope` is the path grade (rise/run) for stairs. */
@@ -119,7 +150,8 @@ export class Runner {
     // Older exports had a single `fall` clip: use it for every reaction.
     const legacyFall = this.actions.get('fall');
     if (legacyFall) for (const k of ['fall_chasm', 'fall_gate', 'fall_rock']) if (!this.actions.has(k)) this.actions.set(k, legacyFall);
-    for (const n of ['chest', 'pack', 'bedroll', 'scarf0', 'scarf1', 'scarf2']) this.bones[n] = this.body.getObjectByName(n) as THREE.Bone | undefined;
+    // three sanitises node names ('upper_arm.L' → 'upper_armL').
+    for (const n of ['spine', 'chest', 'neck', 'head', 'upper_armL', 'upper_armR', 'pack', 'bedroll', 'scarf0', 'scarf1', 'scarf2']) this.bones[n] = this.body.getObjectByName(n) as THREE.Bone | undefined;
     this.play('idle', 0);
   }
 
@@ -127,19 +159,29 @@ export class Runner {
     return this.current;
   }
 
-  /** Blend to a state over `fade` seconds. `run` after `ready` bursts out of the crouch first. */
-  play(name: RunnerAnim, fade = 0.25): void {
+  /**
+   * Blend to a state over `fade` seconds, starting `offset` seconds into a one-shot clip. `run`
+   * after `ready` bursts out of the crouch first. Unknown clips fall back to a sibling.
+   */
+  play(name: RunnerAnim, fade = 0.25, offset = 0): void {
     if (name === 'run' && this.current === 'ready' && this.actions.has('start')) name = 'start';
+    if (name !== 'run' && !this.actions.has(name)) {
+      const fallback = name.startsWith('win') ? 'win' : name.startsWith('fall_') ? name.replace(/_b$/, '').replace('fall_start', 'fall_gate') : null;
+      if (!fallback || !this.actions.has(fallback)) return;
+      name = fallback as RunnerAnim;
+    }
     if (name === this.current) return;
-    if (name !== 'run' && !this.actions.has(name)) return;
     this.current = name;
     this.fade = Math.max(0.001, fade);
-    this.eventT = 0;
+    this.eventT = offset;
+    this.glanceT = -1;
+    this.stumbleT = -1;
     if (name === 'run') {
-      for (const k of ['run', 'sprint']) this.actions.get(k)?.play();
+      for (const k of GAITS) this.actions.get(k)?.play();
     } else {
       const a = this.actions.get(name)!;
       a.reset();
+      a.time = Math.min(offset, a.getClip().duration);
       a.play();
     }
     if (fade <= 0) {
@@ -148,8 +190,30 @@ export class Runner {
   }
 
   private isActive(clip: string): boolean {
-    if (this.current === 'run') return clip === 'run' || clip === 'sprint';
+    if (this.current === 'run') return (GAITS as readonly string[]).includes(clip);
     return this.actions.get(this.current) === this.actions.get(clip);
+  }
+
+  /** A look back over the shoulder (cosmetic; `side` +1 = over the right shoulder). */
+  glance(side: number): void {
+    if (this.current !== 'run' || this.glanceT >= 0 || this.stumbleT >= 0) return;
+    this.glanceT = 0;
+    this.glanceSide = side >= 0 ? 1 : -1;
+  }
+
+  /** A stumble and recover (cosmetic). Returns false if the runner is busy. */
+  stumble(): boolean {
+    if (this.current !== 'run' || this.stumbleT >= 0 || this.glanceT >= 0) return false;
+    this.stumbleT = 0;
+    return true;
+  }
+
+  get stumbling(): number {
+    return this.stumbleT < 0 ? 0 : this.stumbleEnv(this.stumbleT);
+  }
+
+  private stumbleEnv(t: number): number {
+    return t < 0.12 ? smoothstep(0, 0.12, t) : 1 - smoothstep(0.12, 0.75, t);
   }
 
   /** `speed` in m/s drives the gait; emits footsteps; runs the procedural layer. */
@@ -165,13 +229,17 @@ export class Runner {
       }
     }
 
-    // Gait: cadence rises with speed, the stride lengthens; sprint takes over from ~6 m/s.
+    // Gait: cadence rises with speed; the run tier blends run → sprint → dash on one stride phase.
     const cadence = THREE.MathUtils.clamp(1.35 + 0.1 * (speed - 5), 1.05, 2.3);
     const prevPhase = this.phase;
     if (this.current === 'run') this.phase = (this.phase + dt * cadence) % 1;
-    const sprintTarget = smoothstep(6, 10.5, speed);
-    this.sprintMix += (sprintTarget - this.sprintMix) * (1 - Math.exp(-dt * 3));
-    for (const k of ['run', 'sprint']) {
+    this.driveS += (this.drive - this.driveS) * (1 - Math.exp(-dt * 1.5));
+    const d = this.driveS;
+    const hasDash = this.actions.has('dash');
+    const wDash = hasDash ? smoothstep(2.8, 3.9, d) : 0;
+    const wRun = 1 - smoothstep(0.5, 2.0, d);
+    const mix: Record<string, number> = { run: wRun, sprint: Math.max(0, 1 - wRun - wDash), dash: wDash };
+    for (const k of GAITS) {
       const a = this.actions.get(k);
       if (!a) continue;
       a.timeScale = 0;
@@ -186,10 +254,10 @@ export class Runner {
       const nw = target > w ? Math.min(target, w + rate) : Math.max(target, w - rate);
       this.weights.set(k, nw);
     }
-    const gaitW = Math.max(this.weights.get('run') ?? 0, this.weights.get('sprint') ?? 0);
+    const gaitW = Math.max(...GAITS.map((g) => this.weights.get(g) ?? 0));
     const split = new Map<string, number>();
     for (const [k, w] of this.weights) {
-      const x = w * (k === 'run' ? 1 - this.sprintMix : k === 'sprint' ? this.sprintMix : 1);
+      const x = w * (mix[k] ?? 1);
       split.set(k, x);
       sum += x;
     }
@@ -209,6 +277,7 @@ export class Runner {
       }
     }
     this.mixer.update(dt);
+    this.overlays(dt);
 
     // Footfalls.
     const k = Math.min(1, speed / 10);
@@ -231,6 +300,38 @@ export class Runner {
     this.body.rotation.z = THREE.MathUtils.lerp(this.body.rotation.z, this.roll, 1 - Math.exp(-dt * 6));
     this.body.rotation.x = THREE.MathUtils.lerp(this.body.rotation.x, lean, 1 - Math.exp(-dt * 4));
     this.secondary(dt);
+  }
+
+  /** Additive beats on top of the gait: a glance back, a stumble and recover. */
+  private overlays(dt: number): void {
+    const b = this.bones;
+    if (this.glanceT >= 0) {
+      this.glanceT += dt;
+      const t = this.glanceT;
+      const g = smoothstep(0, 0.25, t) * (1 - smoothstep(0.6, 0.95, t));
+      const s = -this.glanceSide;
+      // Up-pointing bones yaw about local Y.
+      this.rotate(b.chest, 0, s * 0.25 * g, 0);
+      this.rotate(b.neck, 0.05 * g, s * 0.6 * g, 0);
+      this.rotate(b.head, 0.05 * g, s * 0.55 * g, 0);
+      if (t > 0.95) this.glanceT = -1;
+    }
+    if (this.stumbleT >= 0) {
+      this.stumbleT += dt;
+      const e = this.stumbleEnv(this.stumbleT);
+      // Pitch forward, head up to find the way, arms thrown wide for balance, a dip.
+      this.rotate(b.spine, -0.22 * e, 0, 0.05 * e);
+      this.rotate(b.chest, -0.15 * e, 0, 0);
+      this.rotate(b.neck, 0.2 * e, 0, 0);
+      this.rotate(b.head, 0.15 * e, 0, 0);
+      this.rotate(b.upper_armL, -0.3 * e, 0, 0.7 * e);
+      this.rotate(b.upper_armR, -0.3 * e, 0, -0.7 * e);
+      this.body.position.y = -0.07 * e;
+      if (this.stumbleT > 0.8) {
+        this.stumbleT = -1;
+        this.body.position.y = 0;
+      }
+    }
   }
 
   /** Pack and bedroll bounce, the neckerchief streams in the wind of the run. */
@@ -283,6 +384,10 @@ export class Runner {
   /** Forget velocities (after a teleport to a new round). */
   resetSecondary(): void {
     this.hasPrev = false;
+    this.glanceT = -1;
+    this.stumbleT = -1;
+    this.body.position.y = 0;
+    this.driveS = this.drive = 0;
     this.springs.pack.reset();
     this.springs.roll.reset();
     this.springs.rollSide.reset();

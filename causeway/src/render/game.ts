@@ -5,7 +5,8 @@ import { Rng, hashString } from '../engine/rng';
 import { loadKit, wind, type Kit } from '../world/assets';
 import { Debris } from '../world/debris';
 import { forward } from '../world/path';
-import { Runner } from '../world/runner';
+import { CRASH_CLIPS, crashStaging, escapeStaging, nextBeat, runDrive, runTier, type CrashKind, type CrashStaging, type EscapeStaging } from '../world/choreo';
+import { Runner, type RunnerAnim } from '../world/runner';
 import { PATH_HALF } from '../world/sections';
 import { Track } from '../world/track';
 import { WATER_Y, Water } from '../world/water';
@@ -24,9 +25,11 @@ export interface WorldSounds {
   crash(kind: string): void;
   escape(): void;
   whoosh(): void;
+  /** A heavy landing at its exact frame: the gate slab, the biggest rockfall block. Optional. */
+  slam?(size: number): void;
 }
 
-const nullSounds: WorldSounds = { footstep() {}, impact() {}, tremor() {}, run() {}, crash() {}, escape() {}, whoosh() {} };
+const nullSounds: WorldSounds = { footstep() {}, impact() {}, tremor() {}, run() {}, crash() {}, escape() {}, whoosh() {}, slam() {} };
 
 /** Presentation intensity from the multiplier: 0 at 1.00x, 1 at 30x and beyond. */
 export function intensityOf(mult: number): number {
@@ -228,6 +231,7 @@ export class Game {
   /** A fresh stretch of causeway with the runner at its start. */
   private newWorld(stage: 'title' | 'setup'): void {
     const seed = `${Date.now()}-${Math.random()}`;
+    this.worldSeed = seed;
     this.cosmetic = new Rng(seed);
     this.track.reset(seed);
     this.debris.clear();
@@ -243,6 +247,13 @@ export class Game {
     this.runner.resetSecondary();
     this.slowmo = null;
     this.timeScale = 1;
+    this.gateLand = null;
+    this.stopAt = 0;
+    this.stopDecel = 0;
+    this.beatIn = 4;
+    this.fx.flash = 0;
+    this.fx.bloom = 0;
+    this.epic = 0;
     this.setStage(stage);
     this.placeRunner(0);
     const f = this.track.path.sample(0);
@@ -277,46 +288,81 @@ export class Game {
   }
 
   private fadeThrough(mid: () => void): void {
-    this.fading = { dir: 1, done: mid };
+    const prev = this.fading?.dir === 1 ? this.fading.done : undefined;
+    this.fading = { dir: 1, done: prev ? () => (prev(), mid()) : mid };
   }
 
   /** The bet is accepted: coil, then go when the server clock says so. */
   lead(): void {
+    if (this.stage === 'crash' || this.stage === 'cashout' || this.fading) {
+      // A new round before the last one's cinematic (or its fade) finished: reset now, no fade.
+      const pending = this.fading?.dir === 1 ? this.fading.done : undefined;
+      this.fading = null;
+      this.fx.fade = 0;
+      if (pending) pending();
+      else if (this.stage === 'crash' || this.stage === 'cashout') this.newWorld('setup');
+    }
     this.frozenMult = null;
     this.live.mult = 1;
     this.setStage('lead');
     this.runner.play('ready', 0.3);
+    this.beatIn = 4;
     this.sounds.whoosh();
   }
 
-  /** The way falls. `mult` is the crash point, now public. */
-  crash(mult: number, roundId: string, forceKind?: 'chasm' | 'gate' | 'rockfall'): void {
+  /**
+   * The way falls. `mult` is the crash point (hundredths), public now that the round has settled.
+   * Staging is chosen from the round id and that multiplier only (see world/choreo). Game logic never
+   * waits on any of this: it returns at once and the presentation follows.
+   */
+  crash(mult: number, roundId: string, forceKind?: CrashKind, forceVariant?: number): void {
+    if (this.stage === 'crash' || this.stage === 'cashout') return;
     this.frozenMult = mult;
     this.live.mult = mult / 100;
-    const r = new Rng(`${roundId}/staging`);
     const sec = this.track.sectionAt(this.s);
     const hazards = sec?.layout.hazards ?? ['rockfall'];
-    const kind = forceKind ?? (this.stage === 'lead' || this.speed < 2 ? 'gate' : r.pick(hazards));
+    const standing = this.stage === 'lead' || this.speed < 2;
+    const st = crashStaging(roundId, mult / 100, hazards, standing);
+    if (forceKind && !standing) st.kind = forceKind;
+    if (forceVariant !== undefined && !standing) st.variant = forceVariant % CRASH_CLIPS[st.kind].length;
+    // A chasm needs collapsible floor ahead (not stairs or a plaza): otherwise the rocks come down.
+    if (st.kind === 'chasm' && this.tileEdge(this.s + 1.4, this.s + (this.speed * 0.45) / 2 + 5) === null) st.kind = 'rockfall';
+    if (!standing) st.clip = CRASH_CLIPS[st.kind][st.variant % CRASH_CLIPS[st.kind].length]!;
     this.setStage('crash');
-    this.runner.play(kind === 'rockfall' ? 'fall_rock' : kind === 'chasm' ? 'fall_chasm' : 'fall_gate', 0.12);
-    this.crashKind = kind;
-    this.stageCrash(kind, r);
-    this.sounds.crash(kind);
+    this.runner.play(st.clip as RunnerAnim, standing ? 0.08 : 0.12);
+    this.crashKind = st.kind;
+    this.staging = st;
+    this.epic = st.epic;
+    this.stageCrash(st, new Rng(`${roundId}/staging`));
+    this.sounds.crash(st.kind);
   }
 
   private crashKind = 'gate';
+  private staging: CrashStaging | EscapeStaging | null = null;
+  private epic = 0;
+  private worldSeed = '';
+  private beatIn = 4;
 
-  cashout(): void {
+  /**
+   * The runner escapes. The variant comes from the round (or world) seed and the cash-out multiplier
+   * only: it never knows where the round would have fallen, and the way ahead stays intact and calm.
+   */
+  cashout(roundId?: string): void {
+    if (this.stage === 'crash' || this.stage === 'cashout') return;
     const v = this.speed;
+    const st = escapeStaging(roundId ?? this.worldSeed, this.live.mult, v < 2.5);
+    this.staging = st;
+    this.epic = st.epic;
     this.setStage('cashout');
-    this.runner.play('win', 0.2);
-    // Run out of it in about three quarters of a second.
-    this.setStop(this.s + (v * 0.72) / 2);
+    this.runner.play(st.clip as RunnerAnim, 0.2, st.offset);
+    // Run out of it: how long depends on the move.
+    const T = { lookback: 0.72, cheer: 0.5, salute: 1.0, leap: 1.15 }[st.variant];
+    this.setStop(this.s + (v * T) / 2);
     this.sounds.escape();
-    this.fx.flash = 0.18;
-    this.rig.setMode('cashout', { side: this.cosmetic.chance(0.5) ? 1 : -1 });
-    // A held breath on the moment of escape.
-    if (v > 3) this.slowmo = { t: 0, dur: 1.0, min: 0.6 };
+    this.fx.flash = 0.16 + 0.22 * st.epic;
+    this.rig.setMode('cashout', { side: this.cosmetic.chance(0.5) ? 1 : -1, escape: st.variant, epic: st.epic });
+    // A held breath on the moment of escape, longer and deeper for a big one (the leap holds at its apex).
+    if (v > 3) this.slowmo = { t: st.variant === 'leap' ? -0.3 : 0, dur: 0.8 + 1.4 * st.epic, min: 0.6 - 0.25 * st.epic };
   }
 
   /** Decelerate uniformly to stand at `sStop` (presentation only). */
@@ -348,6 +394,13 @@ export class Game {
       const d = Math.sign(lat) * lim - lat;
       p.x += rx * d;
       p.z += rz * d;
+      // Give back the lost distance along the route (away from the runner), so a wide orbit in a
+      // narrow corridor still frames the whole figure instead of pressing against the wall.
+      if (this.stage !== 'run' && this.stage !== 'lead') {
+        const k = Math.sign(along || -1) * Math.min(3, Math.abs(d)) * 0.8;
+        p.x += -Math.sin(ry) * k;
+        p.z += -Math.cos(ry) * k;
+      }
     }
     p.y = Math.max(p.y, f.pos.y + 0.45);
   }
@@ -409,13 +462,19 @@ export class Game {
    * brakes to a mark, the hazard is timed to meet them there, and the camera,
    * slow motion, dust and debris are choreographed around that beat.
    */
-  private stageCrash(kind: string, r: Rng): void {
+  private stageCrash(st: CrashStaging, r: Rng): void {
+    const kind = st.kind;
+    const e = st.epic;
+    // Small falls are quick; big ones slower and grander.
+    const slow = (t: number, dur: number, min: number) => {
+      this.slowmo = { t, dur: dur * (0.75 + 0.8 * e), min: min - 0.12 * e };
+    };
     const v = this.speed;
     const sec = this.track.sectionAt(this.s);
     const openSide = sec?.layout.walls === 'cliff' ? (sec.mirror ? 1 : -1) : r.chance(0.5) ? 1 : -1;
     this.timeScale = 1;
     const shot = kind === 'chasm' ? 'chasm' : kind === 'rockfall' ? 'rockfall' : 'gate';
-    this.rig.setMode('crash', { side: openSide, shot });
+    this.rig.setMode('crash', { side: st.variant ? -openSide : openSide, shot, variant: st.variant, epic: e });
 
     const frameAt = (s: number) => {
       const f = this.track.path.sample(s);
@@ -433,7 +492,7 @@ export class Game {
       this.setStop(edge - 0.5);
       const h = frameAt(edge);
       this.rig.focus.copy(h.pos).addScaledVector(h.fwd, 2).setY(h.pos.y + 0.2);
-      const tiles = this.collapseFrom(edge, edge + 16);
+      const tiles = this.collapseFrom(edge, edge + 9 + 9 * e);
       const dist = (m: THREE.Matrix4) => new THREE.Vector3().setFromMatrixPosition(m).distanceTo(h.pos);
       tiles.sort((a, b) => dist(a.world) - dist(b.world));
       tiles.forEach((t, i) => {
@@ -452,27 +511,28 @@ export class Game {
         });
       }
       // Loose blocks from the walls go with it.
-      for (let k = 0; k < 6; k++) {
+      for (let k = 0; k < 3 + Math.round(6 * e); k++) {
         const side = k % 2 ? 1 : -1;
         const p = h.pos.clone().addScaledVector(h.fwd, r.range(1, 9)).addScaledVector(h.right, side * r.range(2.5, 3.2)).setY(h.pos.y + r.range(0.8, 1.6));
         this.later(0.3 + k * 0.12, () =>
           this.debris.spawn(`rubble_${r.int(0, 1)}`, new THREE.Matrix4().makeTranslation(p.x, p.y, p.z), h.fwd.clone().multiplyScalar(r.range(-1, 1)).addScaledVector(h.right, -side * r.range(0.5, 2)), new THREE.Vector3(r.range(-3, 3), r.range(-3, 3), r.range(-3, 3)), () => null, { scale: r.range(0.5, 0.9) }),
         );
       }
-      this.rig.addTrauma(0.55);
+      this.rig.addTrauma(0.4 + 0.25 * e);
       this.fx.flash = 0.2;
-      this.sounds.impact(1, false);
+      this.sounds.impact(0.7 + 0.3 * e, false);
       // Slow motion lands on the teeter at the edge.
-      this.slowmo = { t: -0.25, dur: 1.9, min: 0.33 };
+      slow(-0.25, 1.9, 0.33);
     } else if (kind === 'gate') {
-      // Brake hard; the slab drops to meet the runner as they reach it.
-      const T = 0.3;
+      // Brake hard; the slab slams down a few metres ahead and the runner skids short of it, then
+      // recoils back (the clip). At the push-off it drops right in front of the crouch.
+      const T = 0.5;
       const stop = this.s + (v * T) / 2;
-      const gateS = Math.max(this.s + 1.5, stop + 0.5);
-      this.setStop(gateS - 0.5);
+      const gateS = st.atStart ? this.s + 3.0 : stop + 2.4;
+      this.setStop(stop);
       const h = frameAt(gateS);
       this.rig.focus.copy(h.pos).setY(h.pos.y + 1.6);
-      const land = Math.max(0.24, T);
+      const land = st.atStart ? 0.3 : 0.22;
       const h0 = 7.5;
       const v0 = (h0 - 9.5 * land * land) / land;
       const m = new THREE.Matrix4().compose(h.pos.clone().setY(h.pos.y + h0), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), h.yaw), new THREE.Vector3(1, 1, 1));
@@ -487,21 +547,22 @@ export class Game {
           const p = h.pos.clone().addScaledVector(h.right, k * 0.7).addScaledVector(h.fwd, -0.4).setY(h.pos.y + 0.05);
           this.particles.burst(p, 7, { spread: 0.8, up: 0.8, speed: 4.5, size: 0.9, life: 2.4, color: DUST, alpha: 0.34, drag: 1.4 });
         }
-        for (let k = 0; k < 4; k++) {
+        for (let k = 0; k < 3 + Math.round(5 * e); k++) {
           const p = h.pos.clone().addScaledVector(h.right, r.range(-1.8, 1.8)).addScaledVector(h.fwd, -0.6).setY(h.pos.y + r.range(3.5, 5));
           const sc = r.range(0.12, 0.22);
           this.debris.spawn('debris_0', new THREE.Matrix4().compose(p, new THREE.Quaternion(), new THREE.Vector3(sc, sc, sc)), h.fwd.clone().multiplyScalar(-r.range(0.3, 1.2)), new THREE.Vector3(3, 2, 1), onPath(h));
         }
-        this.rig.addTrauma(0.7);
-        this.fx.flash = 0.16;
+        this.rig.addTrauma(0.5 + 0.3 * e);
+        this.fx.flash = 0.12 + 0.08 * e;
+        this.sounds.slam?.(0.7 + 0.3 * e);
       });
-      this.slowmo = { t: -0.1, dur: 1.5, min: 0.3 };
+      slow(-0.1, 1.5, 0.3);
     } else {
       // Rockfall: the first block drops square in the way as the runner flinches; the rest follow.
       const T = 0.4;
       const stop = this.s + (v * T) / 2;
       this.setStop(stop);
-      const h = frameAt(stop + 1.4);
+      const h = frameAt(stop + 2.9);
       this.rig.focus.copy(h.pos).setY(h.pos.y + 0.8);
       const pieces = ['rock_mid_0', 'rock_mid_1', 'rock_mid_2', 'rubble_3', 'rubble_2', 'drum_0'];
       const drop = (delay: number, along: number, lat: number, piece: string, sc: number, hStart: number, land: number) => {
@@ -514,8 +575,9 @@ export class Game {
           this.particles.burst(p, 6, { spread: 1, up: 0.2, speed: 0.6, size: 0.45, life: 1.5, color: DUST, alpha: 0.3, gravity: 3 });
         });
       };
-      drop(0, 1.4, r.range(-0.4, 0.4), 'rock_mid_1', 0.75, 8, 0.32);
-      for (let k = 0; k < 9; k++) {
+      drop(0, 2.9, r.range(-0.4, 0.4), 'rock_mid_1', 0.75, 8, 0.32);
+      this.later(0.32, () => this.sounds.slam?.(0.5 + 0.3 * e));
+      for (let k = 0; k < 5 + Math.round(8 * e); k++) {
         const along = r.range(-1.5, 9);
         // Never on the runner: anything near their mark lands well to the side.
         const lat = Math.abs(along) < 1.6 ? (r.chance(0.5) ? 1 : -1) * r.range(1.4, 3.6) : r.range(-3.6, 3.6);
@@ -532,8 +594,8 @@ export class Game {
           this.particles.burst(p, 8, { spread: 0.8, up: 0.1, speed: 0.4, size: 0.55, life: 2.2, color: DUST, alpha: 0.38, gravity: 2.2 });
         });
       }
-      this.rig.addTrauma(0.4);
-      this.slowmo = { t: -0.08, dur: 1.5, min: 0.35 };
+      this.rig.addTrauma(0.3 + 0.2 * e);
+      slow(-0.08, 1.5, 0.35);
     }
   }
 
@@ -642,6 +704,23 @@ export class Game {
     this.track.update(this.s, I);
     this.placeRunner(dt);
     this.runner.lean = this.stage === 'run' ? 0.04 * I : 0;
+    // Run tier from the current multiplier only: gait and camera escalate, with cosmetic beats.
+    const drive = this.stage === 'run' ? runDrive(mult) : 0;
+    this.runner.drive = drive;
+    this.rig.drive = drive;
+    if (this.stage === 'run' && this.stageT > 1.5) {
+      this.beatIn -= dt;
+      if (this.beatIn <= 0) {
+        const nb = nextBeat(this.cosmetic, runTier(mult));
+        this.beatIn = nb ? nb.wait : 2;
+        if (nb?.beat === 'glance') this.runner.glance(this.cosmetic.chance(0.5) ? 1 : -1);
+        else if (nb?.beat === 'stumble' && this.runner.stumble()) {
+          this.rig.addTrauma(0.12);
+          this.speed *= 0.94;
+          this.sounds.footstep(1, this.track.sectionAt(this.s)?.type === 'bridge' ? 'wood' : 'stone');
+        }
+      }
+    }
     // Stairs: the path grade under the runner (they lean into a climb, sit back on a descent).
     if (this.stage === 'run') {
       const ya = this.track.path.sample(this.s + 0.7, this.cframe).pos.y;
@@ -665,12 +744,14 @@ export class Game {
     }
     const dangerTarget = this.stage === 'run' ? Math.max(0, (I - 0.35) / 0.65) * 0.55 : 0;
     this.fx.danger += (dangerTarget - this.fx.danger) * (1 - Math.exp(-dt * 2));
-    const coldTarget = this.stage === 'crash' ? Math.min(0.85, this.stageT * 0.7) : 0;
+    // The fall's grade: cold, but capped so the runner and the hazard stay readable.
+    const coldTarget = this.stage === 'crash' ? Math.min(0.55, this.stageT * 0.6) : 0;
     this.fx.cold += (coldTarget - this.fx.cold) * (1 - Math.exp(-rawDt * 3));
-    const goldTarget = this.stage === 'cashout' ? (this.stageT < 1 ? 0.55 : 0.3) : 0;
+    const goldTarget = this.stage === 'cashout' ? (this.stageT < 1 + this.epic ? 0.5 + 0.2 * this.epic : 0.3) : 0;
     this.fx.gold += (goldTarget - this.fx.gold) * (1 - Math.exp(-rawDt * 3));
     this.fx.flash *= Math.exp(-rawDt * 6);
-    this.fx.bloom = this.stage === 'cashout' ? 0.3 * Math.exp(-this.stageT * 1.2) : this.fx.danger * 0.25;
+    // Cash-out: a sun-flare bloom, bigger and longer for a big escape.
+    this.fx.bloom = this.stage === 'cashout' ? (0.3 + 0.5 * this.epic) * Math.exp(-this.stageT * (1.2 - 0.6 * this.epic)) : this.fx.danger * 0.25;
 
     if (this.gateLand && !this.gateLand.done && this.stageT > 0.9) this.gateLand.done = true;
 
