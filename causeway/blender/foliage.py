@@ -371,3 +371,33 @@ def jungle_tree(name, seed, height=12.0):
             _card(bm, uvl, "broad", cc - d * 0.4, d * rng.uniform(2.0, 2.8), rng.uniform(2.0, 2.6), droop=0.2, seg=3,
                   twist=rng.uniform(-0.5, 0.5))
     return trunk, new_mesh_obj(name + "_crown", bm)
+
+
+def wall_ivy(name, seed, crests, depth=0.7, density=0.5):
+    """Vines draped over a ragged wall's column tops (kit_geo.CRESTS) and hanging down both faces,
+    with a tuft of fern on some crests. Same local space as the wall piece."""
+    rng = random.Random(seed)
+    bm = bmesh.new()
+    uvl = bm.loops.layers.uv.new("UVMap")
+    for (y0, y1, zt, ox) in crests:
+        if rng.random() > density or zt < 0.5:
+            continue
+        for side in (-1, 1):
+            if rng.random() < 0.35:
+                continue
+            for _ in range(rng.randint(1, 2)):
+                yy = rng.uniform(y0 + 0.05, y1 - 0.05)
+                ln = rng.uniform(0.45, min(1.5, zt + 0.1))
+                x = ox + side * (depth / 2 + 0.03)
+                # From the crest, over the edge and down the face (the card hangs toward −Z).
+                _card(bm, uvl, "vine", (x, yy, zt + 0.02), (side * 0.05, rng.uniform(-0.08, 0.08), -ln),
+                      ln * rng.uniform(0.4, 0.55), seg=4, up=Vector((side, 0, 0)), flip_v=True)
+        if rng.random() < 0.35:
+            a = rng.uniform(0, 6.28)
+            for k in range(3):
+                b = a + k * 2.1
+                d = Vector((math.cos(b) * 0.6, math.sin(b) * 0.6, 0.55))
+                _card(bm, uvl, "fern", (ox, (y0 + y1) / 2, zt - 0.02), d * rng.uniform(0.45, 0.6), rng.uniform(0.35, 0.45), droop=0.25, seg=3)
+    if not bm.faces:
+        _card(bm, uvl, "vine", (0, 1, 0.5), (0, 0, -0.3), 0.1, seg=1)
+    return new_mesh_obj(name, bm)
