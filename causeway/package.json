@@ -15,7 +15,9 @@
     "rtp": "node --import tsx tools/rtp.ts",
     "verify-round": "node --import tsx tools/verify-round.ts",
     "assets": "python3 blender/build_all.py",
-    "e2e": "node tools/e2e.mjs"
+    "e2e": "node tools/e2e.mjs",
+    "assets:optimize": "node tools/optimize-assets.mjs",
+    "bench": "node tools/bench.mjs"
   },
   "dependencies": {
     "@fontsource/big-shoulders-display": "^5.3.0",
@@ -29,12 +31,17 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.5.0",
+    "@gltf-transform/extensions": "^4.5.0",
+    "@gltf-transform/functions": "^4.5.0",
     "@types/node": "^24.0.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "meshoptimizer": "^1.3.0",
     "playwright-core": "^1.56.0",
+    "sharp": "^0.35.5",
     "tsx": "^4.19.0",
     "typescript": "^5.9.3",
     "vite": "^8.3.1",

@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import manifest from '../../public/assets/manifest.json';
+import type { QualityLevel } from '../config/quality';
 
 /** Everything the world is built from. Loaded once; geometry and materials are shared. */
 export interface Kit {
@@ -21,32 +24,81 @@ const BASE = `${import.meta.env.BASE_URL}assets/`;
 /** Wind uniforms shared by every foliage material. */
 export const wind = { uTime: { value: 0 }, uStrength: { value: 1 } };
 
-export async function loadKit(onProgress: Progress): Promise<Kit> {
-  const manager = new THREE.LoadingManager();
-  const bytes = new Map<string, [number, number]>();
+/**
+ * Which compressed asset set to download (see tools/optimize-assets.mjs): "mobile" (1K textures) for
+ * phones, the Low tier, Save-Data and small-memory devices; "high" (2K) otherwise. `?assets=` overrides.
+ */
+export type AssetSet = keyof typeof manifest.sets;
+export function pickAssetSet(quality: QualityLevel): AssetSet {
+  const forced = new URLSearchParams(location.search).get('assets');
+  if (forced && forced in manifest.sets) return forced as AssetSet;
+  const nav = navigator as Navigator & { connection?: { saveData?: boolean }; deviceMemory?: number };
+  const phone = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || matchMedia('(pointer: coarse)').matches;
+  if (quality === 'low' || phone || nav.connection?.saveData || (nav.deviceMemory ?? 8) <= 4) return 'mobile';
+  return 'high';
+}
+
+/** Hashed URL: the content hash rides in the query, so every file can be cached as immutable. */
+const url = (e: { file: string; v: string }) => `${BASE}${e.file}?v=${e.v}`;
+
+/** Bytes the first load downloads for a set (for honest progress before any response arrives). */
+export function assetBytes(set: AssetSet): number {
+  const s = manifest.sets[set];
+  return s.kit.bytes + s.runner.bytes + manifest.shared.backdrop.bytes + manifest.shared.env.bytes + manifest.shared.backdropMeta.bytes;
+}
+
+export async function loadKit(onProgress: Progress, set: AssetSet = 'high'): Promise<Kit> {
+  const files = manifest.sets[set];
+  // Totals come from the manifest, so the bar never rescales when a response (maybe compressed, maybe
+  // without Content-Length) arrives, and per-file counts only ever grow: progress is monotonic.
+  const expected = new Map<string, number>();
+  const got = new Map<string, number>();
+  const total = assetBytes(set);
+  let shown = 0;
   const report = () => {
     let a = 0;
-    let b = 0;
-    for (const [l, t] of bytes.values()) {
-      a += l;
-      b += t;
-    }
-    onProgress(a, Math.max(b, 1));
+    for (const [u, n] of got) a += Math.min(n, expected.get(u) ?? n);
+    shown = Math.max(shown, Math.min(a, total));
+    onProgress(shown, total);
   };
-  const track = (url: string) => (e: ProgressEvent) => {
-    bytes.set(url, [e.loaded, e.total || e.loaded || 1]);
+  const track = (u: string) => (e: ProgressEvent) => {
+    // A gzip'd response reports decoded bytes; scale to the manifest size when a total is known.
+    const n = e.lengthComputable && e.total > 0 ? (e.loaded / e.total) * (expected.get(u) ?? e.total) : e.loaded;
+    got.set(u, Math.max(got.get(u) ?? 0, n));
     report();
   };
-  const gltf = new GLTFLoader(manager);
-  const load = <T,>(loader: { load: (u: string, ok: (r: T) => void, p: (e: ProgressEvent) => void, err: (e: unknown) => void) => void }, url: string) =>
-    new Promise<T>((res, rej) => loader.load(BASE + url, res, track(url), rej));
+  const done = (u: string) => {
+    got.set(u, expected.get(u) ?? 0);
+    report();
+  };
+  const manager = new THREE.LoadingManager();
+  const gltf = new GLTFLoader(manager).setMeshoptDecoder(MeshoptDecoder);
+  const load = <T,>(loader: { load: (u: string, ok: (r: T) => void, p: (e: ProgressEvent) => void, err: (e: unknown) => void) => void }, e: { file: string; v: string; bytes: number }) => {
+    const u = url(e);
+    expected.set(u, e.bytes);
+    return new Promise<T>((res, rej) =>
+      loader.load(
+        u,
+        (r) => {
+          done(u);
+          res(r);
+        },
+        track(u),
+        rej,
+      ),
+    );
+  };
+  const metaUrl = url(manifest.shared.backdropMeta);
+  expected.set(metaUrl, manifest.shared.backdropMeta.bytes);
 
   const [kitG, runG, backdrop, env, meta] = await Promise.all([
-    load<{ scene: THREE.Group }>(gltf, 'kit.glb'),
-    load<{ scene: THREE.Group; animations: THREE.AnimationClip[] }>(gltf, 'runner.glb'),
-    load<THREE.Texture>(new THREE.TextureLoader(manager), 'backdrop.webp'),
-    load<THREE.DataTexture>(new HDRLoader(manager), 'env.hdr'),
-    fetch(BASE + 'backdrop.json').then((r) => r.json() as Promise<{ sunDirBlender: [number, number, number] }>),
+    load<{ scene: THREE.Group }>(gltf, files.kit),
+    load<{ scene: THREE.Group; animations: THREE.AnimationClip[] }>(gltf, files.runner),
+    load<THREE.Texture>(new THREE.TextureLoader(manager), manifest.shared.backdrop),
+    load<THREE.DataTexture>(new HDRLoader(manager), manifest.shared.env),
+    fetch(metaUrl)
+      .then((r) => r.json() as Promise<{ sunDirBlender: [number, number, number] }>)
+      .then((j) => (done(metaUrl), j)),
   ]);
 
   const geo = new Map<string, THREE.BufferGeometry>();
@@ -57,7 +109,9 @@ export async function loadKit(onProgress: Progress): Promise<Kit> {
     const m = o as THREE.Mesh;
     if (!m.isMesh) return;
     const name = (m.name || m.parent?.name || '').replace(/_\d+$/, (s) => s); // keep full names
-    const g = m.geometry.clone();
+    // Quantized (KHR_mesh_quantization) attributes are decoded to float first: baking the node
+    // transform into normalized integers would clamp them.
+    const g = dequantize(m.geometry);
     g.applyMatrix4(m.matrixWorld);
     const src = m.material as THREE.MeshStandardMaterial;
     const key = src.name.replace(/^M_/, '');
@@ -129,6 +183,26 @@ function prepareMaterial(key: string, src: THREE.MeshStandardMaterial): THREE.Ma
   if (key === 'rock') m.roughness = 1;
   m.needsUpdate = true;
   return m;
+}
+
+/** A float copy of a geometry whose attributes may be normalized integers and/or interleaved. */
+function dequantize(src: THREE.BufferGeometry): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  if (src.index) g.setIndex(src.index.clone());
+  for (const [name, a] of Object.entries(src.attributes)) {
+    const attr = a as THREE.BufferAttribute | THREE.InterleavedBufferAttribute;
+    if (attr.array instanceof Float32Array && !(attr as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute) {
+      g.setAttribute(name, (attr as THREE.BufferAttribute).clone());
+      continue;
+    }
+    const n = attr.itemSize;
+    const out = new Float32Array(attr.count * n);
+    for (let i = 0; i < attr.count; i++) for (let c = 0; c < n; c++) out[i * n + c] = attr.getComponent(i, c);
+    g.setAttribute(name, new THREE.BufferAttribute(out, n));
+  }
+  for (const gr of src.groups) g.addGroup(gr.start, gr.count, gr.materialIndex);
+  g.name = src.name;
+  return g;
 }
 
 /** Card normals point away from the plant's core so a bush shades like a volume, not like cards. */

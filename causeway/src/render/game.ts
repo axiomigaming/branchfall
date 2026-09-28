@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { QUALITY, type QualityLevel } from '../config/quality';
 import { multiplierAtSmooth } from '../engine/curve';
 import { Rng, hashString } from '../engine/rng';
-import { loadKit, wind, type Kit } from '../world/assets';
+import { loadKit, pickAssetSet, wind, type Kit } from '../world/assets';
+import { DynamicResolution, warmUp } from './perf';
 import { installAtmosphere } from '../world/atmosphere';
 import { Debris } from '../world/debris';
 import { forward } from '../world/path';
@@ -112,7 +113,7 @@ export class Game {
 
   private async init(onProgress: (p: number, label: string) => void) {
     onProgress(0.02, 'Unearthing the ruins');
-    this.kit = await loadKit((a, b) => onProgress(0.05 + 0.65 * (a / b), 'Unearthing the ruins'));
+    this.kit = await loadKit((a, b) => onProgress(0.05 + 0.65 * (a / b), 'Unearthing the ruins'), pickAssetSet(this.qualityLevel)); // perf: asset set by tier/device
     const q = QUALITY[this.qualityLevel];
     const { scene, kit } = this;
 
@@ -180,6 +181,8 @@ export class Game {
     const probe = this.debris.spawn('gate_0', new THREE.Matrix4().makeTranslation(0, -50, 0), new THREE.Vector3(), new THREE.Vector3(), () => null);
     this.debris.spawn('rock_mid_0', new THREE.Matrix4().makeTranslation(0, -50, 0), new THREE.Vector3(), new THREE.Vector3(), () => null);
     await this.renderer.compileAsync(scene, this.rig.camera);
+    // perf: upload every section variant's geometry and every kit texture now, not mid-run.
+    warmUp(this.renderer, [scene, ...[...this.track['variants'].values()].flat().map((v) => v.group)], this.kit.mat.values());
     this.debris.clear();
     void probe;
     onProgress(1, 'Ready');
@@ -199,6 +202,7 @@ export class Game {
   applyQuality(level: QualityLevel, rebuildTrack = true): void {
     this.qualityLevel = level;
     const q = QUALITY[level];
+    this.dynRes.reset(q.minRenderScale); // perf
     this.renderer.shadowMap.enabled = q.shadows;
     this.sun.castShadow = q.shadows;
     this.sun.shadow.mapSize.set(q.shadowMapSize, q.shadowMapSize);
@@ -225,7 +229,8 @@ export class Game {
   resize = (): void => {
     const w = Math.max(1, this.canvas.clientWidth);
     const h = Math.max(1, this.canvas.clientHeight);
-    const pr = Math.min(window.devicePixelRatio || 1, QUALITY[this.qualityLevel].pixelRatioCap);
+    // perf: the tier caps the pixel ratio; dynamic resolution scales below that cap.
+    const pr = Math.max(0.5, Math.min(window.devicePixelRatio || 1, QUALITY[this.qualityLevel].pixelRatioCap) * this.dynRes.scale);
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(w, h, false);
     this.post?.setSize(w, h);
@@ -715,6 +720,8 @@ export class Game {
     this.yawPrev = f.yaw;
   }
 
+  private tmpChest = new THREE.Vector3(); // perf
+  private tmpScreen = new THREE.Vector2(); // perf
   private frame(rawDt: number, render = true): void {
     const t0 = performance.now();
     // Presentation time can slow down; the round clock never does.
@@ -872,11 +879,11 @@ export class Game {
     this.ambient.update(this.worldT, cam);
 
     // Keep the runner sharp in the blur: project the chest to screen.
-    const chest = rp.clone().setY(rp.y + 1.05).project(cam);
+    const chest = this.tmpChest.copy(rp).setY(rp.y + 1.05).project(cam); // perf: no per-frame alloc
     const speedBlur = this.motion === 'reduced' ? 0 : Math.min(1, Math.max(0, (this.speed - 4) / 10));
     this.post.apply({
       speed: speedBlur,
-      runnerScreen: new THREE.Vector2(chest.x * 0.5 + 0.5, chest.y * 0.5 + 0.5),
+      runnerScreen: this.tmpScreen.set(chest.x * 0.5 + 0.5, chest.y * 0.5 + 0.5),
       danger: this.fx.danger,
       cold: this.fx.cold,
       gold: this.fx.gold,
@@ -906,8 +913,15 @@ export class Game {
     }
   }
 
+  // perf: dynamic resolution first; the tier steps down only when the scale is at its floor.
+  private dynRes = new DynamicResolution();
   private govern(ms: number, dt: number) {
-    if (!this.autoQuality) return;
+    if (!this.autoQuality || this.paused) return;
+    if (this.dynRes.sample(dt * 1000)) this.resize();
+    if (!this.dynRes.atFloor) {
+      this.frameTimes.length = 0;
+      return;
+    }
     this.frameTimes.push(dt * 1000);
     if (this.frameTimes.length < 180) return;
     const avg = this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length;

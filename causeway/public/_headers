@@ -1,0 +1,9 @@
+# Static-host cache policy (Netlify / Cloudflare Pages format; mirror it on other hosts).
+# Every file the game fetches from /assets is content-addressed: Vite hashes JS/CSS names and the
+# loader appends ?v=<content hash> to models, textures and the environment map.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+/index.html
+  Cache-Control: no-cache
+/
+  Cache-Control: no-cache
