@@ -1,9 +1,16 @@
 import * as THREE from 'three';
 
-export type CamMode = 'title' | 'setup' | 'run' | 'crash' | 'cashout';
+export type CamMode = 'title' | 'setup' | 'lead' | 'run' | 'crash' | 'cashout';
+export type CrashShot = 'chasm' | 'gate' | 'rockfall';
+export type EscapeShot = 'lookback' | 'cheer' | 'salute' | 'leap';
 
 const damp = (a: number, b: number, k: number, dt: number) => a + (b - a) * (1 - Math.exp(-k * dt));
 const dampV = (a: THREE.Vector3, b: THREE.Vector3, k: number, dt: number) => a.lerp(b, 1 - Math.exp(-k * dt));
+const ease = (x: number) => {
+  const t = Math.min(1, Math.max(0, x));
+  return t * t * (3 - 2 * t);
+};
+const lerp = THREE.MathUtils.lerp;
 
 function angleDelta(a: number, b: number) {
   let d = b - a;
@@ -12,11 +19,54 @@ function angleDelta(a: number, b: number) {
   return d;
 }
 
+/** A camera placement in the runner's frame: metres along the route, to the right, and up. */
+interface Frame {
+  along: number;
+  lat: number;
+  up: number;
+  /** Look target: along/lat/up from the runner, then pulled toward the focus point by `focus`. */
+  lAlong: number;
+  lLat: number;
+  lUp: number;
+  focus: number;
+  fov: number;
+}
+
+function mixFrame(a: Frame, b: Frame, t: number): Frame {
+  const k = ease(t);
+  return {
+    along: lerp(a.along, b.along, k),
+    lat: lerp(a.lat, b.lat, k),
+    up: lerp(a.up, b.up, k),
+    lAlong: lerp(a.lAlong, b.lAlong, k),
+    lLat: lerp(a.lLat, b.lLat, k),
+    lUp: lerp(a.lUp, b.lUp, k),
+    focus: lerp(a.focus, b.focus, k),
+    fov: lerp(a.fov, b.fov, k),
+  };
+}
+
+/** Piecewise-eased keyframes over time: [(t, frame)…]. */
+function track(keys: [number, Frame][], t: number): Frame {
+  if (t <= keys[0]![0]) return keys[0]![1];
+  for (let i = 0; i < keys.length - 1; i++) {
+    const [t0, a] = keys[i]!;
+    const [t1, b] = keys[i + 1]!;
+    if (t < t1) return mixFrame(a, b, (t - t0) / (t1 - t0));
+  }
+  return keys[keys.length - 1]![1];
+}
+
+const F = (along: number, lat: number, up: number, lAlong: number, lLat: number, lUp: number, fov: number, focus = 0): Frame => ({ along, lat, up, lAlong, lLat, lUp, fov, focus });
+
 /**
- * A chase camera with weight: the position lags on a spring, the heading lags
- * the route, the lens widens with speed, and shake comes from "trauma" that
- * decays. Every mode is a target the same springs move toward, so switching
- * modes is always a camera move, never a cut.
+ * A chase camera with weight, and authored moves for the moments that matter.
+ * The position lags on a spring, the heading lags the route, the lens widens
+ * with speed, footfalls bob the operator, and shake comes from "trauma" that
+ * decays. Title, start, crash and cash-out are choreographed as keyframed shots
+ * in the runner's frame; every mode is a target the same springs move toward,
+ * so switching is always a camera move, never a cut. A corridor constraint
+ * (supplied by the game) keeps the lens out of the walls.
  */
 export class CameraRig {
   readonly camera: THREE.PerspectiveCamera;
@@ -28,33 +78,67 @@ export class CameraRig {
   private trauma = 0;
   private t = 0;
   private modeT = 0;
-  private orbit = 0;
   private side = 1;
+  private crashShot: CrashShot = 'gate';
+  private escapeShot: EscapeShot = 'lookback';
+  private variant = 0;
+  /** 0..1: how grand the settled moment is (slower, wider, higher). */
+  private epic = 0;
+  /** Continuous run tier (see world/choreo): camera energy rises with it. */
+  drive = 0;
+  private fovKick = 0;
+  private bob = 0;
+  private bobV = 0;
+  private sway = 0;
+  private swayV = 0;
+  private dutch = 0;
+  private lastYaw = 0;
   shakeEnabled = true;
   motionScale = 1;
   /** Extra focus point for crash framing (the hazard). */
   focus = new THREE.Vector3();
+  /** Keeps a camera position inside the open corridor (walls, floor). Set by the game. */
+  constrain: (p: THREE.Vector3) => void = () => {};
 
   constructor(aspect: number) {
     this.camera = new THREE.PerspectiveCamera(55, aspect, 0.1, 2400);
   }
 
-  setMode(m: CamMode, opts: { side?: number } = {}): void {
+  setMode(m: CamMode, opts: { side?: number; shot?: CrashShot; escape?: EscapeShot; variant?: number; epic?: number } = {}): void {
+    if (opts.side) this.side = opts.side;
+    if (opts.shot) this.crashShot = opts.shot;
+    if (opts.escape) this.escapeShot = opts.escape;
+    if (opts.variant !== undefined) this.variant = opts.variant;
+    if (opts.epic !== undefined) this.epic = opts.epic;
     if (m === this.mode) return;
     this.mode = m;
     this.modeT = 0;
-    if (opts.side) this.side = opts.side;
-    if (m === 'crash' || m === 'cashout') this.orbit = 0;
   }
 
   /** Snap to the current target (after a teleport such as a new round). */
   snap(runnerPos: THREE.Vector3, runnerYaw: number): void {
     this.yaw = runnerYaw;
-    this.computeTarget(runnerPos, runnerYaw, 0, 1 / 60, true);
+    this.lastYaw = runnerYaw;
+    const fov = this.computeTarget(runnerPos, runnerYaw, 0, 1 / 60, true);
+    this.pos.copy(this.targetPos);
+    this.look.copy(this.targetLook);
+    this.fov = fov;
   }
 
   addTrauma(x: number): void {
     this.trauma = Math.min(1, this.trauma + x);
+  }
+
+  /** A footfall: the operator is running too. */
+  footfall(strength: number, foot: 'L' | 'R'): void {
+    if (this.mode !== 'run' && this.mode !== 'lead') return;
+    this.bobV -= (0.18 + 0.3 * strength) * this.motionScale;
+    this.swayV += (foot === 'L' ? -1 : 1) * 0.06 * strength * this.motionScale;
+  }
+
+  /** A lens punch (the start burst). */
+  kick(deg: number): void {
+    this.fovKick += deg * this.motionScale;
   }
 
   private targetPos = new THREE.Vector3();
@@ -63,104 +147,265 @@ export class CameraRig {
   private fwd = new THREE.Vector3();
   private right = new THREE.Vector3();
 
+  private place(out: THREE.Vector3, base: THREE.Vector3, along: number, lat: number, up: number) {
+    return out.copy(base).addScaledVector(this.fwd, along).addScaledVector(this.right, lat).setY(base.y + up);
+  }
+
+  /**
+   * How much to compose for a tall screen with the interface over its lower part: 0 on a landscape
+   * screen with no dock, 1 on a phone in portrait. Settled shots pull back and aim lower by this, so
+   * the runner's feet sit above the dock line.
+   */
+  private get compact(): number {
+    const pf = Math.min(1, Math.max(0, (1 - this.camera.aspect) / 0.5));
+    return Math.min(1, Math.max(pf, this.shiftTarget / 0.2));
+  }
+
+  private settled(f: Frame): Frame {
+    const k = this.compact;
+    if (k <= 0) return f;
+    return { ...f, along: f.along * (1 + 0.3 * k), lat: f.lat * (1 + 0.2 * k), up: f.up + 0.3 * k, lUp: f.lUp - 0.3 * k };
+  }
+
+  private shot(runnerPos: THREE.Vector3, f: Frame) {
+    this.place(this.targetPos, runnerPos, f.along, f.lat, f.up);
+    this.place(this.targetLook, runnerPos, f.lAlong, f.lLat, f.lUp);
+    if (f.focus > 0) {
+      const y = this.targetLook.y;
+      this.targetLook.lerp(this.focus, f.focus).setY(y);
+    }
+    return f.fov;
+  }
+
   private computeTarget(runnerPos: THREE.Vector3, runnerYaw: number, intensity: number, dt: number, snap = false) {
     const k = snap ? 1e6 : 1;
-    this.yaw += angleDelta(this.yaw, runnerYaw) * (1 - Math.exp(-(this.mode === 'run' ? 2.6 : 1.6) * dt * k));
+    const follow = this.mode === 'run' || this.mode === 'lead' ? 2.6 : this.mode === 'crash' || this.mode === 'cashout' ? 0.6 : 1.6;
+    this.yaw += angleDelta(this.yaw, runnerYaw) * (1 - Math.exp(-follow * dt * k));
     const yaw = this.yaw;
     this.fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
     this.right.set(Math.cos(yaw), 0, -Math.sin(yaw));
     const I = intensity;
+    const s = this.side;
+    const T = this.modeT;
     let fov = 55;
     switch (this.mode) {
       case 'title': {
-        // A slow crane behind the runner, looking down the causeway: the path is the subject.
-        const a = Math.sin(this.t * 0.06) * 0.22 + 0.12;
-        const r = 6.2 + Math.sin(this.t * 0.045) * 0.8;
-        const dir = new THREE.Vector3().copy(this.fwd).multiplyScalar(-Math.cos(a)).addScaledVector(this.right, Math.sin(a));
-        this.targetPos.copy(runnerPos).addScaledVector(dir, r).setY(runnerPos.y + 3.1 + Math.sin(this.t * 0.08) * 0.35);
-        this.targetLook.copy(runnerPos).addScaledVector(this.fwd, 14).setY(runnerPos.y + 1.4);
-        fov = 52;
+        // An establishing move: high over the causeway looking down the way ahead, drifting down
+        // to a low three-quarter view behind the runner (who sits right of frame, clear of the
+        // title copy), and back up. Reduced motion slows it to a crawl.
+        const period = this.motionScale < 1 ? 90 : 46;
+        const c = ease(0.5 - 0.5 * Math.cos((2 * Math.PI * this.t) / period));
+        const drift = Math.sin(this.t * 0.11) * 0.25;
+        fov = this.shot(runnerPos, {
+          along: lerp(-8.5, -2.3, c),
+          lat: lerp(-0.5, -1.45, c) + drift,
+          up: lerp(5.4, 1.05, Math.pow(c, 1.5)),
+          lAlong: lerp(22, 6, c),
+          lLat: lerp(0.2, 0.95, c),
+          lUp: lerp(0.4, 1.55, c),
+          focus: 0,
+          fov: lerp(50, 44, c),
+        });
         break;
       }
       case 'setup': {
-        this.targetPos.copy(runnerPos).addScaledVector(this.fwd, -2.75).addScaledVector(this.right, 0.5).setY(runnerPos.y + 1.66);
-        this.targetLook.copy(runnerPos).addScaledVector(this.fwd, 7).addScaledVector(this.right, 0.2).setY(runnerPos.y + 1.2);
-        fov = 54;
+        // On a tall screen with the dock up, pull back, rise and aim low so the whole runner stands
+        // above the dock.
+        fov = this.shot(runnerPos, mixFrame(F(-2.75, 0.5, 1.66, 7, 0.2, 1.2, 54), F(-3.0, 0.35, 1.9, 2.5, 0.1, 0.7, 54), this.compact));
+        break;
+      }
+      case 'lead': {
+        // Low beside the coiled runner, easing in: the held breath before the go.
+        const p = ease(T / 1.2);
+        fov = this.shot(runnerPos, F(lerp(-2.45, -1.95, p), lerp(0.62, 0.78, p), lerp(1.2, 1.02, p), 7, 0.1, 1.05, lerp(52, 47, p)));
         break;
       }
       case 'run': {
-        const dist = 2.7 + 0.45 * I;
-        this.targetPos.copy(runnerPos).addScaledVector(this.fwd, -dist).setY(runnerPos.y + 1.68 - 0.1 * I);
-        this.targetLook.copy(runnerPos).addScaledVector(this.fwd, 6.5).setY(runnerPos.y + 1.12);
-        fov = 57 + 12 * I;
+        // Energy rises with the run tier: closer and lower at the top tiers, a wider lens, a drift.
+        const d = this.drive;
+        const hi = Math.max(0, d - 2.5);
+        const dist = 2.7 + 0.45 * I - 0.12 * hi;
+        const drift = 0.22 * I * Math.sin(this.t * 0.37) * this.motionScale;
+        fov = this.shot(runnerPos, F(-dist, drift, 1.68 - 0.1 * I - 0.1 * hi, 6.5, drift * 0.4, 1.12, 57 + 12 * I + 1.5 * hi));
         break;
       }
       case 'crash': {
-        // Crane up and back, staying inside the corridor: runner in the foreground, the fall ahead.
-        this.orbit = damp(this.orbit, 1, 1.3, dt);
-        const o = this.orbit;
-        this.targetPos
-          .copy(runnerPos)
-          .addScaledVector(this.fwd, -(2.9 + 1.3 * o))
-          .addScaledVector(this.right, this.side * (0.4 + 0.8 * o))
-          .setY(runnerPos.y + 1.8 + 1.5 * o);
-        this.targetLook.copy(runnerPos).lerp(this.focus, 0.6).setY(runnerPos.y + 1.3);
-        fov = 56;
+        fov = this.shot(runnerPos, this.settled(this.crashFrame(T / (1 + 0.5 * this.epic), s)));
         break;
       }
       case 'cashout': {
-        this.orbit = damp(this.orbit, 1, 1.1, dt);
-        const ang = this.side * (0.2 + 2.55 * this.orbit);
-        const dir = new THREE.Vector3().copy(this.fwd).multiplyScalar(-Math.cos(ang)).addScaledVector(this.right, Math.sin(ang));
-        this.targetPos.copy(runnerPos).addScaledVector(dir, 3.2 + 0.3 * this.orbit).setY(runnerPos.y + 1.6 - 0.15 * this.orbit);
-        this.targetLook.copy(runnerPos).setY(runnerPos.y + 1.25);
-        fov = 50;
+        fov = this.shot(runnerPos, this.settled(this.escapeFrame(T, s)));
         break;
       }
     }
-    if (snap) {
-      this.pos.copy(this.targetPos);
-      this.look.copy(this.targetLook);
-      this.fov = fov;
-    }
+    this.constrain(this.targetPos);
     return fov;
+  }
+
+  /**
+   * Escape choreography per variant, as an orbit around the runner (angle 0 = behind, π = in
+   * front). Bigger escapes orbit wider and crane higher, slower.
+   */
+  private escapeFrame(T0: number, s: number): Frame {
+    const e = this.epic;
+    const T = T0 / (1 + 0.4 * e);
+    let a: number;
+    let r: number;
+    let up: number;
+    let lAlong: number;
+    let lUp: number;
+    let fov: number;
+    const low = ease((T - 2.3) / 1.1);
+    switch (this.escapeShot) {
+      case 'salute':
+        // Stay behind: the runner turns back to face the lens for the salute.
+        a = lerp(0.15, 0.55, ease((T - 0.3) / 2));
+        r = lerp(3.2, 3.6, ease(T / 2));
+        up = lerp(1.6, 1.3, ease((T - 1) / 1.5));
+        lAlong = lerp(2.5, 0, ease(T / 1.4));
+        lUp = 1.35;
+        fov = lerp(52, 46, ease((T - 1) / 2));
+        break;
+      case 'leap':
+        // Swing out to profile to watch the leap, then on round to a low three-quarter front.
+        a = lerp(0.2, 1.45, ease(T / 0.8)) + lerp(0, 0.75, ease((T - 1.6) / 2));
+        r = lerp(3.4, 3.9, ease(T / 0.8)) - 0.6 * low;
+        up = lerp(1.5, 1.2, ease(T / 0.8)) - 0.25 * low;
+        lAlong = lerp(2.5, 0, ease(T / 1.2));
+        lUp = lerp(1.3, 1.5, low);
+        fov = lerp(54, 46, low);
+        break;
+      case 'cheer':
+        // Round to the front, low, looking up at the raised fists.
+        a = T < 0.35 ? 0.15 : lerp(0.15, 2.55, ease((T - 0.35) / 2.0));
+        r = lerp(3.1, 2.6, low);
+        up = lerp(1.6, 0.75, low);
+        lAlong = T < 0.35 ? 3 : lerp(1.5, 0, ease((T - 0.35) / 1.5));
+        lUp = lerp(1.25, 1.65, low);
+        fov = lerp(52, 47, low);
+        break;
+      default:
+        // Look-back: orbit round to a three-quarter front as they stop, then low for the fist.
+        a = T < 0.45 ? 0.15 : lerp(0.15, 2.25, ease((T - 0.45) / 2.1)) + Math.max(0, T - 3.4) * 0.03;
+        r = lerp(3.1, 2.75, low);
+        up = lerp(T < 0.45 ? 1.65 : 1.5, 0.95, low);
+        lAlong = T < 0.45 ? 3 : lerp(1.5, 0, ease((T - 0.45) / 1.5));
+        lUp = lerp(1.2, 1.5, low);
+        fov = lerp(52, 45, low);
+    }
+    // Grand escapes: a wider orbit that cranes up as it settles.
+    const crane = e * ease((T - 1.2) / 2.5);
+    r *= 1 + 0.35 * e;
+    up += 1.1 * crane;
+    fov += 3 * e;
+    return { along: -Math.cos(a) * r, lat: s * Math.sin(a) * r, up, lAlong, lLat: 0, lUp: lUp + 0.2 * crane, focus: 0, fov };
+  }
+
+  /** Crash choreography per staging, in the runner's frame (s = the open side). */
+  private crashFrame(T: number, s: number): Frame {
+    const f = this.crashBase(T, s);
+    if (this.crashShot === 'gate') return f;
+    const grow = ease(T / 2) * this.epic;
+    const v = this.variant ? -0.35 : 0;
+    return { ...f, along: f.along * (1 + 0.35 * grow), up: f.up + 1.0 * grow + v * ease(T / 2), fov: f.fov + 2 * grow };
+  }
+
+  private crashBase(T: number, s: number): Frame {
+    switch (this.crashShot) {
+      case 'gate':
+        // Hold the chase and tilt up as the slab drops, then crane well back and up, off-axis: the
+        // whole slab with sky above it, the walls either side, the runner small but clear in front.
+        return track(
+          [
+            [0, F(-3.2, 0.3 * s, 1.9, 4, 0, 2.8, 60, 0)],
+            [0.6, F(-4.4, 0.6 * s, 2.4, 3, 0, 2.6, 60, 0.2)],
+            [2.6, F(-9.2, 1.55 * s, 3.4, 2.6, 0, 2.2, 62, 0)],
+            [7, F(-8.6, 1.7 * s, 3.2, 2.6, 0.3 * s, 2.2, 61, 0)],
+          ],
+          T,
+        );
+      case 'chasm':
+        // Look down as the slabs go, then crane up and aside over the runner's shoulder: the runner
+        // teetering at the lip in the foreground, the gap and the falling slabs beyond. A slow push.
+        return track(
+          [
+            [0, F(-2.8, 0.2 * s, 1.85, 5, 0, 0.3, 58, 0)],
+            [0.55, F(-3.0, 0.8 * s, 2.3, 4, 0, 0.1, 57, 0.3)],
+            [2.0, F(-3.3, 1.55 * s, 3.3, 3, 0, -0.4, 55, 0.5)],
+            [6.5, F(-2.6, 1.7 * s, 2.7, 3, 0, -0.2, 52, 0.45)],
+          ],
+          T,
+        );
+      default:
+        // Rockfall: pull back and look up into what is coming, then settle low and aside on the
+        // crouched runner with the blocks beyond.
+        return track(
+          [
+            [0, F(-3.0, 0.2 * s, 1.55, 3, 0, 3.4, 60, 0)],
+            [0.45, F(-3.6, 0.6 * s, 1.35, 2, 0, 2.6, 58, 0.2)],
+            [1.5, F(-3.7, 1.25 * s, 1.05, 0, 0, 1.0, 53, 0.5)],
+            [6.5, F(-3.1, 1.5 * s, 1.25, 0, 0, 0.9, 50, 0.45)],
+          ],
+          T,
+        );
+    }
   }
 
   update(dt: number, runnerPos: THREE.Vector3, runnerYaw: number, intensity: number): void {
     this.t += dt;
     this.modeT += dt;
     const fov = this.computeTarget(runnerPos, runnerYaw, intensity, dt);
-    const stiff = this.mode === 'run' ? 7.5 : this.mode === 'title' ? 1.2 : 3.2;
+    const running = this.mode === 'run';
+    const stiff = running ? 7.5 : this.mode === 'title' ? 1.2 : this.mode === 'lead' ? 2.4 : 3.2;
     dampV(this.pos, this.targetPos, stiff, dt);
-    if (this.mode === 'run') {
-      // Hold the chase distance along the route exactly; springs only carry sway and height.
+    if (running) {
+      // Hold the chase distance along the route; springs only carry sway and height. For the first
+      // moments of a run the hold is loose, so the runner bursts away before the lens catches up.
       const along = this.tmp.copy(this.targetPos).sub(this.pos).dot(this.fwd);
-      this.pos.addScaledVector(this.fwd, along * (1 - Math.exp(-dt * 30)));
+      const hold = 30 * (0.12 + 0.88 * ease(this.modeT / 0.9));
+      this.pos.addScaledVector(this.fwd, along * (1 - Math.exp(-dt * hold)));
     }
     dampV(this.look, this.targetLook, stiff * 1.4, dt);
+    this.constrain(this.pos);
     // Never let the lens dip under the runner's feet.
     this.pos.y = Math.max(this.pos.y, runnerPos.y + 0.6);
     // Portrait screens: open the vertical angle so the way ahead still fits across.
     const a = this.camera.aspect;
     const portrait = a < 1 ? Math.min(1.55, 1 + (1 - a) * 0.95) : 1;
-    this.fov = damp(this.fov, Math.min(fov * portrait, 96), 2.5, dt);
+    this.fovKick *= Math.exp(-dt * 2.2);
+    this.fov = damp(this.fov, Math.min((fov + this.fovKick) * portrait, 96), 2.5, dt);
+
+    // Operator: footfall bob and a little sway on a spring.
+    const n = Math.max(1, Math.ceil(dt * 120));
+    const h = dt / n;
+    for (let i = 0; i < n; i++) {
+      this.bobV += (-160 * this.bob - 15 * this.bobV) * h;
+      this.bob += this.bobV * h;
+      this.swayV += (-60 * this.sway - 9 * this.swayV) * h;
+      this.sway += this.swayV * h;
+    }
+    // Bank a touch into turns.
+    const yawRate = dt > 0 ? angleDelta(this.lastYaw, runnerYaw) / dt : 0;
+    this.lastYaw = runnerYaw;
+    const bank = 0.05 * (1 + 0.25 * this.drive);
+    this.dutch = damp(this.dutch, running ? THREE.MathUtils.clamp(yawRate * bank, -0.08, 0.08) * this.motionScale : 0, 3, dt);
 
     this.trauma = Math.max(0, this.trauma - dt * 0.9);
     const m = this.shakeEnabled ? this.motionScale : 0;
     // Continuous tremor rises with intensity; trauma adds sharp shake on impacts.
-    const base = this.mode === 'run' ? 0.012 + 0.05 * intensity * intensity : 0.004;
+    const base = running ? 0.008 + 0.045 * intensity * intensity : 0.003;
     const amp = (base + this.trauma * this.trauma * 0.35) * m;
     const t = this.t;
     const sx = (Math.sin(t * 17.3) * 0.6 + Math.sin(t * 31.1 + 1.3) * 0.4) * amp;
     const sy = (Math.sin(t * 21.7 + 0.7) * 0.6 + Math.sin(t * 43.3 + 2.1) * 0.4) * amp;
-    // Footfall bob: the operator is running too.
-    const bob = this.mode === 'run' ? Math.sin(t * (9 + 5 * intensity)) * 0.018 * (0.4 + intensity) * this.motionScale : 0;
+    // A slow handheld breath outside the run.
+    const breathe = running ? 0 : Math.sin(t * 0.7) * 0.012 * this.motionScale;
 
     this.camera.position.copy(this.pos);
-    this.camera.position.x += sx;
-    this.camera.position.y += sy + bob;
+    this.camera.position.addScaledVector(this.right, sx + this.sway);
+    this.camera.position.y += sy + this.bob + breathe;
     this.camera.lookAt(this.look);
-    this.camera.rotateZ((Math.sin(t * 13.1) * 0.5 + Math.sin(t * 7.7)) * amp * 0.25);
+    this.camera.rotateZ((Math.sin(t * 13.1) * 0.5 + Math.sin(t * 7.7)) * amp * 0.25 + this.dutch);
     this.camera.fov = this.fov;
     this.applyShift(dt);
     this.camera.updateProjectionMatrix();
@@ -187,7 +432,6 @@ export class CameraRig {
 
   setAspect(a: number): void {
     this.camera.aspect = a;
-    // Portrait screens: widen vertically so the runner and the way ahead both fit.
     this.camera.updateProjectionMatrix();
   }
 }
