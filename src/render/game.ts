@@ -84,7 +84,7 @@ export class Game {
   /** The sky, its light and the sun turn slowly with the route's heading, so the sun stays ahead. */
   private skyYaw = 0;
   private shadowExtent = 20;
-  private fill = new THREE.DirectionalLight(0xffe0bc, 2.4);
+  private fill = new THREE.DirectionalLight(0xffe0bc, 1.7);
   private mistAmount = 1;
   private tmpHead = new THREE.Vector3(); // perf
   private tmpSize = new THREE.Vector2(); // perf
@@ -151,7 +151,9 @@ export class Game {
     // The sky fills the shade; sunlit sandstone bounces warm light back into it, so shade reads
     // warm umber (as in the references), never grey.
     scene.environmentIntensity = 0.26;
-    scene.add(new THREE.HemisphereLight(0xffe4c4, 0xc07a48, 0.62));
+    // Round 5: the sky fill leans teal-green (the jungle canopy and the water) against the warm key, so
+    // shade reads cool and deep instead of the whole frame going one terracotta tone.
+    scene.add(new THREE.HemisphereLight(0xa9d6c8, 0xa0704a, 0.55));
     // Bounce from the sunlit causeway behind the lens: the sun is ahead, so without it every face
     // the camera sees (the runner's back, the wall faces) would sit in flat shade.
     this.fill.position.set(0, 0.35, 1);

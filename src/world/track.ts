@@ -457,7 +457,7 @@ function stageKit(kit: Kit): void {
   if (leaf) upgradeLeafMaterial(leaf);
   for (const key of ['stoneA', 'stoneB', 'floor', 'rock', 'cliff', 'statue', 'glyph', 'wood']) {
     const m = kit.mat.get(key);
-    if (m) patchWetStone(m, key !== 'floor');
+    if (m) patchWetStone(m, key !== 'floor', key === 'rock' || key === 'cliff');
   }
   const gold = kit.mat.get('gold') as THREE.MeshStandardMaterial | undefined;
   if (gold && !gold.userData.staged) {

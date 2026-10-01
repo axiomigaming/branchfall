@@ -68,6 +68,17 @@ float wetAt(vec3 p) {
 }`;
 
 const FRAG_WET = /* glsl */ `
+#ifdef WET_MOSS
+{
+  // Pale, grey texels on faces turned to the sky (dust, bleached lichen in the bake) read as snow
+  // under the low sun: on rock and cliff they become moss.
+  float ml = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+  float msat = max(max(diffuseColor.r, diffuseColor.g), diffuseColor.b) - min(min(diffuseColor.r, diffuseColor.g), diffuseColor.b);
+  float msr = msat / max(max(max(diffuseColor.r, diffuseColor.g), diffuseColor.b), 1e-3);
+  float mk = smoothstep(0.55, 0.85, vWetN.y) * smoothstep(0.18, 0.32, ml) * (1.0 - smoothstep(0.3, 0.5, msr));
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.09, 0.14, 0.035) * (0.8 + ml), mk);
+}
+#endif
 float wetK = wetAt(vWetPos);
 diffuseColor.rgb *= mix(1.0, 0.66, wetK);
 // Wet faces shine; flat ones less (a mirror-flat wet slab would just show the sky's blue).
@@ -87,7 +98,7 @@ const FRAG_CAUSTIC = /* glsl */ `
 }`;
 
 /** Patch a standard material (once). Chains any existing onBeforeCompile. */
-export function patchWetStone(m: THREE.Material, caustics = true): void {
+export function patchWetStone(m: THREE.Material, caustics = true, moss = false): void {
   const sm = m as THREE.MeshStandardMaterial;
   if (!sm.isMeshStandardMaterial || sm.userData.wetStone) return;
   sm.userData.wetStone = true;
@@ -96,6 +107,7 @@ export function patchWetStone(m: THREE.Material, caustics = true): void {
   sm.onBeforeCompile = (shader, renderer) => {
     prev?.call(sm, shader, renderer);
     Object.assign(shader.uniforms, causticUniforms);
+    if (moss) shader.fragmentShader = '#define WET_MOSS\n' + shader.fragmentShader;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${VERT_PARS}`)
       .replace('#include <project_vertex>', `#include <project_vertex>\n${VERT}`);
@@ -104,7 +116,7 @@ export function patchWetStone(m: THREE.Material, caustics = true): void {
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\n${FRAG_WET}`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${caustics ? FRAG_CAUSTIC : ''}`);
   };
-  sm.customProgramCacheKey = () => `${prevKey?.() ?? ''}|wet${caustics ? 'c' : ''}`;
+  sm.customProgramCacheKey = () => `${prevKey?.() ?? ''}|wet${caustics ? 'c' : ''}${moss ? 'm' : ''}`;
   sm.needsUpdate = true;
 }
 
