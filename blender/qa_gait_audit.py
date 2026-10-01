@@ -73,6 +73,9 @@ for g in which:
                          handL=W("hand.L", True), handR=W("hand.R", True), sh=(W("upper_arm.L"), W("upper_arm.R")),
                          hp=(W("thigh.L"), W("thigh.R")), knee=(W("shin.L"), W("shin.R")), ank=(W("foot.L"), W("foot.R")),
                          ball=(W("toe.L"), W("toe.R")), elbow=(pb["forearm.L"].rotation_euler.x, pb["forearm.R"].rotation_euler.x),
+                         trunk=math.degrees(math.atan2(W("neck").y - W("hips").y, W("neck").z - W("hips").z)),
+                         handz=(W("hand.L", True).z - W("upper_arm.L").z, W("hand.R", True).z - W("upper_arm.R").z),
+                         elbx=(abs(W("forearm.L").x) - abs(W("upper_arm.L").x), abs(W("forearm.R").x) - abs(W("upper_arm.R").x)),
                          pel=pb["hips"].rotation_euler.copy(), chest=(pb["spine"].rotation_euler.y + pb["chest"].rotation_euler.y)))
     print(f"\n== {g}: S = {S:.3f} m/cycle, ts = {G['ts']}, D = {G['D']}")
     for s, k in (("L", 0), ("R", 1)):
@@ -135,5 +138,10 @@ for g in which:
     print(f"  hands fore/aft of hip: {min(min(h) for h in hand_y) * 100:+.0f} … {max(max(h) for h in hand_y) * 100:+.0f} cm; "
           f"worst midline crossing {cross * 100:+.1f} cm (+ = across); elbow flex "
           f"{math.degrees(-max(r['elbow'][0] for r in rows)):.0f}–{math.degrees(-min(r['elbow'][0] for r in rows)):.0f}°")
+    tr = [r["trunk"] for r in rows]
+    hz_ = [h for r in rows for h in r["handz"]]
+    ex = [e for r in rows for e in r["elbx"]]
+    print(f"  trunk lean {min(tr):.0f}–{max(tr):.0f}° (mean {sum(tr) / len(tr):.0f}°); hand height vs shoulder {min(hz_) * 100:+.0f} … {max(hz_) * 100:+.0f} cm; "
+          f"elbow out from the shoulder line {min(ex) * 100:+.0f} … {max(ex) * 100:+.0f} cm")
     print(f"  head pitch range {max(pitch_head) - min(pitch_head):.1f}°, head height travel {(max(hd) - min(hd)) * 100:.1f} cm")
 os._exit(0)
