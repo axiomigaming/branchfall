@@ -108,3 +108,22 @@ describe('run beats', () => {
     }
   });
 });
+
+describe('gait cadence', () => {
+  it('keeps the planted foot with the floor at every tier (the cadence never reaches the turnover cap)', async () => {
+    const { gaitCadence, cadenceCap, STRIDE } = await import('../src/world/runner');
+    const { speedOf, intensityOf } = await import('../src/render/game');
+    for (let m = 1; m < 2000; m *= 1.01) {
+      const d = runDrive(m);
+      const v = speedOf(intensityOf(m));
+      const c = gaitCadence(v, d);
+      // Clamped would mean the planted foot skates: the stride table must leave headroom.
+      expect(c).toBeLessThan(cadenceCap(d) - 0.1);
+      // A runner's turnover: 1.6 – 2.7 stride cycles per second.
+      expect(c).toBeGreaterThan(1.6);
+      expect(c).toBeLessThan(2.7);
+    }
+    expect(STRIDE.run).toBeLessThan(STRIDE.sprint);
+    expect(STRIDE.sprint).toBeLessThan(STRIDE.dash);
+  }, 30_000); // importing the renderer module is slow on a loaded machine
+});

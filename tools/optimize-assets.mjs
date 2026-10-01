@@ -11,6 +11,7 @@
 //
 // Sets: "high" caps textures at 2048 px (4K atlases in the source were ~85 MB of VRAM each);
 // "mobile" caps at 1024 (512 for the small wood/bark/flora atlases) for phones, the Low tier and Save-Data.
+// The runner's own maps are exempt (RUNNER below): full resolution on both sets.
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -32,6 +33,12 @@ const SETS = {
   // Phones also get lighter geometry: at most 0.2 % of a piece's radius of deviation (≈1 cm on a 5 m wall).
   mobile: { simplify: { ratio: 0.5, error: 0.002 }, cap: (name) => (/^(wood|bark|flora)_/.test(name) || /_(orm|normal)$/.test(name) ? 512 : 1024), quality: { color: 72, normal: 62, orm: 60 } },
 };
+/**
+ * The runner is the one thing always in the middle of the frame, a metre or two from the lens: its
+ * atlas (one 1024² sheet for the whole body, face included) ships at full resolution on every set,
+ * normal map too, at a higher quality — about 1 MB, worth it.
+ */
+const RUNNER = { cap: () => 2048, quality: { color: 90, normal: 88, orm: 80 } };
 const SOURCES = ['kit', 'runner'];
 const SHARED = ['backdrop.webp', 'env.hdr', 'backdrop.json'];
 
@@ -62,8 +69,8 @@ function roughnessOnly(doc) {
   return grey;
 }
 
-async function textures(doc, set) {
-  const cfg = SETS[set];
+async function textures(doc, set, name) {
+  const cfg = name === 'runner' ? { ...SETS[set], ...RUNNER } : SETS[set];
   const grey = roughnessOnly(doc);
   for (const tex of doc.getRoot().listTextures()) {
     const name = tex.getName() || tex.getURI();
@@ -161,7 +168,7 @@ async function optimize(name, set) {
     // reorder for locality + quantize (KHR_mesh_quantization) + EXT_meshopt_compression with filters.
     meshopt({ encoder: MeshoptEncoder, level: 'high' }),
   );
-  await textures(doc, set);
+  await textures(doc, set, name);
   const buf = Buffer.from(await io.writeBinary(doc));
   const file = `${name}.${set}.glb`;
   writeFileSync(join(DIR, file), buf);
