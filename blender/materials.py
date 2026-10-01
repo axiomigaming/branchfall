@@ -240,11 +240,12 @@ def wood(name="wood"):
     vec = mp.outputs[0]
     base = N(nt, "ShaderNodeVertexColor", _layer_name="Col").outputs[0]
     grain = _noise(nt, vec, 2.0, 8, 0.6, 2.5)
-    col = mix(nt, 1.0, base, ramp(nt, grain.outputs[0], [(0.3, (0.7, 0.68, 0.66)), (0.7, (1.12, 1.08, 1.02))]), "MULTIPLY")
+    col = mix(nt, 1.0, base, ramp(nt, grain.outputs[0], [(0.3, (0.8, 0.76, 0.72)), (0.7, (1.1, 1.06, 1.0))]), "MULTIPLY")
     ao = _ao(nt, 0.15)
-    col = mix(nt, maprange(nt, ao, 0.3, 0.95, 0.8, 0), col, hexcol("#241710"), "MIX")
-    # Sun-bleached tops.
-    col = mix(nt, math_node(nt, "MULTIPLY", _up_mask(nt, 0.5, 0.9), 0.35), col, hexcol("#c9a987"), "MIX")
+    col = mix(nt, maprange(nt, ao, 0.3, 0.95, 0.6, 0), col, hexcol("#3a2518"), "MIX")
+    # Sun-bleached tops: warm honey-tan in the grain, never grey (round 5: the boardwalk read grey-green).
+    bleach = ramp(nt, grain.outputs[0], [(0.25, hexcol("#b88f62")), (0.75, hexcol("#e0c49a"))])
+    col = mix(nt, math_node(nt, "MULTIPLY", _up_mask(nt, 0.5, 0.9), 0.62), col, bleach, "MIX")
     L(nt, col, bsdf.inputs["Base Color"])
     bsdf.inputs["Roughness"].default_value = 0.8
     L(nt, _bump(nt, grain.outputs[0], 0.5, 0.03), bsdf.inputs["Normal"])

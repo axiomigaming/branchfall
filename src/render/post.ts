@@ -174,6 +174,7 @@ class LensEffect extends Effect {
       uniform float aspectRatio;
       uniform float exposure;
       uniform float flare;
+      uniform float glowOnly;
       uniform vec3 sunTint;
       float sunVis() {
         ${
@@ -202,6 +203,14 @@ class LensEffect extends Effect {
             d.x *= aspectRatio;
             float r = length(d);
             vec3 add = sunTint * (exp(-r * 3.5) * 0.03 + exp(-r * 10.0) * 0.26 + exp(-r * 34.0) * 2.0);
+            // Low tier (no bloom, no shafts, no flare): the glare alone, a touch wider, stands in for
+            // the light those passes add, or the frame reads dull and dark at speed.
+            if (glowOnly > 0.5) {
+              add = sunTint * (exp(-r * 2.6) * 0.09 + exp(-r * 8.0) * 0.32 + exp(-r * 30.0) * 1.6);
+              c += add * vis;
+              outputColor = vec4(c, inputColor.a);
+              return;
+            }
             float ang = atan(d.y, d.x);
             float rays = pow(abs(cos(ang * 3.0 + 0.4)), 90.0) + 0.6 * pow(abs(cos(ang * 5.0 + 1.3)), 160.0);
             add += sunTint * rays * exp(-r * 7.0) * 0.7;
@@ -239,6 +248,7 @@ class LensEffect extends Effect {
           ['aspectRatio', new THREE.Uniform(1.6)],
           ['exposure', new THREE.Uniform(1)],
           ['flare', new THREE.Uniform(1)],
+          ['glowOnly', new THREE.Uniform(occlusion ? 0 : 1)],
           ['sunTint', new THREE.Uniform(new THREE.Vector3(1.0, 0.86, 0.64))],
         ]),
       },
@@ -479,6 +489,7 @@ export class Post {
   private invVP = new THREE.Matrix4();
   private hasPrev = false;
   private flareOn = true;
+  private exposureK = 1;
 
   constructor(
     private renderer: THREE.WebGLRenderer,
@@ -506,6 +517,8 @@ export class Post {
     this.hasPrev = false;
     this.bloom = q.bloom ? new BloomEffect({ mipmapBlur: true, luminanceThreshold: 1.0, luminanceSmoothing: 0.25, intensity: 0.75, radius: 0.62 }) : null;
     this.lens = new LensEffect(q.lensFlare);
+    // Bloom and the shafts add light to a High frame; without them the Low frame sits a stop dimmer.
+    this.exposureK = q.bloom ? 1 : 1.07;
     this.flareOn = q.lensFlare;
     const tone = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
     const grain = new NoiseEffect({ premultiply: true, blendFunction: BlendFunction.SCREEN });
@@ -566,7 +579,7 @@ export class Post {
     g.get('fade')!.value = p.fade;
     if (this.bloom) this.bloom.intensity = 0.75 + 0.5 * p.bloomBoost;
     this.vignette.darkness = 0.5 + p.speed * 0.2 + p.cold * 0.25;
-    if (this.lens) this.lens.uniforms.get('exposure')!.value = EXPOSURE * (1 - 0.12 * p.cold);
+    if (this.lens) this.lens.uniforms.get('exposure')!.value = EXPOSURE * this.exposureK * (1 - 0.12 * p.cold);
   }
 
   /** Place the shafts and the flare on the sun disc (found by name in the scene), fading as it leaves the frame. */
@@ -593,7 +606,8 @@ export class Post {
       u.get('sunPos')!.value.set(x, y);
       // The flare lives only while the disc is in (or just grazing) the frame.
       const inside = Math.max(0, 1 - off * 12);
-      u.get('sunOn')!.value = behind || !this.flareOn ? 0 : inside;
+      // Without the flare (Low) the glare alone stays, and fades more gently as the sun leaves the frame.
+      u.get('sunOn')!.value = behind ? 0 : this.flareOn ? inside : Math.max(0, 1 - off * 3);
     }
   }
 

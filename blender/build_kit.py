@@ -18,6 +18,7 @@ import materials as M
 import foliage as F
 import setpieces as S
 import stage as G
+import jungle as J
 
 FAST = "--fast" in sys.argv
 Q = 4 if FAST else 1
@@ -34,7 +35,7 @@ log("rendering foliage atlas")
 leaf_img = F.render_atlas(2048 // (2 if FAST else 1))
 
 groups = {"stoneA": [], "stoneB": [], "floor": [], "rock": [], "wood": [], "bark": [], "leaf": [], "statue": [], "flora": [],
-          "relief": [], "cliff": [], "gold": []}
+          "relief": [], "cliff": [], "gold": [], "jungle": []}
 
 # ---- stone A: walls
 for i, (h, ruin) in enumerate([(1.3, 0.35), (1.6, 0.55), (1.15, 0.7), (1.8, 0.4)]):
@@ -121,25 +122,41 @@ groups["flora"] += [
     S.moss_clump("moss_2", 812, radius=0.4, n=3),
 ]
 
-# ---- foliage cards
+# ---- foliage: palms (drooping crowns built as clumps), bushes, grass, vines, ferns
 for i in range(3):
     t, c = F.palm(f"palm_{i}", 600 + i, height=8 + i * 2.2)
     groups["bark"].append(t)
-    groups["leaf"].append(c)
+    me = t.data
+    zmax = max(v.co.z for v in me.vertices)
+    ring = [v.co for v in me.vertices if v.co.z > zmax - 0.05]
+    top = sum(ring, Vector()) / len(ring)
+    bpy.data.objects.remove(c)
+    groups["jungle"].append(J.palm_crown(f"palm_{i}_crown", 605 + i, top))
 for i in range(2):
     t, c = F.jungle_tree(f"jungle_{i}", 620 + i, height=11 + i * 3)
     groups["bark"].append(t)
     groups["leaf"].append(c)
 for i in range(4):
-    groups["leaf"].append(F.bush(f"bush_{i}", 640 + i, radius=0.9 + 0.35 * i, cells=("fern", "broad") if i % 2 else ("fern",)))
+    groups["jungle"].append(J.bush(f"bush_{i}", 640 + i, radius=0.9 + 0.35 * i, cells=("cluster_s", "broad") if i % 2 else ("cluster_s",), n=2 + i // 2))
 for i in range(2):
     groups["leaf"].append(F.grass(f"grass_{i}", 660 + i, n=4 + 3 * i))
 for i in range(2):
     groups["leaf"].append(F.vines(f"vines_{i}", 680 + i, width=4.0 + 2 * i, n=6 + 3 * i))
 groups["leaf"].append(F.vines("vines_2", 682, width=5.0, n=12, length=(2.2, 5.0)))
 # Ferns that sprout from the joints of walls and floors.
-groups["leaf"].append(F.bush("fern_0", 690, radius=0.6, cells=("fern",), n=8))
-groups["leaf"].append(F.bush("fern_1", 691, radius=0.85, cells=("fern", "broad"), n=10))
+groups["jungle"].append(J.fern("fern_0", 690, 0.75))
+groups["jungle"].append(J.fern("fern_1", 691, 1.0))
+# ---- round 5 jungle: banks of jungle, limbs over the path, banana plants, green spilling over walls
+for i in range(3):
+    groups["jungle"].append(J.jungle_bank(f"jungle_bank_{i}", 1200 + i, height=1.0 + 0.15 * i))
+for i in range(2):
+    limb, leaves = J.canopy(f"canopy_{i}", 1210 + i, reach=7.0 + 1.2 * i, height=8.0 + 1.0 * i)
+    groups["bark"].append(limb)
+    groups["jungle"].append(leaves)
+for i in range(2):
+    groups["jungle"].append(J.banana(f"banana_{i}", 1220 + i, s=1.0 + 0.2 * i))
+for i in range(2):
+    groups["jungle"].append(J.spill(f"spill_{i}", 1230 + i, length=3.2 + 0.6 * i))
 
 # ---- round 3 stage: cliffs that close in on the path, temples, a golden face gate, big trees
 for i, (h, ln) in enumerate([(18, 24), (23, 24), (27, 28)]):
@@ -156,10 +173,10 @@ s_, g_ = G.idol("idol_0", 940)
 groups["statue"].append(s_)
 groups["gold"].append(g_)
 for i in range(2):
-    t, c = G.tree_big(f"tree_big_{i}", 920 + i, height=13 + 3 * i)
+    t, c = J.tree_big(f"tree_big_{i}", 920 + i, height=13 + 3 * i)
     groups["bark"].append(t)
-    groups["leaf"].append(c)
-    groups["leaf"].append(G.shrub_mass(f"shrub_mass_{i}", 925 + i, w=3.5 + 1.5 * i, h=1.5 + 0.6 * i, n=28 + 10 * i))
+    groups["jungle"].append(c)
+    groups["jungle"].append(J.shrub_mass(f"shrub_mass_{i}", 925 + i, w=3.5 + 1.5 * i, h=1.5 + 0.6 * i))
 groups["floor"].append(G.floor_medallion("floor_medallion_0", 960))
 
 # Spread pieces out so baked AO only sees each piece itself.
@@ -198,6 +215,15 @@ leaf_mat = textured_material("leaf", leaf_img, None, None, alpha=True)
 for o in groups["leaf"]:
     o.data.materials.clear()
     o.data.materials.append(leaf_mat)
+# Round 5 clumps carry authored normals: a material of their own keeps the loader from rebuilding
+# them (track.ts merges them back into the `leaf` draw calls). Same image, so no extra bytes.
+jungle_mat = textured_material("leaf_jungle", leaf_img, None, None, alpha=True)
+# A glTF-visible difference, or the optimizer's dedup() folds it into M_leaf (and the loader then
+# rebuilds the clumps' normals). The runtime never reads this roughness (track.ts restyles the leaves).
+next(n for n in jungle_mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED").inputs["Roughness"].default_value = 0.8
+for o in groups["jungle"]:
+    o.data.materials.clear()
+    o.data.materials.append(jungle_mat)
 
 for o in all_objs:
     o.location = (0, 0, 0)

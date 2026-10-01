@@ -18,8 +18,8 @@ from common import add_block, add_stone, drop_faces_below, finish_obj, hexcol, j
 SAND = [hexcol(h) for h in ("#c4814d", "#b37043", "#d39560", "#a5653d", "#c07c4e", "#b88660", "#d09058")]
 TERRA = [hexcol(h) for h in ("#a3634a", "#ae7057", "#94583f", "#b67b5e", "#8b5543", "#a36d57")]
 WOOD = [hexcol(h) for h in ("#8a6547", "#7a5a40", "#96714f", "#6d4f38")]
-# Weathered boards: grey-brown, silvered where the sun and rain take them.
-BOARDS = [hexcol(h) for h in ("#b08560", "#a07550", "#c09470", "#95704f", "#b89a78", "#a8805a")]
+# Weathered boards: warm honey-brown, bleached where the sun takes them (round 5: never grey).
+BOARDS = [hexcol(h) for h in ("#b8895c", "#a87a4e", "#c4986a", "#9e754e", "#c09c72", "#b08458")]
 DUSTSAND = [hexcol(h) for h in ("#b8936a", "#c29e74", "#a98660")]
 MOSSY = [hexcol(h) for h in ("#8a7a48", "#7f7a44", "#96864f")]
 

@@ -35,6 +35,10 @@ export interface Waterfall {
   m: THREE.Matrix4; // local; the sheet spans x ∈ [−w/2, w/2], y ∈ [0, −h]
   w: number;
   h: number;
+  /** How far the sheet bows out along its local +Z by its foot (m; default 1.6). */
+  bow?: number;
+  /** Placed relative to the path (it pours onto the causeway), not to the water. */
+  path?: boolean;
 }
 
 export interface Layout {
@@ -188,6 +192,111 @@ function cliffFall(b: Builder, side: number, x: number, z: number, top: number, 
   b.foamRing(side * (x - 1.5), z, w * 0.9);
 }
 
+// ------------------------------------------------------------------ round 5: jungle and vistas
+/**
+ * A 16 m wall of jungle on `side`, centred on z, its front `x` out from the path's axis (it rises
+ * from below the water to ~8 m above the path). Phones get them too: they are a few hundred
+ * triangles of cards each, and they are most of what makes the place read as jungle.
+ */
+function jungleBank(b: Builder, side: number, x: number, z: number, y = 0, p = 1) {
+  if (!b.foliage(p)) return;
+  b.place(`jungle_bank_${b.rng.int(0, 2)}`, side * x, y, z, (side > 0 ? 0 : Math.PI) + b.rng.range(-0.06, 0.06), [1, b.rng.range(0.85, 1.15), 1]);
+}
+
+/** A limb leaning out from the bank on `side` and arching over the way at z: leaves over the top of the shot, dappled light on the path. */
+function canopy(b: Builder, side: number, z: number, y = 0, p = 1) {
+  if (!b.foliage(p)) return;
+  const i = b.rng.int(0, 1);
+  const ry = (side > 0 ? 0 : Math.PI) + b.rng.range(-0.3, 0.3);
+  const s = b.rng.range(0.9, 1.1);
+  b.place(`canopy_${i}_limb`, 0, y, z, ry, s);
+  b.place(`canopy_${i}`, 0, y, z, ry, s);
+}
+
+/** Green tumbling over the crest (at height y) of the wall on `side` that runs 4 m from z0, down its inner face. */
+function spill(b: Builder, side: number, z0: number, y: number, x = PATH_HALF + 0.02, p = 1) {
+  if (!b.foliage(p)) return;
+  const i = b.rng.int(0, 1);
+  // Modelled on the right, spanning 4 m along −Z from its origin: on the left turn it end for end.
+  if (side > 0) b.place(`spill_${i}`, x, y, z0 - b.rng.range(0, 0.6), b.rng.range(-0.05, 0.05));
+  else b.place(`spill_${i}`, -x, y, z0 - TILE + b.rng.range(0, 0.6), Math.PI + b.rng.range(-0.05, 0.05));
+}
+
+function bananas(b: Builder, x: number, y: number, z: number, p = 1) {
+  if (b.foliage(p)) b.place(`banana_${b.rng.int(0, 1)}`, x, y, z, b.rng.range(0, 6.28), b.rng.range(0.8, 1.15));
+}
+
+/** A thin fall pouring off the crest of a tall wall on `side` onto the causeway's edge (reference: a fall splashing onto the path). */
+function pathFall(b: Builder, side: number, z: number, top: number) {
+  const fm = new THREE.Matrix4().compose(
+    new THREE.Vector3(side * (PATH_HALF + 0.62), top, z),
+    new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (-side * Math.PI) / 2),
+    new THREE.Vector3(1, 1, 1),
+  );
+  b.falls.push({ m: fm, w: b.rng.range(1.3, 2.0), h: top + 0.05, bow: 0.75, path: true });
+  spill(b, side, z + 2, top - 0.15, PATH_HALF + 0.12);
+}
+
+type Vista = 'arch' | 'guardians' | 'temple' | 'towers' | 'falls';
+
+/**
+ * Something for the eye to run toward at the end of a section: a gateway the path passes through,
+ * colossi flanking it, a temple or twin towers rising beside it, a fall pouring off a cliff.
+ */
+function vista(b: Builder, len: number, kinds: Vista[], p = 0.7) {
+  if (!b.rng.chance(p)) return;
+  const kind = b.rng.pick(kinds);
+  const z = -len + 1.5;
+  const side = b.rng.chance(0.5) ? -1 : 1;
+  switch (kind) {
+    case 'arch': {
+      b.place('arch_1', 0, 0, z, b.rng.chance(0.5) ? 0 : Math.PI);
+      // Its piers stand out past the causeway's edge: boulders heaped under them.
+      for (const sd of [-1, 1]) {
+        b.place(`rock_mid_${b.rng.int(0, 2)}`, sd * 3.7, WL + 0.9, z, b.rng.range(0, 6.28), [0.6, 0.8, 0.55]);
+        b.foamRing(sd * 3.7, z, 1.6);
+      }
+      if (b.foliage(0.9)) b.place('vines_1', b.rng.range(-1.5, 1.5), 8.0, z + 0.6, 0, [1, 1.0, 1]);
+      if (b.foliage(0.9)) b.place(`bush_${b.rng.int(0, 3)}`, b.rng.range(-2.5, 2.5), 8.3, z, 0, 1.1);
+      break;
+    }
+    case 'guardians':
+      for (const sd of [-1, 1]) {
+        const x = sd * b.rng.range(4.6, 5.2);
+        b.place(sd < 0 || b.rng.chance(0.7) ? 'guardian_0' : 'guardian_1', x, WL + 0.45, z, faceIn(sd, 1.2), b.rng.range(1.3, 1.45));
+        b.foamRing(x, z, 2.5);
+        jungleBank(b, sd, Math.abs(x) + 3.5, z - 4, 0, 0.6);
+      }
+      break;
+    case 'temple': {
+      const x = side * b.rng.range(10, 13);
+      b.place(b.rng.chance(0.5) ? 'temple_0' : 'temple_1', x, WL + 0.2, -len - 3, b.rng.range(0, 6.28), b.rng.range(0.9, 1.1));
+      b.foamRing(x, -len - 3, 5.5);
+      if (b.foliage(0.8)) {
+        const t = b.rng.int(0, 1);
+        b.place(`tree_big_${t}_trunk`, x + side * 6, WL, -len - 6, b.rng.range(0, 6.28), 1.1);
+        b.place(`tree_big_${t}_crown`, x + side * 6, WL, -len - 6, b.rng.range(0, 6.28), 1.1);
+      }
+      jungleBank(b, -side, 9, -len + 2, 0, 0.8);
+      break;
+    }
+    case 'towers':
+      for (const sd of [-1, 1]) {
+        const x = sd * b.rng.range(7.5, 9);
+        b.place(sd < 0 ? 'tower_0' : 'tower_1', x, WL - 0.3, z - 1, faceIn(sd, 1.0), b.rng.range(0.95, 1.1));
+        b.foamRing(x, z - 1, 3.2);
+      }
+      break;
+    case 'falls': {
+      if (!b.rich) break;
+      const x = b.rng.range(11, 13);
+      const h = cliffWall(b, side, x, -len - 2, b.rng.int(1, 2), b.rng.range(1.0, 1.2));
+      cliffFall(b, side, x - 0.8, -len + 2, h * 0.75, b.rng.range(3.2, 4.4));
+      break;
+    }
+  }
+}
+
 function floorRun(b: Builder, z0: number, n: number, y = 0, broken = 0.12, medallion = 0.07) {
   for (let i = 0; i < n; i++) {
     const piece = b.rng.chance(broken) ? 'floor_2' : b.rng.chance(medallion) ? 'floor_medallion_0' : b.rng.pick(FLOORS.slice(0, 4));
@@ -221,6 +330,8 @@ function lowWalls(b: Builder, z0: number, n: number, sides: number[] = [-1, 1], 
       else if (b.foliage(0.3)) b.place(`shrub_mass_${b.rng.int(0, 1)}`, side * (PATH_HALF + 1.1), b.rng.range(0.2, 0.7), z - b.rng.range(1, 3), b.rng.range(0, 6.28), b.rng.range(0.55, 0.8));
       if (b.foliage(0.55)) b.place(`grass_${b.rng.int(0, 1)}`, side * (PATH_HALF - 0.2), 0, z - b.rng.range(0.3, 3.7), b.rng.range(0, 6.28), b.rng.range(0.7, 1.1));
       if (b.foliage(0.22)) b.place(`vines_0`, side * (PATH_HALF + 0.95), b.rng.range(1.0, 1.5), z - 2, side * Math.PI / 2, [0.9, b.rng.range(0.5, 0.8), 1]);
+      spill(b, side, z, b.rng.range(1.05, 1.3), PATH_HALF + 0.02, 0.16);
+      bananas(b, side * (PATH_HALF + b.rng.range(1.3, 1.9)), -0.9, z - b.rng.range(0.5, 3.5), 0.1);
     }
   }
 }
@@ -265,6 +376,7 @@ function scenery(b: Builder, len: number, opts: { minX?: number; sides?: number[
           b.place(`tree_big_${t}_crown`, x + side * 3, -2.4, zz - 2, ry, ts);
         }
         if (b.foliage(0.5)) b.place(`shrub_mass_${b.rng.int(0, 1)}`, x, -2.2 + s * 0.35, zz, b.rng.range(0, 6.28), s * 0.7);
+        else bananas(b, x + b.rng.range(-1, 1), -2.2 + s * 0.5, zz + b.rng.range(-1, 1), 0.5);
       } else if (kind === 'ruin') {
         const r = b.rng.weighted([
           ['pillar_0', 2],
@@ -347,6 +459,7 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
         b.place(`palm_${side > 0 ? 0 : 2}_crown`, side * 6.5, -2.2, -1, 0, 1);
       }
       lowWalls(b, -4, 2, [-1, 1], { gaps: 0 });
+      for (const side of [-1, 1]) jungleBank(b, side, 7.5, -2, 0, 0.8);
       scenery(b, 12);
       return { hazards: ['gate'], walls: 'low' };
     },
@@ -361,7 +474,12 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
         const side = b.rng.chance(0.5) ? -1 : 1;
         b.place(b.rng.pick(['pillar_1', 'pillar_2', 'stele_1']), side * (PATH_HALF + 1.3), 0, z, b.rng.range(0, 6.28));
       }
+      // Jungle heaped behind the walls on one side or both, a limb over the way.
+      const lush = b.rng.pick([-1, 1]);
+      for (const side of [-1, 1]) if (side === lush || b.rng.chance(0.45)) for (let z = -7; z > -len - 4; z -= 15) jungleBank(b, side, PATH_HALF + 2.2, z);
+      canopy(b, b.rng.pick([-1, 1]), -b.rng.range(4, len - 4), 0, 0.55);
       scenery(b, len);
+      vista(b, len, ['arch', 'guardians', 'temple', 'towers', 'falls'], 0.65);
       return { hazards: ['chasm', 'rockfall'], walls: 'low' };
     },
   },
@@ -396,7 +514,11 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
           if (b.rng.chance(0.5)) b.place(`rock_mid_${b.rng.int(0, 2)}`, side * b.rng.range(3.5, 6), -2.4, z, b.rng.range(0, 6), b.rng.range(0.5, 0.9));
         }
       }
-      if (style !== 'gorge') scenery(b, len, { minX: 6 });
+      if (style !== 'gorge') {
+        for (const side of [-1, 1]) jungleBank(b, side, b.rng.range(11, 14), -len / 2, 0, 0.5);
+        scenery(b, len, { minX: 6 });
+        vista(b, len, ['arch', 'towers', 'temple'], 0.55);
+      } else canopy(b, b.rng.pick([-1, 1]), -len * b.rng.range(0.3, 0.7), 0, 0.5);
       for (const side of [-1, 1]) b.foamRing(side * 2.4, 0.2, 0.9), b.foamRing(side * 2.4, -len - 0.2, 0.9);
       return { hazards: ['chasm'], walls: style === 'gorge' ? 'tall' : 'none' };
     },
@@ -420,6 +542,7 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
           if (b.foliage(0.35)) b.place(`fern_${b.rng.int(0, 1)}`, side * (PATH_HALF - 0.05), -0.05, -TILE * i - b.rng.range(0.5, 3.5), b.rng.range(0, 6.28), 0.8);
         }
       }
+      jungleBank(b, b.rng.pick([-1, 1]), 9, -len / 2, 0, 0.45);
       scenery(b, len, { minX: 9 });
       return { hazards: ['gate', 'rockfall', 'chasm'], walls: 'tall' };
     },
@@ -447,15 +570,25 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
     build: (b, len) => {
       const n = len / TILE;
       floorRun(b, 0, n);
+      const fallSide = b.rng.chance(0.5) ? -1 : 1;
+      const fallTile = b.variant % 3 === 1 || b.rng.chance(0.25) ? b.rng.int(1, n - 2) : -1;
       for (const side of [-1, 1]) {
         for (let i = 0; i < n; i++) {
           const z = -TILE * i;
+          if (side === fallSide && i === fallTile) {
+            b.wall(`wall_tall_${b.rng.int(0, 1)}`, side, PATH_HALF + 0.6, 0, z);
+            pathFall(b, side, z - 2, 5.1);
+            continue;
+          }
           const r = b.rng.next();
           if (r < 0.15) b.wall(b.rng.pick(['wall_mid_0', 'wall_mid_1']), side, PATH_HALF + 0.5, 0, z);
           else if (r < 0.4) {
             b.wall(`relief_wall_${b.rng.int(0, 1)}`, side, PATH_HALF + 0.52, 0, z);
             b.wall(`wall_low_${b.rng.int(0, 3)}`, side, PATH_HALF + 0.7, 3.2, z);
-          } else b.wall(`wall_tall_${b.rng.int(0, 1)}`, side, PATH_HALF + 0.6, 0, z);
+          } else {
+            b.wall(`wall_tall_${b.rng.int(0, 1)}`, side, PATH_HALF + 0.6, 0, z);
+            spill(b, side, z, 5.0, PATH_HALF + 0.12, 0.25);
+          }
           b.edgeRubble(side, z, PATH_HALF - 0.4);
           if (b.foliage(0.3)) b.place(`roots_${b.rng.int(0, 1)}`, side * (PATH_HALF + 0.1), b.rng.range(4.4, 5.0), z - 2, -side * Math.PI / 2, [b.rng.range(0.7, 1), b.rng.range(0.8, 1.2), 1]);
           if (b.foliage(0.3)) b.place(`fern_${b.rng.int(0, 1)}`, side * (PATH_HALF - 0.05), -0.05, z - b.rng.range(0.5, 3.5), b.rng.range(0, 6.28), 0.85);
@@ -514,6 +647,8 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
         b.wall('foundation_1', side, PATH_HALF + 0.42, 0, 0);
         b.place('pillar_0', side * 3.1, 0, 0.3);
       }
+      jungleBank(b, b.rng.pick([-1, 1]), PATH_HALF + 2.2, -6, -1.6, 0.45);
+      canopy(b, b.rng.pick([-1, 1]), -6, -1.6, 0.3);
       scenery(b, 12);
       return { hazards: ['chasm', 'rockfall'], walls: 'low', dy: -1.6 };
     },
@@ -528,6 +663,8 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
         b.wall('foundation_0', side, PATH_HALF + 0.42, 0, 0);
         b.place('pillar_1', side * 3.1, 1.6, -4.3);
       }
+      jungleBank(b, b.rng.pick([-1, 1]), PATH_HALF + 2.2, -6, 1.6, 0.45);
+      canopy(b, b.rng.pick([-1, 1]), -6, 1.6, 0.3);
       scenery(b, 12);
       return { hazards: ['chasm', 'rockfall'], walls: 'low', dy: 1.6 };
     },
@@ -548,6 +685,8 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
       b.lilies(side * 7, -len * 0.8, 1.1);
       for (let k = 0; k < 2; k++) if (b.foliage(0.8)) b.place(`roots_${b.rng.int(0, 1)}`, side * 7.6, b.rng.range(5, 9), -len * b.rng.range(0.2, 0.9), -side * Math.PI / 2, [1.4, 1.6, 1]);
       for (let z = -2; z > -len; z -= 5) if (b.foliage(0.7)) b.place(`shrub_mass_${b.rng.int(0, 1)}`, side * b.rng.range(5.5, 7), -2.1, z, b.rng.range(0, 6.28), b.rng.range(0.8, 1.2));
+      canopy(b, side, -len * b.rng.range(0.15, 0.4), 0, 0.6);
+      jungleBank(b, -side, b.rng.range(7.5, 9), -len / 2, 0, 0.5);
       scenery(b, len, { sides: [-side] });
       return { hazards: ['rockfall', 'chasm'], walls: 'cliff' };
     },
@@ -570,7 +709,10 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
         } else b.place('guardian_1', side * 5.6, WL + 0.3, cz, faceIn(side, 0.9), 0.9);
         for (let k = 0; k < 2; k++) if (b.rich && b.foliage(0.6)) b.place(`moss_${b.rng.int(0, 2)}`, side * b.rng.range(3, 5.5), -0.4, -b.rng.range(0, len), 0, b.rng.range(0.8, 1.3));
       }
+      jungleBank(b, b.rng.pick([-1, 1]), b.rng.range(7, 9), -len / 2, 0, 0.6);
+      canopy(b, b.rng.pick([-1, 1]), -b.rng.range(4, len - 4), 0, 0.35);
       scenery(b, len, { minX: 9, big: false });
+      vista(b, len, ['towers', 'temple', 'guardians', 'falls'], 0.6);
       return { hazards: ['rockfall', 'chasm'], walls: 'low' };
     },
   },
@@ -599,7 +741,10 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
       } else {
         b.place(`head_${b.rng.int(0, 1)}`, hs * 12, WL - 0.6, -len * 0.6, faceIn(hs, 0.6), 1.3);
         b.foamRing(hs * 12, -len * 0.6, 3.4);
+        vista(b, len, ['arch', 'temple', 'falls'], 0.6);
       }
+      for (const side of [-1, 1]) jungleBank(b, side, b.rng.range(8.5, 10), -len / 2, 0, 0.5);
+      canopy(b, b.rng.pick([-1, 1]), -b.rng.range(4, len - 4), 0, 0.25);
       scenery(b, len, { minX: 13, big: true });
       return { hazards: ['chasm', 'gate'], walls: 'low' };
     },
@@ -642,6 +787,7 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
           b.place(`tree_big_${t}_crown`, side * 6.6, -2.3, tz, ry, ts);
         }
       }
+      canopy(b, b.rng.pick([-1, 1]), -len * b.rng.range(0.15, 0.45), 0, 0.55);
       if (gate) {
         // The path runs through the gate's passage over the last tiles; the face looks straight down it.
         b.place('face_gate_0', 0, 0, -len + 8, 0);
@@ -712,6 +858,11 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
         b.place(`tree_big_${t}_crown`, bank * 9, WL, -len * 0.5, b.rng.range(0, 6.28), 1);
       }
       for (let z = -3; z > -len; z -= b.rng.range(5, 8)) b.lilies(-bank * b.rng.range(4.5, 7), z, b.rng.range(0.9, 1.3));
+      // Jungle heaped on the bank behind the boulders, a limb leaning out over the boards.
+      for (let z = -6; z > -len - 4; z -= 14) jungleBank(b, bank, b.rng.range(6.8, 7.6), z, WL + 1.6);
+      for (let k = 0; k < 2; k++) bananas(b, bank * b.rng.range(4.6, 5.6), WL + 1.1, -b.rng.range(1, len - 1), 0.7);
+      canopy(b, bank, -len * b.rng.range(0.3, 0.7), 0, 0.6);
+      vista(b, len, ['temple', 'falls', 'guardians'], 0.5);
       if (b.rich) cliffWall(b, bank, b.rng.range(13, 16), -len / 2, undefined, b.rng.range(0.9, 1.15));
       scenery(b, len, { sides: [-bank], minX: 8 });
       return { hazards: ['chasm', 'rockfall'], walls: 'none' };
@@ -821,6 +972,8 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
         }
         if (b.foliage(0.8)) b.place(`shrub_mass_${b.rng.int(0, 1)}`, side * 8.5, WL + 0.4, -len + 1, b.rng.range(0, 6.28), 1.2);
       }
+      jungleBank(b, -fs, 5.4, -len / 2 + 2, 0, 0.5);
+      canopy(b, -fs, -len * b.rng.range(0.25, 0.5), 0, 0.4);
       scenery(b, len, { minX: 11, big: false, cliffs: b.variant % 2 === 1 });
       return { hazards: ['gate', 'rockfall', 'chasm'], walls: 'low' };
     },

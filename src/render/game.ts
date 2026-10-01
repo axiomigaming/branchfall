@@ -945,7 +945,7 @@ export class Game {
     wind.uTime.value = this.worldT;
     wind.uStrength.value = 1 + I * 0.8;
     this.water.update(this.worldT, cam);
-    this.track.tick(this.worldT);
+    this.track.tick(this.worldT, this.s);
     for (let i = this.queue.length - 1; i >= 0; i--) {
       if (this.queue[i]!.at <= this.worldT) {
         const q = this.queue.splice(i, 1)[0]!;
