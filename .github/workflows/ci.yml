@@ -8,126 +8,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: branchfall-ci-${{ github.workflow }}-${{ github.ref }}
+  group: causeway-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  proof:
-    name: Exact enumeration and tests (Node ${{ matrix.node }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [20, 22, 24]
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node }}
-          cache: npm
-
-      - run: npm ci
-
-      - name: Typecheck the adapter surface
-        run: npm run typecheck
-
-      # The proof. Exits non-zero if any exact invariant fails, including
-      # "no policy or portfolio beats the target RTP" and "no ticket and no
-      # round can reach the max-win cap".
-      - name: Enumerate the outcome space
-        run: npm run enumerate
-
-      # Fails if any published document — not just docs/MATH.md — has drifted
-      # from the model. Every load-bearing number in the prose is a bound slot.
-      - name: Check every published table and figure is current
-        run: npm run docs:check
-
-      # Fails if the frozen wire fixture is no longer what the reference
-      # implementation produces. Regenerating it must be a human decision.
-      - name: Check the frozen wire fixture is current
-        run: npm run fixture:check
-
-      # The first-run rehearsal is a published seed pair chosen for the teaching
-      # beats in docs/DESIGN.md §5.2.3. If the derivation, the model or the
-      # chosen pair ever stops producing them, onboarding is silently broken.
-      - name: Check the frozen rehearsal fixture is current
-        run: npm run rehearsal:check
-
-      # The graybox consumes the engine as a package from `vendor/`. If the
-      # module ever stops accepting this declaration on its own terms, the
-      # game is built on something other than what it says it is built on.
-      - name: Engine module conformance, against the BRANCHFALL declaration
-        run: npm run conformance
-
-      - name: The client bundles
-        run: npm run build:client
-
-      # Includes the API-level playthrough: a whole round driven through the
-      # HTTP surface with a fixed seed, asserting every credit to the
-      # micro-credit, the speed-of-play floor as a real refusal, and the
-      # verification bundle end to end.
-      - name: Tests
-        run: npm test
-
-  crosscheck:
-    name: Monte Carlo sanity cross-check
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - run: npm ci
-
-      # Evidence, never proof: an independent forward simulation of the same
-      # rules must agree with the exact enumeration.
-      - name: Simulate 500,000 rounds
-        run: npm run montecarlo -- --rounds 500000
-
-      - name: Simulate the lopsided SPLIT policy
-        run: npm run montecarlo -- --rounds 250000 --policy SCOUT_SPLIT
-
-      - name: Reference round (pre-commit, client seed, play, reveal, verify)
-        run: npm run transcript
-
-      - name: Pre-committed server-seed chain
-        run: npm run chain
-
-      - name: The published first-run rehearsal
-        run: npm run rehearsal
-
-      # The chosen pair must be the first one the declared search finds, so the
-      # choice is reproducible by anyone rather than asserted by us.
-      - name: Re-run the rehearsal seed search
-        run: npm run rehearsal:search
-
-      - name: Emit the enumeration artefacts
-        run: |
-          mkdir -p artifacts
-          npm run enumerate --silent > artifacts/enumeration.txt
-          npm run enumerate:json --silent > artifacts/enumeration.json
-          npm run enumerate:markdown --silent > artifacts/paytable.md
-          npm run enumerate:figures --silent > artifacts/figures.txt
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: enumeration-evidence
-          path: artifacts/
-
   causeway:
-    name: CAUSEWAY — crash engine tests, typecheck and build
+    name: Crash engine tests, typecheck and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: causeway
     steps:
       - uses: actions/checkout@v4
 
@@ -135,16 +23,15 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: causeway/package-lock.json
 
       - run: npm ci
 
       # Exact crash distribution (P(crash >= m) = 0.97/m), fairness vectors, the demo
-      # authority's refusals and races, the controller's money bookkeeping, and a 5 km
-      # route-generation soak.
+      # authority's refusals and races, the controller's money bookkeeping, a whole-stack
+      # RTP simulation, choreography purity and a route-generation soak.
       - name: Tests
         run: npm test
 
+      # Also fails if the optimized assets are stale against the Blender exports.
       - name: Typecheck and production build
         run: npm run build
-
