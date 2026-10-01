@@ -1,6 +1,6 @@
 {
   "generated": "npm run assets:optimize (tools/optimize-assets.mjs)",
-  "pipeline": "66cfda283a",
+  "pipeline": "beb48de323",
   "sets": {
     "high": {
       "kit": {
@@ -11,9 +11,9 @@
       },
       "runner": {
         "file": "runner.high.glb",
-        "bytes": 568896,
-        "v": "b0e2c0cd44",
-        "src": "d819998395"
+        "bytes": 599052,
+        "v": "07993aa7ce",
+        "src": "46621ffa12"
       }
     },
     "mobile": {
@@ -25,9 +25,9 @@
       },
       "runner": {
         "file": "runner.mobile.glb",
-        "bytes": 544576,
-        "v": "bac44d5f2d",
-        "src": "664128282b"
+        "bytes": 599052,
+        "v": "07993aa7ce",
+        "src": "6dc7dc5f7d"
       }
     }
   },

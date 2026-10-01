@@ -82,6 +82,43 @@ function smoothstep(a: number, b: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
+/**
+ * The runner's material: full-detail sampling (trilinear + 8× anisotropy on the colour and normal maps,
+ * which the chase camera sees at a grazing angle), and a runner-only lift so he never reads as a
+ * silhouette against the sunlit causeway: a soft sky/ground fill (a hemisphere term: cool from above,
+ * warm bounce from below, scaled by the albedo so it shades rather than flattens) and a faint rim along
+ * the contour. The world's lights are untouched.
+ */
+export const RUNNER_FILL = 0.45;
+export const RUNNER_RIM = 0.4;
+function liftRunner(m: THREE.MeshStandardMaterial): void {
+  for (const t of [m.map, m.normalMap, m.roughnessMap]) {
+    if (!t) continue;
+    t.anisotropy = 8;
+    t.minFilter = THREE.LinearMipmapLinearFilter;
+    t.generateMipmaps = true;
+    t.needsUpdate = true;
+  }
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uRunnerFill = { value: RUNNER_FILL };
+    sh.uniforms.uRunnerRim = { value: RUNNER_RIM };
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uRunnerFill;\nuniform float uRunnerRim;')
+      .replace(
+        '#include <lights_fragment_end>',
+        `#include <lights_fragment_end>
+        {
+          vec3 nW = inverseTransformDirection(normal, viewMatrix);
+          vec3 hemi = mix(vec3(0.46, 0.36, 0.28), vec3(0.62, 0.68, 0.78), nW.y * 0.5 + 0.5);
+          float rim = pow(1.0 - saturate(dot(normal, normalize(vViewPosition))), 3.0);
+          reflectedLight.indirectDiffuse += diffuseColor.rgb * (hemi * uRunnerFill + vec3(1.0, 0.86, 0.68) * rim * uRunnerRim);
+        }`,
+      );
+  };
+  m.customProgramCacheKey = () => 'runner-lift';
+  m.needsUpdate = true;
+}
+
 /** A damped angular spring (one axis), driven by an external acceleration. */
 class Spring {
   x = 0;
@@ -229,7 +266,10 @@ export class Runner {
           m.alphaTest = 0.45;
           m.depthWrite = true;
           m.side = THREE.DoubleSide;
-        } else if (m.name === 'M_runner') m.side = THREE.FrontSide;
+        } else if (m.name === 'M_runner') {
+          m.side = THREE.FrontSide;
+          liftRunner(m);
+        }
       }
     });
     this.root.add(this.body);

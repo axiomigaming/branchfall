@@ -20,9 +20,6 @@ from mathutils import Vector, Matrix
 import char_sculpt as S
 from common import link
 
-SPRINGS = ["pack", "scarf.0", "scarf.1", "scarf.2"]
-
-
 def smooth(x):
     x = min(1.0, max(0.0, x))
     return x * x * (3 - 2 * x)
@@ -66,26 +63,6 @@ def build_rig(J):
         bone(f"toe.{s}", ball, Vector((ball.x, J[f"tip.{s}"].y - 0.01, ball.z)), f"foot.{s}", True)
     bpy.ops.object.mode_set(mode="OBJECT")
     return rig
-
-
-def add_spring_bones(rig, pack_top, pack_bottom, scarf_pts):
-    """Spring bones for the kit (built after the re-pose): the satchel swings from its strap rings on the
-    hips; the neckerchief tails are a three-bone chain off the neck."""
-    bpy.context.view_layer.objects.active = rig
-    bpy.ops.object.mode_set(mode="EDIT")
-    eb = rig.data.edit_bones
-    b = eb.new("pack")
-    b.head, b.tail = pack_top, pack_bottom
-    b.parent = eb["hips"]
-    prev = "neck"
-    for i in range(3):
-        b = eb.new(f"scarf.{i}")
-        b.head, b.tail = scarf_pts[i], scarf_pts[i + 1]
-        b.parent = eb[prev]
-        b.use_connect = i > 0
-        prev = b.name
-    bpy.ops.object.mode_set(mode="OBJECT")
-    set_rolls(rig)
 
 
 def set_rolls(rig):

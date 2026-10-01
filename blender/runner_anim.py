@@ -22,6 +22,8 @@ FPS = 30
 # Leg geometry (thigh, shin, hip-joint height, half the hip width). configure() measures them from the
 # rig, so the contact solver and the gait IK plant this body's feet, whatever its proportions.
 LT, LS, HIP_Z, HIP_W = 0.42, 0.43, 0.95, 0.1
+# Rest-pose sagittal angles (forward +): the thigh's lean, the knee's bend and the shin's lean.
+THIGH0, K0, A0 = 0.0, 0.0, 0.0
 # Sole points relative to the ankle in the foot's rest frame (y forward, z up): heel, mid, ball, toe tip.
 SOLE = [(-0.07, -0.1), (0.02, -0.1), (0.12, -0.097), (0.19, -0.078)]
 BONES = None
@@ -72,14 +74,19 @@ def contact_z(P):
         hip = -P.get(f"thigh.{s}", (0, 0, 0))[0]
         knee = P.get(f"shin.{s}", (0, 0, 0))[0]
         ankle = -P.get(f"foot.{s}", (0, 0, 0))[0]
-        at = hip - hp
-        as_ = at - knee
-        af = as_ - ankle
+        at = THIGH0 + hip - hp
+        as_ = at - knee - K0
+        af = as_ - ankle - A0
         kz = -LT * math.cos(at)
         az = kz - LS * math.cos(as_)
         pts.append(kz - 0.058 * abs(math.cos(as_ - at * 0.5)) - 0.01)
-        for y, z in SOLE:
+        for y, z in SOLE[:2]:
             pts.append(az + y * math.sin(af) + z * math.cos(af))
+        # Ball and toes hinge at the toe joint.
+        tf = af + P.get(f"toe.{s}", (0, 0, 0))[0]
+        jz = az + BALL_J[0] * math.sin(af) + BALL_J[1] * math.cos(af)
+        for y, z in TOE_PTS:
+            pts.append(jz + y * math.sin(tf) + z * math.cos(tf))
     return min(pts)
 
 
@@ -163,23 +170,37 @@ def ease(t):
 HEEL = SOLE[0]
 BALL = SOLE[2]
 BALL_OFF = BALL[0] - HEEL[0]
+# The toe hinge (relative to the ankle), its height above the floor, and the toes' sole (relative to it).
+BALL_J, BALL_JH = BALL, 0.0
+TOE_PTS = [(0.0, 0.0), (SOLE[3][0] - BALL[0], SOLE[3][1] - BALL[1])]
 
 
 def configure(rig):
     """Measure the legs and soles from the rig (rest pose). A rig built from a supplied mesh carries its
     boot's sole as `sole` = (heel, ball, toe tip) forward of the ankle and the ankle's height."""
-    global LT, LS, HIP_Z, HIP_W, SOLE, HEEL, BALL, BALL_OFF
+    global LT, LS, HIP_Z, HIP_W, SOLE, HEEL, BALL, BALL_OFF, THIGH0, K0, A0, BALL_J, BALL_JH, TOE_PTS
     B = rig.data.bones
+    hip, knee, ank = B["thigh.L"].head_local, B["shin.L"].head_local, B["foot.L"].head_local
+    THIGH0 = math.atan2(knee.y - hip.y, hip.z - knee.z)
+    shin0 = math.atan2(ank.y - knee.y, knee.z - ank.z)
+    K0 = THIGH0 - shin0
+    A0 = shin0
     LT = (B["thigh.L"].tail_local - B["thigh.L"].head_local).length
     LS = (B["shin.L"].tail_local - B["shin.L"].head_local).length
     HIP_Z = B["thigh.L"].head_local.z
     HIP_W = abs(B["thigh.L"].head_local.x)
     if "sole" in rig.keys():
         heel, ball, tip, az = (float(x) for x in rig["sole"])
-        SOLE = [(heel + 0.012, -az), (0.3 * heel + 0.7 * ball - 0.05, -az), (ball, -az + 0.003), (tip - 0.012, -az + 0.022)]
+        SOLE = [(heel + 0.012, -az), (0.3 * heel + 0.7 * ball - 0.05, -az), (ball, -az), (tip - 0.012, -az + 0.008)]
     HEEL, BALL = SOLE[0], SOLE[2]
     BALL_OFF = BALL[0] - HEEL[0]
+    if "sole" in rig.keys():
+        jz = B["toe.L"].head_local.z - ank.z
+        BALL_J = (BALL[0], jz)
+        BALL_JH = jz - BALL[1]
+        TOE_PTS = [(0.0, -BALL_JH), (SOLE[3][0] - BALL[0], -BALL_JH + 0.012)]
     _HCACHE.clear()
+    print(f"  anim rig rest angles: thigh {math.degrees(THIGH0):+.1f}° knee {math.degrees(K0):+.1f}° shin {math.degrees(A0):+.1f}°", flush=True)
     print(f"  anim rig: thigh {LT:.3f} shin {LS:.3f} hip {HIP_Z:.3f} ±{HIP_W:.3f}  sole {[(round(a, 3), round(b, 3)) for a, b in SOLE]}", flush=True)
 G_ACC = 9.81
 
@@ -188,14 +209,14 @@ RUN = dict(
     af=[(0.0, 0.14), (0.14, 0.0), (0.44, 0.0), (1.0, -1.0)],
     swing=[(0.18, -0.34, 1.05, 0.45), (0.42, 0.12, 1.85, 0.12), (0.68, 0.72, 1.42, -0.12), (0.86, 0.66, 0.66, -0.16)],
     hp=0.1, lean=0.08, hyaw=0.12, hroll=0.05, chest=0.6, head_down=0.14,
-    arm_c=0.08, arm_a=0.6, elbow=1.45, elbow_a=0.2, out=0.16, curl=0.45, peak=0.76, frames=24,
+    arm_c=-0.04, arm_a=0.72, elbow=1.42, elbow_a=0.22, out=0.16, curl=0.45, peak=0.76, frames=48,
 )
 SPRINT = dict(
     ts=0.225, D=0.88, xtd=0.18, knee=(0.4, 0.8, 0.2), v=9.0,
     af=[(0.0, -0.2), (0.4, -0.05), (0.55, -0.08), (1.0, -1.12)],
     swing=[(0.15, -0.4, 1.28, 0.55), (0.38, 0.2, 2.3, 0.1), (0.64, 1.12, 1.75, -0.2), (0.84, 0.92, 0.78, -0.12)],
     hp=0.15, lean=0.1, hyaw=0.16, hroll=0.06, chest=0.75, head_down=0.08,
-    arm_c=0.15, arm_a=1.0, elbow=1.5, elbow_a=0.32, out=0.15, curl=0.5, peak=0.74, frames=24,
+    arm_c=0.15, arm_a=1.0, elbow=1.5, elbow_a=0.32, out=0.15, curl=0.5, peak=0.74, frames=48,
 )
 # The desperate all-out run of the top tiers: longer reach, higher knees, a harder pump, a deeper lean.
 DASH = dict(SPRINT, ts=0.19, D=0.92, xtd=0.21, knee=(0.42, 0.78, 0.18), v=12.6,
@@ -213,11 +234,12 @@ def _ankle_from(anchor, af, H):
     """Ankle (x fwd, z up, relative to the hip joint) for a foot pitched af (toes up +) whose heel
     would rest at `anchor` if flat: it pivots on the heel while toes-up, on the ball while toes-down."""
     if af > 0:
-        px, (dy, dz) = anchor, HEEL
-    else:
-        px, (dy, dz) = anchor + BALL_OFF, BALL
-    ox, oz = _rot(dy, dz, af)
-    return px - ox, -H - oz
+        ox, oz = _rot(*HEEL, af)
+        return anchor - ox, -H - oz
+    # Toes-down the foot hinges at the ball joint (BALL_J, BALL_JH above the floor) while the toes stay
+    # flat on the ground: the pivot is the joint, not the sole under it, or the planted toes would slide.
+    ox, oz = _rot(*BALL_J, af)
+    return anchor + BALL_OFF - ox, -H + BALL_JH - oz
 
 
 def _ik(ax, az):
@@ -343,7 +365,7 @@ def _stance_leg(s, ph, t, G):
     ax, az = _ankle_from(G["xtd"] - G["D"] * u - hx, af, H + hz)
     at, knee = _ik(ax, az)
     ankle = (at - knee) - af
-    toe = min(0.8, max(0.0, -af - 0.05)) if af < 0 and u > 0.35 else 0.0
+    toe = min(1.2, max(0.0, -af))  # the toes stay flat on the ground
     return at, knee, ankle, toe
 
 
@@ -368,8 +390,8 @@ def _leg_state(s, ph, G):
     pts = [(0.0, list(a0), m0)] + [(k[0], list(k[1:]), None) for k in G["swing"]] + [(1.0, list(a1), m1)]
     at, knee, ankle = _hermite(pts, (t - ts) / sw)
     knee = max(0.04, knee)
-    # The toes flick straight after toe-off, then relax.
-    toe = 0.55 * math.exp(-(((t - ts) / sw) / 0.08) ** 2)
+    # The toes leave the ground bent (as they were at toe-off), then straighten in the swing.
+    toe = min(1.2, max(0.0, -G["af"][-1][1])) * math.exp(-(((t - ts) / sw) / 0.1) ** 2)
     return at, knee, ankle, toe
 
 
@@ -388,9 +410,11 @@ def _gait(ph, G, k=1.0):
         stance = t < ts
         # The stance foot lands under the body's line (a narrow track); the swing knee tracks straight.
         out = -0.035 if stance else -0.005 + 0.02 * math.sin(math.pi * (t - ts) / (1 - ts))
-        P[f"thigh.{s}"] = (-(at + hp), hy * 0.8, out * sgn(s))
-        P[f"shin.{s}"] = (knee, 0, 0)
-        P[f"foot.{s}"] = (-ankle, 0, 0)
+        # Solved angles are world (sagittal); the rig's rest leg is not quite straight: take its rest
+        # angles out so the joints land where the solver put them (else the soles sink and slide).
+        P[f"thigh.{s}"] = (-(at + hp - THIGH0), hy * 0.8, out * sgn(s))
+        P[f"shin.{s}"] = (knee - K0, 0, 0)
+        P[f"foot.{s}"] = (-(ankle - A0), 0, 0)
         P[f"toe.{s}"] = (toe, 0, 0)
         # Arms: the opposite arm swings with this leg's thigh; the forearm lags, the hand stays loose.
         m = mirror(s)
