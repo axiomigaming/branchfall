@@ -28,9 +28,9 @@ export interface AtmosphereOptions {
 export const ATMOSPHERE: AtmosphereOptions = {
   // Cool blue-green haze away from the sun (aerial perspective: depth layers fade toward the sky),
   // warm gold looking into the light.
-  color: 0x9db7bb,
+  color: 0x92b1b6,
   sunColor: 0xf6d6a0,
-  density: 0.0027,
+  density: 0.0022,
   falloff: 0.05,
   mistDensity: 0.022,
   mistHeight: 1.1,
