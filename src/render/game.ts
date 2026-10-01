@@ -15,6 +15,8 @@ import { WATER_Y, Water } from '../world/water';
 import { Ambient } from './ambient';
 import { CameraRig } from './cameraRig';
 import { Motes, Particles } from './particles';
+import { Fx } from './fx';
+import { escapeScale, fallScale, nextDangerCue, type DangerCue, type EscapeScale } from './fxScale';
 import { Post } from './post';
 
 export type Stage = 'title' | 'setup' | 'lead' | 'run' | 'crash' | 'cashout';
@@ -50,6 +52,11 @@ export function speedOf(intensity: number): number {
 const DUST = new THREE.Color('#d9b48a');
 const DUST_DARK = new THREE.Color('#8a7058');
 const SPRAY = new THREE.Color('#e9f2ee');
+/** Tints for the lit dust clouds (multiplied by their sun and shade colours). */
+const DUST_T = new THREE.Color(0.92, 0.76, 0.6);
+const MIST_T = new THREE.Color(1.05, 1.08, 1.08);
+/** Queue and cloud tag for run-time danger cues (cleared on an escape). */
+const CUE = 1;
 
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
@@ -63,6 +70,11 @@ export class Game {
   private particles = new Particles(1100);
   private motes = new Motes(420);
   private ambient = new Ambient(); // world art: birds, butterflies, leaves
+  /** Cinematic effects: lit dust, water shockwaves, cracks, birds, sun shafts, escape rim. */
+  private cine = new Fx();
+  private lastJolt = -1;
+  private dangerIn = 3;
+  private fxMotion: 'full' | 'reduced' | null = null;
   private post!: Post;
   private sun = new THREE.DirectionalLight(0xffe0b8, 13);
   private sunDir = new THREE.Vector3(0.4, 0.25, -0.8);
@@ -92,7 +104,6 @@ export class Game {
   private timeScale = 1;
   private worldT = 0;
   private fx = { danger: 0, cold: 0, gold: 0, flash: 0, fade: 0, bloom: 0 };
-  private tremorIn = 4;
   private cosmetic = new Rng(1);
   private qualityLevel: QualityLevel;
   private fading: { dir: 1 | -1; done?: () => void } | null = null;
@@ -189,6 +200,9 @@ export class Game {
     this.runner.onFootstep = (foot, k) => this.footstep(foot, k);
     scene.add(this.runner.root);
     scene.add(this.particles.points, this.motes.points, this.ambient.root);
+    // Cinematic fx (before the fog patch and the program warm-up below).
+    this.cine.attachRunner(this.runner.root);
+    scene.add(this.cine.root);
     // Materials made before the atmosphere was installed get its live uniforms too.
     scene.traverse((o) => {
       const m = (o as THREE.Mesh).material;
@@ -205,6 +219,7 @@ export class Game {
     // Compile every program now so the first collapse does not hitch.
     const probe = this.debris.spawn('gate_0', new THREE.Matrix4().makeTranslation(0, -50, 0), new THREE.Vector3(), new THREE.Vector3(), () => null);
     this.debris.spawn('rock_mid_0', new THREE.Matrix4().makeTranslation(0, -50, 0), new THREE.Vector3(), new THREE.Vector3(), () => null);
+    this.debris.spawn('shard_0', new THREE.Matrix4().makeTranslation(0, -50, 0), new THREE.Vector3(), new THREE.Vector3(), () => null, { mat: 'floor' });
     await this.renderer.compileAsync(scene, this.rig.camera);
     // perf: upload every section variant's geometry and every kit texture now, not mid-run.
     warmUp(this.renderer, [scene, ...this.track.variantGroups()], this.kit.mat.values());
@@ -235,6 +250,7 @@ export class Game {
     this.sun.shadow.map = null as unknown as THREE.WebGLRenderTarget;
     this.track.viewDistance = q.viewDistance;
     this.particles.budget = q.dust;
+    this.applyFxBudget();
     this.ambient.setBudget(q.ambientLife);
     this.water.setDetail(q.waterDetail);
     this.water.setReflections(q.waterReflections > 0);
@@ -253,6 +269,14 @@ export class Game {
       });
     }
     this.frameTimes.length = 0;
+  }
+
+  /** Effect and debris budgets from the tier and the motion setting. */
+  private applyFxBudget(): void {
+    this.fxMotion = this.motion;
+    this.cine.setBudget(this.qualityLevel, this.motion);
+    this.debris.budget = this.cine.budget.bodies;
+    this.debris.shardBudget = this.cine.budget.shards;
   }
 
   get quality(): QualityLevel {
@@ -280,7 +304,11 @@ export class Game {
     this.track.reset(seed);
     this.debris.clear();
     this.particles.clear();
+    this.cine.clear();
     this.queue.length = 0;
+    this.escape = null;
+    this.dangerIn = 3;
+    this.lastJolt = -1;
     this.s = 0;
     this.speed = 0;
     this.frozenMult = null;
@@ -377,7 +405,7 @@ export class Game {
     this.crashKind = st.kind;
     this.staging = st;
     this.epic = st.epic;
-    this.stageCrash(st, new Rng(`${roundId}/staging`));
+    this.stageCrash(st, new Rng(`${roundId}/staging`), mult / 100);
     this.sounds.crash(st.kind);
   }
 
@@ -395,8 +423,10 @@ export class Game {
     if (this.stage === 'crash' || this.stage === 'cashout') return;
     const v = this.speed;
     const st = escapeStaging(roundId ?? this.worldSeed, this.live.mult, v < 2.5);
+    const E = escapeScale(this.live.mult, this.motion);
     this.staging = st;
     this.epic = st.epic;
+    this.escape = E;
     this.setStage('cashout');
     this.runner.play(st.clip as RunnerAnim, 0.2, st.offset);
     // Run out of it: how long depends on the move.
@@ -404,9 +434,48 @@ export class Game {
     this.setStop(this.s + (v * T) / 2);
     this.sounds.escape();
     this.fx.flash = 0.16 + 0.22 * st.epic;
-    this.rig.setMode('cashout', { side: this.cosmetic.chance(0.5) ? 1 : -1, escape: st.variant, epic: st.epic });
+    this.rig.setMode('cashout', { side: this.cosmetic.chance(0.5) ? 1 : -1, escape: st.variant, epic: st.epic, reveal: E.reveal });
     // A held breath on the moment of escape, longer and deeper for a big one (the leap holds at its apex).
-    if (v > 3) this.slowmo = { t: st.variant === 'leap' ? -0.3 : 0, dur: 0.8 + 1.4 * st.epic, min: 0.6 - 0.25 * st.epic };
+    if (v > 3) this.slowmo = { t: st.variant === 'leap' ? -0.3 : 0, dur: E.slowDur, min: E.slowMin };
+    this.stageEscape(E);
+  }
+
+  private escape: EscapeScale | null = null;
+
+  /**
+   * The reward: sun shafts brighten onto the way ahead, birds lift out of the trees, and a warm rim
+   * of light catches the runner. Nothing here looks back: the route behind stays whole and quiet,
+   * and run-time danger cues still in the air are faded out.
+   */
+  private stageEscape(E: EscapeScale): void {
+    const c = this.cosmetic;
+    this.queue = this.queue.filter((q) => q.tag !== CUE);
+    this.cine.billows.fadeGroup(CUE, 0.45);
+    const s0 = this.stopAt;
+    for (let k = 0; k < E.beams; k++) {
+      const f = this.track.path.sample(s0 + 2 + k * c.range(2.5, 4.5));
+      const rv = new THREE.Vector3(Math.cos(f.yaw), 0, -Math.sin(f.yaw));
+      const g = f.pos.clone().addScaledVector(rv, c.range(-2.4, 2.4));
+      this.cine.beams.add(g, this.sunDir, c.range(1.0, 2.4), c.range(0.55, 1));
+    }
+    this.cine.beams.level = E.shafts;
+    this.cine.rimLevelTarget = E.rim;
+    this.later(0.35, () => {
+      const f = this.track.path.sample(s0 + c.range(14, 22));
+      const rv = new THREE.Vector3(Math.cos(f.yaw), 0, -Math.sin(f.yaw));
+      const side = c.chance(0.5) ? 1 : -1;
+      const from = f.pos.clone().addScaledVector(rv, side * c.range(5, 9)).setY(f.pos.y + c.range(4, 6.5));
+      // They rise and wheel off toward the light ahead.
+      const toward = forward(f.yaw).addScaledVector(this.sunDir, 0.6).addScaledVector(rv, side * 0.3);
+      this.cine.flock.launch(from, toward, Math.ceil(E.birds * 0.6), 4, 0.8);
+    });
+    if (E.birds > 10)
+      this.later(1.1, () => {
+        const f = this.track.path.sample(s0 + c.range(24, 34));
+        const rv = new THREE.Vector3(Math.cos(f.yaw), 0, -Math.sin(f.yaw));
+        const from = f.pos.clone().addScaledVector(rv, c.range(-10, 10)).setY(f.pos.y + c.range(5, 8));
+        this.cine.flock.launch(from, forward(f.yaw).addScaledVector(this.sunDir, 0.5), Math.floor(E.birds * 0.4), 6, 1.2);
+      });
   }
 
   /** Decelerate uniformly to stand at `sStop` (presentation only). */
@@ -565,12 +634,13 @@ export class Game {
    * brakes to a mark, the hazard is timed to meet them there, and the camera,
    * slow motion, dust and debris are choreographed around that beat.
    */
-  private stageCrash(st: CrashStaging, r: Rng): void {
+  private stageCrash(st: CrashStaging, r: Rng, mult: number): void {
     const kind = st.kind;
-    const e = st.epic;
-    // Small falls are quick; big ones slower and grander.
-    const slow = (t: number, dur: number, min: number) => {
-      this.slowmo = { t, dur: dur * (0.75 + 0.8 * e), min: min - 0.12 * e };
+    const F = fallScale(mult, this.motion);
+    const e = F.g;
+    // Small falls are quick and contained; big ones slow, wide and long. `t` is a real-time delay.
+    const slow = (t: number, durK = 1, minK = 0) => {
+      this.slowmo = { t, dur: F.slowDur * durK, min: Math.min(1, F.slowMin + minK) };
     };
     const v = this.speed;
     const sec = this.track.sectionAt(this.s);
@@ -578,7 +648,7 @@ export class Game {
     this.timeScale = 1;
     const shot = kind === 'chasm' ? 'chasm' : kind === 'rockfall' ? 'rockfall' : 'gate';
     this.rig.setMode('crash', { side: st.variant ? -openSide : openSide, shot, variant: st.variant, epic: e });
-
+    const wallsOf = (s: number) => this.track.sectionAt(s)?.layout.walls ?? 'low';
     const frameAt = (s: number) => {
       const f = this.track.path.sample(s);
       return { pos: f.pos.clone(), yaw: f.yaw, fwd: forward(f.yaw), right: new THREE.Vector3(Math.cos(f.yaw), 0, -Math.sin(f.yaw)) };
@@ -587,45 +657,100 @@ export class Game {
       const lateral = Math.abs((x - at.pos.x) * at.right.x + (z - at.pos.z) * at.right.z);
       return lateral < PATH_HALF + 0.2 ? at.pos.y : null;
     };
+    const n = (k: number) => Math.max(1, Math.round(k * F.debris));
+    const B = this.cine.billows;
+    // The main impact: camera kick (trauma, a jolt of the operator, a lens punch) and a flash.
+    const kick = (k = 1) => {
+      this.rig.addTrauma(F.shake * k);
+      this.rig.jolt(0.6 * k + 0.6 * e * k, F.kick * k);
+      this.lastJolt = this.worldT;
+    };
 
     if (kind === 'chasm') {
-      // Skid to the lip of a tile seam; the floor beyond drops away from the edge outwards.
+      // Skid to the lip of a tile seam. Cracks race across the floor first; then the floor beyond
+      // drops away from the edge outwards, breaking up as it goes.
       const want = this.s + (v * 0.45) / 2 + 0.55;
       const edge = this.tileEdge(Math.max(this.s + 1.4, want - 2.2), want + 4) ?? want;
       this.setStop(edge - 0.5);
       const h = frameAt(edge);
       this.rig.focus.copy(h.pos).addScaledVector(h.fwd, 2).setY(h.pos.y + 0.2);
-      const tiles = this.collapseFrom(edge, edge + 9 + 9 * e);
-      const dist = (m: THREE.Matrix4) => new THREE.Vector3().setFromMatrixPosition(m).distanceTo(h.pos);
-      tiles.sort((a, b) => dist(a.world) - dist(b.world));
-      tiles.forEach((t, i) => {
-        this.later(0.08 + i * 0.07, () => {
-          this.debris.spawn(t.piece, t.world, new THREE.Vector3(r.range(-0.6, 0.6), r.range(-1.5, 0), r.range(-0.6, 0.6)), new THREE.Vector3(r.range(-1.2, 1.2), r.range(-0.3, 0.3), r.range(-1.2, 1.2)), () => null);
-          const p = new THREE.Vector3().setFromMatrixPosition(t.world);
-          this.particles.burst(p.setY(p.y + 0.1), 14, { spread: 4, up: 1.4, speed: 2.6, size: 1.0, life: 2.2, color: DUST, alpha: 0.3 });
-          if (i < 3) this.rig.addTrauma(0.25);
+      // Pre-impact: the fissure spreads across the seam, grit jumps from it, the ground groans.
+      this.cine.cracks.spawn(h.pos.clone().setY(h.pos.y + 0.05).addScaledVector(h.fwd, 0.3), h.yaw, PATH_HALF * 2 + 0.2, 2.2 + 2 * e, F.pre * 0.9, F.pre * 0.1 + 0.12);
+      this.sounds.tremor(0.5 + 0.5 * e);
+      this.rig.addTrauma(0.12 + 0.1 * e);
+      for (let k = 0; k < 4 + Math.round(4 * e); k++) {
+        this.later((k / (4 + 4 * e)) * F.pre, () => {
+          const p = h.pos.clone().addScaledVector(h.right, r.range(-PATH_HALF, PATH_HALF)).setY(h.pos.y + 0.05);
+          this.particles.burst(p, 5, { spread: 0.3, up: 1.8, speed: 0.6, size: 0.05, life: 0.6, color: DUST_DARK, alpha: 0.7, gravity: 9, drag: 0.4, grow: 0 });
+          B.puff(p, { count: 1, spread: 0.4, jitter: 0.3, vel: new THREE.Vector3(0, 0.6, 0), size: [0.3, 1.1], life: 1.4, alpha: 0.35, tint: DUST_T, rise: 0.1, floor: h.pos.y });
         });
+      }
+      this.later(F.pre, () => {
+        const tiles = this.collapseFrom(edge, edge + F.span);
+        const dist = (m: THREE.Matrix4) => new THREE.Vector3().setFromMatrixPosition(m).distanceTo(h.pos);
+        tiles.sort((a, b) => dist(a.world) - dist(b.world));
+        const gap = 0.07 * (1 + 0.8 * e);
+        tiles.forEach((t, i) => {
+          this.later(0.02 + i * gap, () => {
+            this.debris.spawn(
+              t.piece,
+              t.world,
+              new THREE.Vector3(r.range(-0.6, 0.6), r.range(-1.5, 0), r.range(-0.6, 0.6)),
+              new THREE.Vector3(r.range(-1.2, 1.2), r.range(-0.3, 0.3), r.range(-1.2, 1.2)),
+              () => null,
+              // Slabs crack up as they drop: the nearer ones a moment after they go.
+              { breakInto: 4, breakAfter: r.range(0.3, 0.6) },
+            );
+            const p = new THREE.Vector3().setFromMatrixPosition(t.world);
+            p.y += 0.1;
+            this.particles.burst(p, 10, { spread: 3, up: 1.4, speed: 2.6, size: 0.6, life: 1.6, color: DUST, alpha: 0.25 });
+            // A cloud boils up out of the gap and rolls back over the lip.
+            B.puff(p, { count: 2 + Math.round(2 * F.dust), spread: 3, jitter: 1.2, vel: new THREE.Vector3(0, 1.6 + 1.2 * e, 0).addScaledVector(h.fwd, -0.4), size: [1.2, 3.6 + 2.5 * e], life: 2.6 + 1.6 * e, alpha: 0.36, tint: DUST_T, rise: 0.35, drag: 1.1 });
+            if (i === 0) kick();
+            else if (i < 3) this.rig.addTrauma(0.15);
+          });
+        });
+        this.fx.flash = 0.18 + 0.1 * e;
+        this.sounds.impact(0.7 + 0.3 * e, false);
       });
       // Grit pours off the broken lip for a while.
-      for (let k = 0; k < 10; k++) {
-        this.later(0.2 + k * 0.18, () => {
+      for (let k = 0; k < 10 + 8 * e; k++) {
+        this.later(F.pre + 0.2 + k * 0.18, () => {
           const p = h.pos.clone().addScaledVector(h.right, r.range(-PATH_HALF, PATH_HALF)).setY(h.pos.y - 0.05);
           this.particles.burst(p, 4, { spread: 0.4, up: 0.1, speed: 0.4, size: 0.18, life: 1.4, color: DUST_DARK, alpha: 0.45, gravity: 6 });
         });
       }
       // Loose blocks from the walls go with it.
-      for (let k = 0; k < 3 + Math.round(6 * e); k++) {
-        const side = k % 2 ? 1 : -1;
-        const p = h.pos.clone().addScaledVector(h.fwd, r.range(1, 9)).addScaledVector(h.right, side * r.range(2.5, 3.2)).setY(h.pos.y + r.range(0.8, 1.6));
-        this.later(0.3 + k * 0.12, () =>
-          this.debris.spawn(`rubble_${r.int(0, 1)}`, new THREE.Matrix4().makeTranslation(p.x, p.y, p.z), h.fwd.clone().multiplyScalar(r.range(-1, 1)).addScaledVector(h.right, -side * r.range(0.5, 2)), new THREE.Vector3(r.range(-3, 3), r.range(-3, 3), r.range(-3, 3)), () => null, { scale: r.range(0.5, 0.9) }),
-        );
+      const walls = wallsOf(edge + 3);
+      const blocks = (count: number, at0: number, spanK: number, t0: number, big: boolean) => {
+        for (let k = 0; k < count; k++) {
+          const side = walls === 'cliff' ? -openSide : k % 2 ? 1 : -1;
+          const p = h.pos.clone().addScaledVector(h.fwd, at0 + r.range(0, spanK)).addScaledVector(h.right, side * r.range(2.5, 3.2)).setY(h.pos.y + r.range(0.8, big ? 3.2 : 1.6));
+          this.later(t0 + k * 0.12, () => {
+            this.debris.spawn(big ? r.pick(['rubble_2', 'rubble_3', 'rock_mid_0']) : `rubble_${r.int(0, 1)}`, new THREE.Matrix4().makeTranslation(p.x, p.y, p.z), h.fwd.clone().multiplyScalar(r.range(-1, 1)).addScaledVector(h.right, -side * r.range(0.5, 2.5)), new THREE.Vector3(r.range(-3, 3), r.range(-3, 3), r.range(-3, 3)), () => null, { scale: big ? r.range(0.7, 1.1) : r.range(0.5, 0.9), breakInto: big ? 3 : 0, breakAfter: big ? r.range(0.5, 0.9) : Infinity });
+            if (walls !== 'none') B.puff(p, { count: 2, spread: 0.8, jitter: 0.5, vel: h.right.clone().multiplyScalar(-side * 2.2), size: [0.8, 2.4], life: 2, alpha: 0.45, tint: DUST_T, rise: 0.05 });
+          });
+        }
+      };
+      if (walls !== 'none') blocks(n(4), 1, 8, F.pre + 0.3, false);
+      // Big falls: the walls beside the gap come down too, in waves, the gap still widening.
+      if (F.waves >= 1) {
+        this.later(F.pre + 1.0, () => kick(0.5));
+        if (walls !== 'none') blocks(n(3), 2, 10, F.pre + 0.9, true);
+        const far = this.collapseFrom(edge + F.span, edge + F.span + 8);
+        far.forEach((t, i) => this.later(F.pre + 1.2 + i * 0.09, () => this.debris.spawn(t.piece, t.world, new THREE.Vector3(0, -0.5, 0), new THREE.Vector3(r.range(-1, 1), 0, r.range(-1, 1)), () => null, { breakInto: 3, breakAfter: r.range(0.3, 0.5) })));
       }
-      this.rig.addTrauma(0.4 + 0.25 * e);
-      this.fx.flash = 0.2;
-      this.sounds.impact(0.7 + 0.3 * e, false);
-      // Slow motion lands on the teeter at the edge.
-      slow(-0.25, 1.9, 0.33);
+      if (F.waves >= 2) {
+        this.later(F.pre + 2.0, () => {
+          kick(0.6);
+          this.sounds.impact(1, false);
+          const p = h.pos.clone().addScaledVector(h.fwd, 7).setY(h.pos.y - 1);
+          B.puff(p, { count: 6, spread: 7, jitter: 1.5, vel: new THREE.Vector3(0, 3, 0), size: [2.5, 7], life: 4, alpha: 0.4, tint: DUST_T, rise: 0.5, drag: 0.9 });
+        });
+        if (walls !== 'none') blocks(n(3), 4, 10, F.pre + 1.9, true);
+      }
+      // Slow motion lands as the floor gives.
+      slow(-Math.max(0, F.pre - 0.1));
     } else if (kind === 'gate') {
       // Brake hard; the slab slams down a few metres ahead and the runner skids short of it, then
       // recoils back (the clip). At the push-off it drops right in front of the crouch.
@@ -642,84 +767,259 @@ export class Game {
       this.debris.spawn('gate_0', m, new THREE.Vector3(0, -v0, 0), new THREE.Vector3(), (x, z) => onPath(h)(x, z) ?? h.pos.y, { settle: true, heavy: true });
       this.gateLand = { at: h.pos.clone(), done: false };
       this.fx.flash = 0.06;
-      // Dust from the lintel as it starts to move.
+      // Pre-impact: dust and grit shaken from the lintel as it starts to move.
       this.particles.burst(h.pos.clone().setY(h.pos.y + 5.5), 10, { spread: 3.5, up: 0.2, speed: 0.6, size: 0.5, life: 1.8, color: DUST, alpha: 0.35, gravity: 2 });
+      B.puff(h.pos.clone().setY(h.pos.y + 5.8), { count: 3, spread: 3, jitter: 0.3, vel: new THREE.Vector3(0, -1.2, 0), size: [0.6, 2.2], life: 2.2, alpha: 0.4, tint: DUST_T, rise: -0.2 });
       this.later(land, () => {
         // The slam: a sheet of dust rolls out along the floor both ways, grit rains from above.
         for (let k = -3; k <= 3; k++) {
           const p = h.pos.clone().addScaledVector(h.right, k * 0.7).addScaledVector(h.fwd, -0.4).setY(h.pos.y + 0.05);
-          this.particles.burst(p, 7, { spread: 0.8, up: 0.8, speed: 4.5, size: 0.9, life: 2.4, color: DUST, alpha: 0.34, drag: 1.4 });
+          this.particles.burst(p, 5, { spread: 0.8, up: 0.8, speed: 4.5, size: 0.6, life: 1.6, color: DUST, alpha: 0.3, drag: 1.4 });
+          for (const dir of [-1, 1]) {
+            B.puff(p, { count: Math.round(0.5 + F.dust), spread: 0.6, jitter: 0.8, vel: h.fwd.clone().multiplyScalar(dir * (4 + 3 * e)).addScaledVector(h.right, k * 0.5), size: [0.5, 2.2 + 1.6 * e], life: 2.4 + 1.2 * e, alpha: 0.45, tint: DUST_T, rise: 0.12, drag: 1.5, floor: h.pos.y });
+          }
         }
-        for (let k = 0; k < 3 + Math.round(5 * e); k++) {
+        for (let k = 0; k < n(5); k++) {
           const p = h.pos.clone().addScaledVector(h.right, r.range(-1.8, 1.8)).addScaledVector(h.fwd, -0.6).setY(h.pos.y + r.range(3.5, 5));
           const sc = r.range(0.12, 0.22);
-          this.debris.spawn('debris_0', new THREE.Matrix4().compose(p, new THREE.Quaternion(), new THREE.Vector3(sc, sc, sc)), h.fwd.clone().multiplyScalar(-r.range(0.3, 1.2)), new THREE.Vector3(3, 2, 1), onPath(h));
+          this.debris.spawn(`shard_${k}`, new THREE.Matrix4().compose(p, new THREE.Quaternion(), new THREE.Vector3(sc, sc, sc)), h.fwd.clone().multiplyScalar(-r.range(0.3, 1.2)), new THREE.Vector3(3, 2, 1), onPath(h));
         }
-        this.rig.addTrauma(0.5 + 0.3 * e);
+        // Chips spat out from under the slab's edge, skittering toward the runner's side.
+        for (let k = 0; k < n(3); k++) {
+          const p = h.pos.clone().addScaledVector(h.right, r.range(-1.6, 1.6)).addScaledVector(h.fwd, -0.5).setY(h.pos.y + 0.2);
+          const sc = r.range(0.08, 0.16);
+          this.debris.spawn(`shard_${k + 2}`, new THREE.Matrix4().compose(p, new THREE.Quaternion(), new THREE.Vector3(sc, sc, sc)), h.fwd.clone().multiplyScalar(-r.range(1.5, 3)).addScaledVector(h.right, r.range(-1, 1)).setY(2), new THREE.Vector3(), onPath(h));
+        }
+        kick();
         this.fx.flash = 0.12 + 0.08 * e;
         this.sounds.slam?.(0.7 + 0.3 * e);
       });
-      slow(-0.1, 1.5, 0.3);
+      // Big falls: the frame around the gate gives too, blocks crumbling off its top and sides.
+      if (F.waves >= 1) {
+        for (let k = 0; k < n(3); k++) {
+          const side = k % 2 ? 1 : -1;
+          this.later(land + 0.45 + k * 0.22, () => {
+            const p = h.pos.clone().addScaledVector(h.right, side * r.range(1.4, 2.6)).addScaledVector(h.fwd, r.range(-0.2, 0.6)).setY(h.pos.y + r.range(4.5, 6));
+            this.debris.spawn(r.pick(['rubble_2', 'rubble_3', 'rock_mid_2']), new THREE.Matrix4().compose(p, new THREE.Quaternion().setFromEuler(new THREE.Euler(r.range(0, 6), r.range(0, 6), r.range(0, 6))), new THREE.Vector3(0.6, 0.6, 0.6)), new THREE.Vector3(0, -2, 0).addScaledVector(h.right, -side * 0.6), new THREE.Vector3(r.range(-2, 2), r.range(-2, 2), r.range(-2, 2)), onPath(h), { breakInto: 3 });
+            B.puff(p, { count: 2, spread: 1, jitter: 0.4, vel: new THREE.Vector3(0, -0.6, 0), size: [0.8, 2.4], life: 2.2, alpha: 0.4, tint: DUST_T, rise: -0.1 });
+          });
+        }
+      }
+      if (F.waves >= 2) {
+        this.later(land + 1.4, () => {
+          kick(0.5);
+          this.sounds.tremor(1);
+          for (const side of [-1, 1]) {
+            const p = h.pos.clone().addScaledVector(h.right, side * 2.8).addScaledVector(h.fwd, -2).setY(h.pos.y + 3);
+            B.puff(p, { count: 4, spread: 3, jitter: 0.8, vel: h.right.clone().multiplyScalar(-side * 2), size: [1.2, 4], life: 3.2, alpha: 0.4, tint: DUST_T, rise: -0.05, floor: h.pos.y });
+          }
+        });
+      }
+      slow(-0.1);
     } else {
-      // Rockfall: the first block drops square in the way as the runner flinches; the rest follow.
+      // Rockfall. Pre-impact: grit and pebbles trickle from the wall tops; then the first block
+      // drops square in the way as the runner flinches, and the rest follow.
       const T = 0.4;
       const stop = this.s + (v * T) / 2;
       this.setStop(stop);
       const h = frameAt(stop + 2.9);
       this.rig.focus.copy(h.pos).setY(h.pos.y + 0.8);
       const pieces = ['rock_mid_0', 'rock_mid_1', 'rock_mid_2', 'rubble_3', 'rubble_2', 'drum_0'];
-      const drop = (delay: number, along: number, lat: number, piece: string, sc: number, hStart: number, land: number) => {
+      const drop = (delay: number, along: number, lat: number, piece: string, sc: number, hStart: number, land: number, breakInto = 0) => {
         const at = frameAt(stop + along);
         const p = at.pos.clone().addScaledVector(at.right, lat).setY(at.pos.y + hStart);
         const v0 = Math.max(2, (hStart - 9.5 * land * land) / land);
         const m = new THREE.Matrix4().compose(p, new THREE.Quaternion().setFromEuler(new THREE.Euler(r.range(0, 6), r.range(0, 6), r.range(0, 6))), new THREE.Vector3(sc, sc, sc));
         this.later(delay, () => {
-          this.debris.spawn(piece, m, new THREE.Vector3(-at.right.x * lat * 0.25, -v0, -at.right.z * lat * 0.25).addScaledVector(at.fwd, r.range(-0.5, 0.5)), new THREE.Vector3(r.range(-2.5, 2.5), r.range(-2, 2), r.range(-2.5, 2.5)), onPath(at));
-          this.particles.burst(p, 6, { spread: 1, up: 0.2, speed: 0.6, size: 0.45, life: 1.5, color: DUST, alpha: 0.3, gravity: 3 });
+          this.debris.spawn(piece, m, new THREE.Vector3(-at.right.x * lat * 0.25, -v0, -at.right.z * lat * 0.25).addScaledVector(at.fwd, r.range(-0.5, 0.5)), new THREE.Vector3(r.range(-2.5, 2.5), r.range(-2, 2), r.range(-2.5, 2.5)), onPath(at), { breakInto });
+          this.particles.burst(p, 4, { spread: 1, up: 0.2, speed: 0.6, size: 0.45, life: 1.5, color: DUST, alpha: 0.3, gravity: 3 });
+          B.puff(p, { count: 1, spread: 0.6, jitter: 0.3, vel: new THREE.Vector3(0, -2, 0), size: [0.5, 1.6], life: 1.2, alpha: 0.35, tint: DUST_T, rise: 0 });
         });
       };
+      // Pebbles bounce down first.
+      for (let k = 0; k < n(4); k++) {
+        this.later(k * 0.05, () => {
+          const at = frameAt(stop + r.range(0, 6));
+          const side = r.chance(0.5) ? 1 : -1;
+          const p = at.pos.clone().addScaledVector(at.right, side * r.range(1.2, 2.2)).setY(at.pos.y + r.range(3, 4.5));
+          const sc = r.range(0.07, 0.14);
+          this.debris.spawn(`shard_${k}`, new THREE.Matrix4().compose(p, new THREE.Quaternion(), new THREE.Vector3(sc, sc, sc)), at.right.clone().multiplyScalar(-side * r.range(0.5, 1.5)), new THREE.Vector3(4, 3, 2), onPath(at));
+        });
+      }
       drop(0, 2.9, r.range(-0.4, 0.4), 'rock_mid_1', 0.75, 8, 0.32);
-      this.later(0.32, () => this.sounds.slam?.(0.5 + 0.3 * e));
-      for (let k = 0; k < 5 + Math.round(8 * e); k++) {
-        const along = r.range(-1.5, 9);
+      this.later(0.32, () => {
+        this.sounds.slam?.(0.5 + 0.3 * e);
+        kick();
+      });
+      for (let k = 0; k < n(8); k++) {
+        const along = r.range(-1.5, 9 + 6 * e);
         // Never on the runner: anything near their mark lands well to the side.
         const lat = Math.abs(along) < 1.6 ? (r.chance(0.5) ? 1 : -1) * r.range(1.4, 3.6) : r.range(-3.6, 3.6);
         const piece = r.pick(pieces);
         const sc = piece.startsWith('rock') ? r.range(0.4, 0.75) : r.range(0.8, 1.2);
-        drop(0.12 + k * r.range(0.08, 0.16), along, lat, piece, sc, r.range(9, 15), r.range(0.8, 1.2));
+        drop(0.12 + k * r.range(0.08, 0.16) * (1 + 0.5 * e), along, lat, piece, sc, r.range(9, 15), r.range(0.8, 1.2), r.chance(0.5) ? 3 : 0);
       }
       // Dust curtains pour off the wall tops.
-      for (let k = 0; k < 8; k++) {
+      for (let k = 0; k < 8 + 6 * e; k++) {
         this.later(k * 0.12, () => {
           const at = frameAt(stop + r.range(-2, 8));
           const side = r.chance(0.5) ? 1 : -1;
           const p = at.pos.clone().addScaledVector(at.right, side * r.range(2.4, 3.2)).setY(at.pos.y + r.range(3, 5.5));
-          this.particles.burst(p, 8, { spread: 0.8, up: 0.1, speed: 0.4, size: 0.55, life: 2.2, color: DUST, alpha: 0.38, gravity: 2.2 });
+          this.particles.burst(p, 5, { spread: 0.8, up: 0.1, speed: 0.4, size: 0.4, life: 2.2, color: DUST, alpha: 0.38, gravity: 2.2 });
+          B.puff(p, { count: 1, spread: 0.6, jitter: 0.25, vel: new THREE.Vector3(0, -1.4, 0).addScaledVector(at.right, -side * 0.6), size: [0.7, 2.6], life: 2.6, alpha: 0.42, tint: DUST_T, rise: -0.15, floor: at.pos.y });
         });
       }
-      this.rig.addTrauma(0.3 + 0.2 * e);
-      slow(-0.08, 1.5, 0.35);
+      // Big falls: a boulder comes down beyond and rolls away down the causeway; then a whole wall
+      // face lets go in a cascade.
+      if (F.waves >= 1) {
+        this.later(0.9, () => {
+          const at = frameAt(stop + 7.5);
+          const p = at.pos.clone().addScaledVector(at.right, r.range(-0.6, 0.6)).setY(at.pos.y + 12);
+          this.debris.spawn('rock_mid_0', new THREE.Matrix4().compose(p, new THREE.Quaternion(), new THREE.Vector3(1.4, 1.4, 1.4)), new THREE.Vector3(0, -9, 0).addScaledVector(at.fwd, 3.5), new THREE.Vector3(r.range(-1, 1), 0, r.range(-1, 1)), onPath(at));
+        });
+      }
+      if (F.waves >= 2) {
+        const side = r.chance(0.5) ? 1 : -1;
+        for (let k = 0; k < n(4); k++) drop(1.5 + k * 0.1, r.range(3, 10), side * r.range(1.8, 3.2), r.pick(['rubble_2', 'rubble_3']), r.range(0.9, 1.2), r.range(6, 9), r.range(0.7, 0.9), 3);
+        this.later(1.5, () => {
+          kick(0.6);
+          this.sounds.tremor(1);
+          const at = frameAt(stop + 6);
+          const p = at.pos.clone().addScaledVector(at.right, side * 2.8).setY(at.pos.y + 3);
+          B.puff(p, { count: 6, spread: 5, jitter: 1, vel: at.right.clone().multiplyScalar(-side * 2.5), size: [1.5, 5.5], life: 3.6, alpha: 0.42, tint: DUST_T, rise: 0, floor: at.pos.y });
+        });
+      }
+      this.rig.addTrauma(0.15 + 0.1 * e);
+      slow(-0.08);
     }
   }
 
   private gateLand: { at: THREE.Vector3; done: boolean } | null = null;
-  private queue: { at: number; fn: () => void }[] = [];
+  private queue: { at: number; fn: () => void; tag?: number }[] = [];
   /** Run `fn` after `delay` seconds of presentation time (slow motion slows it too). */
-  private later(delay: number, fn: () => void) {
-    this.queue.push({ at: this.worldT + delay, fn });
+  private later(delay: number, fn: () => void, tag?: number) {
+    this.queue.push({ at: this.worldT + delay, fn, tag });
   }
   /** Presentation slow motion: `t` counts real seconds (negative = not started yet). */
   private slowmo: { t: number; dur: number; min: number } | null = null;
 
-  private onDebrisImpact(e: { pos: THREE.Vector3; speed: number; water: boolean; mass: number }) {
+  private onDebrisImpact(e: { pos: THREE.Vector3; speed: number; water: boolean; mass: number; broke?: boolean }) {
     const big = Math.min(1.5, e.mass * (e.speed / 12));
+    const B = this.cine.billows;
+    if (e.broke) {
+      // A chunk breaking up: a puff of its own dust and a spit of grit.
+      this.particles.burst(e.pos, 6 + 6 * e.mass, { spread: 0.6, up: 2.5, speed: 2.5, size: 0.05, life: 0.8, color: DUST_DARK, alpha: 0.7, gravity: 9, drag: 0.5, grow: 0 });
+      B.puff(e.pos, { count: 1 + Math.round(e.mass), spread: 0.8, jitter: 1, size: [0.6, 1.8 + e.mass], life: 1.8, alpha: 0.4, tint: DUST_T, rise: 0.2 });
+      if (e.speed > 0) this.sounds.impact(Math.min(1, 0.3 + e.mass * 0.4), false);
+      return;
+    }
     if (e.water) {
-      this.particles.burst(e.pos, 16 + big * 20, { spread: 1.2 + big, up: 5 + big * 3, speed: 2.5, size: 0.45, life: 1.1, color: SPRAY, alpha: 0.7, gravity: 9, drag: 0.6, grow: 0.8 });
-      this.sounds.impact(big * 0.7, true);
+      // Spray thrown up, a mist that hangs, and a shockwave spreading over the water.
+      const heavy = Math.min(1.5, e.mass * Math.max(0.5, e.speed / 8));
+      this.particles.burst(e.pos, 14 + heavy * 22, { spread: 0.8 + heavy, up: 4.5 + heavy * 4, speed: 2.5 + heavy, size: 0.3, life: 1.1, color: SPRAY, alpha: 0.75, gravity: 9.5, drag: 0.5, grow: 0.6 });
+      if (heavy > 0.25) {
+        B.puff(e.pos, { count: 1 + Math.round(heavy * 2), spread: 1 + heavy, jitter: 0.8, vel: new THREE.Vector3(0, 1.5 + heavy * 1.5, 0), size: [0.6, 2 + 2.5 * heavy], life: 1.6, alpha: 0.38, tint: MIST_T, rise: 0.2, floor: WATER_Y });
+        this.cine.rings.spawn(e.pos, 1.5 + heavy * 3.5, 0.55 + 0.45 * Math.min(1, heavy));
+      }
+      this.sounds.impact(heavy * 0.6, true);
     } else {
-      this.particles.burst(e.pos, 8 + big * 16, { spread: 1.5 + big * 2, up: 1.6, speed: 4 + big * 3, size: 0.9 + big * 0.8, life: 2.2, color: DUST, alpha: 0.32 });
+      this.particles.burst(e.pos, 4 + big * 8, { spread: 1 + big, up: 1.4, speed: 3 + big * 3, size: 0.5 + big * 0.5, life: 1.6, color: DUST, alpha: 0.28 });
+      if (big > 0.15) B.puff(e.pos, { count: 1 + Math.round(big * 3), spread: 0.8 + big, jitter: 1.2 + big * 2, size: [0.6, 1.6 + 2.2 * big], life: 2 + big, alpha: 0.42, tint: DUST_T, rise: 0.15, drag: 1.6, floor: e.pos.y });
       this.rig.addTrauma(Math.min(0.6, big * 0.4));
+      // A camera kick on the heavy landings (not every pebble, and not twice in a breath).
+      if (this.stage === 'crash' && big > 0.5 && this.worldT - this.lastJolt > 0.3) {
+        this.rig.jolt(0.4 * big, 1.5 * big);
+        this.lastJolt = this.worldT;
+      }
       this.sounds.impact(big, false);
+    }
+  }
+
+  // ------------------------------------------------------------------ run-time danger cues
+  /**
+   * A cosmetic danger cue during the run, from the current multiplier and the cosmetic RNG only
+   * (see fxScale.nextDangerCue): it never knows where, or whether, the round will end.
+   */
+  private dangerCue(cue: DangerCue, k: number, I: number): void {
+    const c = this.cosmetic;
+    const ahead = this.s + c.range(7, 15);
+    const f = this.track.path.sample(ahead);
+    const pos = f.pos.clone();
+    const rightV = new THREE.Vector3(Math.cos(f.yaw), 0, -Math.sin(f.yaw));
+    const fwd = forward(f.yaw);
+    const sec = this.track.sectionAt(ahead);
+    const walls = sec?.layout.walls ?? 'low';
+    const wallSide = walls === 'cliff' ? (sec!.mirror ? -1 : 1) : c.chance(0.5) ? 1 : -1;
+    const onPathHere = (x: number, z: number) => (Math.abs((x - pos.x) * rightV.x + (z - pos.z) * rightV.z) < PATH_HALF + 0.15 ? pos.y : null);
+    const B = this.cine.billows;
+    if (cue === 'burst' && walls === 'none') cue = 'stones';
+    switch (cue) {
+      case 'burst': {
+        // Ref 9: a wall face blows out a jet of dust across the way as the runner nears it.
+        const side = wallSide;
+        const p = pos.clone().addScaledVector(rightV, side * (PATH_HALF + 0.35)).setY(pos.y + c.range(0.5, walls === 'low' ? 1.6 : 2.6));
+        const jet = rightV.clone().multiplyScalar(-side * (3.5 + 3 * k)).setY(0.6);
+        B.puff(p, { count: 3 + Math.round(5 * k), spread: 0.5, jitter: 0.9, vel: jet, size: [0.45, 1.6 + 1.2 * k], life: 1.1 + 0.5 * k, alpha: 0.6, tint: DUST_T, rise: 0.15, drag: 2.0, floor: pos.y, group: CUE });
+        this.particles.burst(p, 6 + 8 * k, { spread: 0.3, up: 1.5, speed: 3.5, size: 0.05, life: 0.8, color: DUST_DARK, alpha: 0.8, gravity: 9, drag: 0.6, grow: 0 });
+        for (let i = 0; i < 1 + Math.round(2 * k); i++) {
+          const sc = c.range(0.08, 0.18);
+          this.debris.spawn(`shard_${i}`, new THREE.Matrix4().compose(p, new THREE.Quaternion(), new THREE.Vector3(sc, sc, sc)), jet.clone().multiplyScalar(c.range(0.5, 0.9)).setY(c.range(1, 2.5)), new THREE.Vector3(5, 3, 2), onPathHere);
+        }
+        this.sounds.impact(0.25 + 0.3 * k, false);
+        this.rig.addTrauma(0.04 + 0.06 * k);
+        break;
+      }
+      case 'stones': {
+        // Small stones skitter across the path ahead and drop off the edge.
+        const side = c.chance(0.5) ? 1 : -1;
+        const count = 2 + Math.round(3 * k);
+        for (let i = 0; i < count; i++) {
+          const p = pos.clone().addScaledVector(fwd, c.range(-2, 3)).addScaledVector(rightV, side * (PATH_HALF - 0.1)).setY(pos.y + 0.6);
+          const sc = c.range(0.08, 0.2);
+          this.later(i * c.range(0.05, 0.18), () => {
+            this.debris.spawn(`shard_${i % 6}`, new THREE.Matrix4().compose(p, new THREE.Quaternion(), new THREE.Vector3(sc, sc, sc)), rightV.clone().multiplyScalar(-side * c.range(2.5, 4.5)).addScaledVector(fwd, c.range(-0.8, 0.8)).setY(1), new THREE.Vector3(), onPathHere);
+          }, CUE);
+        }
+        B.puff(pos.clone().addScaledVector(rightV, side * (PATH_HALF + 0.3)).setY(pos.y + 0.8), { count: 2, spread: 0.6, jitter: 0.4, vel: rightV.clone().multiplyScalar(-side * 1.2), size: [0.4, 1.4], life: 1.4, alpha: 0.4, tint: DUST_T, floor: pos.y, group: CUE });
+        break;
+      }
+      case 'rumble':
+        this.tremor(I, k);
+        break;
+      case 'birds': {
+        // Birds burst out of the trees off to one side and wheel away from the noise.
+        const side = c.chance(0.5) ? 1 : -1;
+        const g = this.track.path.sample(this.s + c.range(16, 28));
+        const gr = new THREE.Vector3(Math.cos(g.yaw), 0, -Math.sin(g.yaw));
+        const from = g.pos.clone().addScaledVector(gr, side * c.range(6, 11)).setY(g.pos.y + c.range(4, 7));
+        this.cine.flock.launch(from, gr.clone().multiplyScalar(side).addScaledVector(forward(g.yaw), 0.6), 4 + Math.round(8 * k), 3, 0.6);
+        break;
+      }
+    }
+  }
+
+  /** A distant rumble: camera tremor, grit off the walls, and a plume of dust far off over the jungle. */
+  private tremor(I: number, k = I) {
+    this.rig.addTrauma(0.1 + I * 0.25);
+    this.sounds.tremor(I);
+    const c = this.cosmetic;
+    const f = this.track.path.sample(this.s + c.range(6, 14));
+    const rightV = new THREE.Vector3(Math.cos(f.yaw), 0, -Math.sin(f.yaw));
+    const onPathHere = (x: number, z: number) => (Math.abs((x - f.pos.x) * rightV.x + (z - f.pos.z) * rightV.z) < PATH_HALF + 0.15 ? f.pos.y : null);
+    for (let i = 0; i < 2 + Math.round(k * 3); i++) {
+      const side = c.chance(0.5) ? 1 : -1;
+      const p = f.pos.clone().addScaledVector(rightV, side * c.range(2.3, 3.2)).setY(f.pos.y + c.range(2.5, 4.5));
+      this.particles.burst(p, 5, { spread: 0.6, up: 0.2, speed: 0.5, size: 0.3, life: 1.6, color: DUST, alpha: 0.4, gravity: 3 });
+      this.cine.billows.puff(p, { count: 1, spread: 0.4, jitter: 0.2, vel: new THREE.Vector3(0, -1.2, 0), size: [0.4, 1.5], life: 1.8, alpha: 0.4, tint: DUST_T, rise: -0.1, floor: f.pos.y, group: CUE });
+      const sc = c.range(0.1, 0.22);
+      this.debris.spawn(`shard_${i % 6}`, new THREE.Matrix4().compose(p, new THREE.Quaternion(), new THREE.Vector3(sc, sc, sc)), rightV.clone().multiplyScalar(-side * c.range(0.2, 1.2)), new THREE.Vector3(3, 2, 1), onPathHere);
+    }
+    // Far off, something big came down: a plume of dust rises over the trees.
+    if (k > 0.45) {
+      const g = this.track.path.sample(this.s + c.range(45, 75));
+      const gr = new THREE.Vector3(Math.cos(g.yaw), 0, -Math.sin(g.yaw));
+      const p = g.pos.clone().addScaledVector(gr, (c.chance(0.5) ? 1 : -1) * c.range(14, 28)).setY(g.pos.y + 1);
+      this.cine.billows.puff(p, { count: 4 + Math.round(3 * k), spread: 6, jitter: 0.6, vel: new THREE.Vector3(0, 2.2, 0), size: [4, 12 + 6 * k], life: 6, alpha: 0.32, tint: DUST_T, rise: 0.15, drag: 0.5, group: CUE });
     }
   }
 
@@ -768,8 +1068,8 @@ export class Game {
     if (this.slowmo) {
       this.slowmo.t += rawDt;
       const x = Math.max(0, this.slowmo.t) / this.slowmo.dur;
-      const reduced = this.motion === 'reduced';
-      this.timeScale = reduced ? 1 : x < 0.15 ? THREE.MathUtils.lerp(1, this.slowmo.min, x / 0.15) : THREE.MathUtils.lerp(this.slowmo.min, 1, Math.min(1, (x - 0.15) / 0.85) ** 2);
+      // Reduced motion gets a short, shallow breath (set by fxScale), never a long hold.
+      this.timeScale = x < 0.15 ? THREE.MathUtils.lerp(1, this.slowmo.min, x / 0.15) : THREE.MathUtils.lerp(this.slowmo.min, 1, Math.min(1, (x - 0.15) / 0.85) ** 2);
       if (x >= 1) {
         this.slowmo = null;
         this.timeScale = 1;
@@ -860,13 +1160,15 @@ export class Game {
     }
 
     // Danger cues follow the multiplier only; they never know where the round ends.
-    if (this.stage === 'run' && I > 0.35) {
-      this.tremorIn -= dt;
-      if (this.tremorIn <= 0) {
-        this.tremorIn = this.cosmetic.range(2.2, 6.5) * (1.3 - I);
-        this.tremor(I);
+    if (this.stage === 'run' && this.stageT > 1.2) {
+      this.dangerIn -= dt;
+      if (this.dangerIn <= 0) {
+        const cue = nextDangerCue(this.cosmetic, mult);
+        this.dangerIn = cue ? cue.wait : 1.5;
+        if (cue) this.dangerCue(cue.cue, cue.strength, I);
       }
     }
+    if (this.fxMotion !== this.motion) this.applyFxBudget();
     const dangerTarget = this.stage === 'run' ? Math.max(0, (I - 0.35) / 0.65) * 0.55 : 0;
     this.fx.danger += (dangerTarget - this.fx.danger) * (1 - Math.exp(-dt * 2));
     // The fall's grade: cold, but capped so the runner and the hazard stay readable.
@@ -876,7 +1178,7 @@ export class Game {
     this.fx.gold += (goldTarget - this.fx.gold) * (1 - Math.exp(-rawDt * 3));
     this.fx.flash *= Math.exp(-rawDt * 6);
     // Cash-out: a sun-flare bloom, bigger and longer for a big escape.
-    this.fx.bloom = this.stage === 'cashout' ? (0.3 + 0.5 * this.epic) * Math.exp(-this.stageT * (1.2 - 0.6 * this.epic)) : this.fx.danger * 0.25;
+    this.fx.bloom = this.stage === 'cashout' ? (0.3 + 0.5 * this.epic) * Math.exp(-this.stageT * (1.2 - 0.6 * this.epic)) + (this.escape?.bloom ?? 0) * 0.5 * Math.min(1, this.stageT / 0.8) : this.fx.danger * 0.25;
 
     if (this.gateLand && !this.gateLand.done && this.stageT > 0.9) this.gateLand.done = true;
 
@@ -954,6 +1256,7 @@ export class Game {
     }
     this.debris.update(dt);
     this.particles.update(dt);
+    this.cine.update(dt, rawDt, cam, this.sunDir, this.worldT);
     this.motes.update(this.worldT, cam, this.renderer.domElement.height / (2 * Math.tan((cam.fov * Math.PI) / 360)), 1, this.sunDir);
     this.ambient.update(this.worldT, cam);
 
@@ -981,21 +1284,6 @@ export class Game {
     this.renderer.info.reset();
     this.post.render(rawDt);
     this.govern(performance.now() - t0, rawDt);
-  }
-
-  private tremor(I: number) {
-    this.rig.addTrauma(0.12 + I * 0.25);
-    this.sounds.tremor(I);
-    // Grit and small stones shaken loose ahead, off the walls.
-    const f = this.track.path.sample(this.s + this.cosmetic.range(6, 14));
-    const rightV = new THREE.Vector3(Math.cos(f.yaw), 0, -Math.sin(f.yaw));
-    for (let k = 0; k < 2 + Math.round(I * 3); k++) {
-      const side = this.cosmetic.chance(0.5) ? 1 : -1;
-      const p = f.pos.clone().addScaledVector(rightV, side * this.cosmetic.range(2.3, 3.5)).setY(f.pos.y + this.cosmetic.range(2.5, 5));
-      this.particles.burst(p, 6, { spread: 0.6, up: 0.2, speed: 0.5, size: 0.35, life: 1.6, color: DUST, alpha: 0.4, gravity: 3 });
-      const sc = this.cosmetic.range(0.12, 0.28);
-      this.debris.spawn('debris_0', new THREE.Matrix4().compose(p, new THREE.Quaternion(), new THREE.Vector3(sc, sc, sc)), rightV.clone().multiplyScalar(-side * this.cosmetic.range(0.2, 1.2)), new THREE.Vector3(3, 2, 1), () => (Math.abs(p.y) < 100 ? f.pos.y : null));
-    }
   }
 
   // perf: dynamic resolution first; the tier steps down only when the scale is at its floor.
