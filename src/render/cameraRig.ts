@@ -87,6 +87,8 @@ export class CameraRig {
   private variant = 0;
   /** 0..1: how grand the settled moment is (slower, wider, higher). */
   private epic = 0;
+  /** 0..1: how far a settled escape ends on a vista over the runner's shoulder. */
+  private reveal = 0;
   /** Continuous run tier (see world/choreo): camera energy rises with it. */
   drive = 0;
   private fovKick = 0;
@@ -121,8 +123,10 @@ export class CameraRig {
     this.camera = new THREE.PerspectiveCamera(55, aspect, 0.1, 2400);
   }
 
-  setMode(m: CamMode, opts: { side?: number; shot?: CrashShot; escape?: EscapeShot; variant?: number; epic?: number } = {}): void {
+  setMode(m: CamMode, opts: { side?: number; shot?: CrashShot; escape?: EscapeShot; variant?: number; epic?: number; reveal?: number } = {}): void {
     if (opts.side) this.side = opts.side;
+    if (opts.reveal !== undefined) this.reveal = opts.reveal;
+    else if (m !== this.mode) this.reveal = 0;
     if (opts.shot) this.crashShot = opts.shot;
     if (opts.escape) this.escapeShot = opts.escape;
     if (opts.variant !== undefined) this.variant = opts.variant;
@@ -140,6 +144,10 @@ export class CameraRig {
     this.lastYaw = runnerYaw;
     this.swing = this.swingTarget = 0;
     this.pull = this.pullTarget = 1;
+    // A new round starts clean: no leftover shake, lens punch or jolt from the last cinematic.
+    this.trauma = 0;
+    this.fovKick = 0;
+    this.bob = this.bobV = this.sway = this.swayV = 0;
     const fov = this.computeTarget(runnerPos, runnerYaw, 0, 1 / 60, true);
     this.pos.copy(this.targetPos);
     this.look.copy(this.targetLook);
@@ -155,6 +163,16 @@ export class CameraRig {
     if (this.mode !== 'run' && this.mode !== 'lead') return;
     this.bobV -= (0.18 + 0.3 * strength) * this.motionScale;
     this.swayV += (foot === 'L' ? -1 : 1) * 0.06 * strength * this.motionScale;
+  }
+
+  /**
+   * An impact in a cinematic: the operator is jolted (a downward knock on the bob spring) and the
+   * lens punches in by `deg`. Scaled by the motion setting.
+   */
+  jolt(strength: number, deg: number): void {
+    this.bobV -= strength * 1.4 * this.motionScale;
+    this.swayV += (Math.random() - 0.5) * strength * 0.8 * this.motionScale;
+    this.fovKick -= deg * this.motionScale;
   }
 
   /** A lens punch (the start burst). */
@@ -398,20 +416,33 @@ export class CameraRig {
     // Grand escapes: a wider orbit that cranes up as it settles.
     const crane = e * ease((T - 1.2) / 2.5);
     r *= 1 + 0.35 * e;
-    // Portrait: the lens is already opened up for width; come in so the figure keeps its size.
-    if (this.camera.aspect < 1) r *= 0.66;
     up += 1.1 * crane;
     fov += 3 * e;
-    return { along: -Math.cos(a) * r, lat: s * Math.sin(a) * r, up, lAlong, lLat: 0, lUp: lUp + 0.2 * crane, focus: 0, fov };
+    lUp += 0.2 * crane;
+    // The vista: a big escape swings on round behind and above the runner's shoulder and lifts its
+    // eyes down the way ahead (the route stays whole and calm), the runner small in the lower third.
+    const v = this.reveal * ease((T - 2.0) / 2.4);
+    if (v > 0) {
+      a = lerp(a, 0.42, v);
+      r = lerp(r, 4.4 + 0.8 * e, v);
+      up = lerp(up, 2.5 + 0.9 * e, v);
+      lAlong = lerp(lAlong, 15 + 8 * e, v);
+      lUp = lerp(lUp, 2.0 + 0.6 * e, v);
+      fov = lerp(fov, 58 + 4 * e, v);
+    }
+    // Portrait: the lens is already opened up for width; come in so the figure keeps its size.
+    if (this.camera.aspect < 1) r *= 0.66;
+    return { along: -Math.cos(a) * r, lat: s * Math.sin(a) * r, up, lAlong, lLat: 0, lUp, focus: 0, fov };
   }
 
   /** Crash choreography per staging, in the runner's frame (s = the open side). */
   private crashFrame(T: number, s: number): Frame {
     const f = this.crashBase(T, s);
-    if (this.crashShot === 'gate') return f;
-    const grow = ease(T / 2) * this.epic;
+    // A big fall pulls wider and cranes higher, slowly, to take in the whole collapse.
+    const grow = ease(T / 2.6) * this.epic;
+    if (this.crashShot === 'gate') return { ...f, along: f.along * (1 + 0.18 * grow), up: f.up + 0.7 * grow, lUp: f.lUp + 0.4 * grow, fov: f.fov + 2 * grow };
     const v = this.variant ? -0.35 : 0;
-    return { ...f, along: f.along * (1 + 0.35 * grow), up: f.up + 1.0 * grow + v * ease(T / 2), fov: f.fov + 2 * grow };
+    return { ...f, along: f.along * (1 + 0.5 * grow), lat: f.lat * (1 + 0.25 * grow), up: f.up + 1.6 * grow + v * ease(T / 2), fov: f.fov + 4 * grow };
   }
 
   private crashBase(T: number, s: number): Frame {
