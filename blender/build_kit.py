@@ -222,18 +222,80 @@ def reuse_group(objs, key):
         o.data.materials.append(pbr)
 
 
+# Resumable: every baked group is cached in blender/cache/bake_<key>/ with a hash of its inputs (the
+# packed meshes, their vertex colours, the bake size and the material scripts). A rerun after a crash
+# re-bakes only the groups whose cache is missing or stale.
+import hashlib
+import json
+import shutil
+
+SRC_HASH = hashlib.sha256(b"".join(open(os.path.join(os.path.dirname(__file__), f), "rb").read()
+                                   for f in ("materials.py", "common.py"))).hexdigest()
+
+
+def group_hash(objs, key, size):
+    import numpy as np
+    h = hashlib.sha256(f"{SRC_HASH}|{key}|{size}|{FAST}".encode())
+    for o in objs:
+        me = o.data
+        h.update(o.name.encode())
+        co = np.zeros(len(me.vertices) * 3, np.float32)
+        me.vertices.foreach_get("co", co)
+        h.update(np.round(co, 4).tobytes())
+        uv = np.zeros(len(me.loops) * 2, np.float32)
+        me.uv_layers.active.data.foreach_get("uv", uv)
+        h.update(np.round(uv, 5).tobytes())
+        for ca in me.color_attributes:
+            c = np.zeros(len(ca.data) * 4, np.float32)
+            ca.data.foreach_get("color", c)
+            h.update(np.round(c, 3).tobytes())
+    return h.hexdigest()
+
+
+def cached_group(objs, key, digest):
+    d = os.path.join(CACHE, f"bake_{key}")
+    try:
+        with open(os.path.join(d, "hash.json")) as f:
+            if json.load(f)["hash"] != digest:
+                return False
+    except (OSError, ValueError, KeyError):
+        return False
+    global REUSE
+    keep = REUSE
+    REUSE = d
+    reuse_group(objs, key)
+    REUSE = keep
+    return True
+
+
+def cache_group(key, digest):
+    d = os.path.join(CACHE, f"bake_{key}")
+    os.makedirs(d, exist_ok=True)
+    for k in ("color", "normal", "orm"):
+        shutil.copyfile(os.path.join(CACHE, f"{key}_{k}.png"), os.path.join(d, f"{key}_{k}.png"))
+    with open(os.path.join(d, "hash.json"), "w") as f:
+        json.dump({"hash": digest}, f)
+
+
 for key, (mat, size) in mats.items():
     objs = groups[key]
     if not objs:
         continue
     reuse = bool(REUSE) and key in REUSE_GROUPS and not FAST
-    log(f"uv + {'reuse' if reuse else 'bake'} {key} ({len(objs)} objects, {size // Q}px)")
     # Margins in texels of the shipped (optimized, halved) atlas stay at 3–4 px.
     ensure_uvs_packed_weighted(objs, size // Q, margin_px=max(2, (8 if size >= 4096 else 6 if size >= 2048 else 4) // Q))
     if reuse:
+        log(f"reuse {key} ({len(objs)} objects)")
         reuse_group(objs, key)
         continue
+    digest = group_hash(objs, key, size // Q)
+    if cached_group(objs, key, digest):
+        log(f"cached {key} ({len(objs)} objects)")
+        continue
+    log(f"bake {key} ({len(objs)} objects, {size // Q}px)")
     bake_group(objs, mat, key, size // Q, ao_samples=6 if FAST else 20, ao_strength=0.6 if key != "rock" else 0.7)
+    cache_group(key, digest)
+    log(f"cached {key} for reruns")
 
 leaf_mat = textured_material("leaf", leaf_img, None, None, alpha=True)
 for o in groups["leaf"]:
