@@ -29,9 +29,33 @@ const GAITS = ['run', 'sprint', 'dash'] as const;
 /**
  * Ground covered per stride cycle (m) while a foot is planted, per gait clip. The clips are solved in
  * blender/runner_anim.py so the stance foot slides back exactly D per stance (S = D / ts); setting the
- * cadence to speed / S keeps the planted foot still on the floor. Keep in step with the clip builder.
+ * cadence to speed / S keeps the planted foot still on the floor. Keep in step with the clip builder
+ * (it prints S for each gait).
  */
-const STRIDE: Record<(typeof GAITS)[number], number> = { run: 2.93, sprint: 3.4, dash: 3.9 };
+export const STRIDE: Record<(typeof GAITS)[number], number> = { run: 2.8, sprint: 3.911, dash: 4.842 };
+
+/** Blend weights of the gait clips for a (continuous) run tier. */
+export function gaitMix(drive: number): Record<(typeof GAITS)[number], number> {
+  const dash = smoothstep(2.2, 3.6, drive);
+  const run = 1 - smoothstep(0.5, 2.0, drive);
+  return { run, sprint: Math.max(0, 1 - run - dash), dash };
+}
+
+/** Turnover ceiling (stride cycles per second): an elite sprinter's ~5 steps/s, a touch more all-out. */
+export function cadenceCap(drive: number): number {
+  return 2.45 + 0.1 * drive;
+}
+
+/**
+ * Stride cycles per second for a speed and run tier: speed over the blended stride length, so the planted
+ * foot keeps pace with the floor. The strides are sized so this never reaches the cap at the speeds the
+ * game runs at (tests/choreo.test.ts); the clamp only guards the extremes.
+ */
+export function gaitCadence(speed: number, drive: number): number {
+  const m = gaitMix(drive);
+  const stride = STRIDE.run * m.run + STRIDE.sprint * m.sprint + STRIDE.dash * m.dash;
+  return Math.min(Math.max(speed / stride, 1.1), cadenceCap(drive));
+}
 const IDLES = ['idle', 'idle_b', 'idle_c'] as const;
 const ONE_SHOT = new Set<string>(['start', 'fall_start', 'fall_chasm', 'fall_chasm_b', 'fall_gate', 'fall_gate_b', 'fall_rock', 'fall_rock_b', 'win', 'win_cheer', 'win_salute', 'win_leap']);
 /** Foot plants inside one-shot clips (seconds, foot, strength 0..1). Skids read heavier. */
@@ -53,10 +77,47 @@ const EVENTS: Record<string, [number, Foot, number][]> = {
 /** Spring-driven cloth bones (three strips the dots from the Blender names). */
 const CLOTH = ['hemF', 'hemL', 'hemB', 'hemR', 'sleeveL', 'sleeveR'];
 
-const smoothstep = (a: number, b: number, x: number) => {
+function smoothstep(a: number, b: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
-};
+}
+
+/**
+ * The runner's material: full-detail sampling (trilinear + 8× anisotropy on the colour and normal maps,
+ * which the chase camera sees at a grazing angle), and a runner-only lift so he never reads as a
+ * silhouette against the sunlit causeway: a soft sky/ground fill (a hemisphere term: cool from above,
+ * warm bounce from below, scaled by the albedo so it shades rather than flattens) and a faint rim along
+ * the contour. The world's lights are untouched.
+ */
+export const RUNNER_FILL = 0.45;
+export const RUNNER_RIM = 0.4;
+function liftRunner(m: THREE.MeshStandardMaterial): void {
+  for (const t of [m.map, m.normalMap, m.roughnessMap]) {
+    if (!t) continue;
+    t.anisotropy = 8;
+    t.minFilter = THREE.LinearMipmapLinearFilter;
+    t.generateMipmaps = true;
+    t.needsUpdate = true;
+  }
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uRunnerFill = { value: RUNNER_FILL };
+    sh.uniforms.uRunnerRim = { value: RUNNER_RIM };
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uRunnerFill;\nuniform float uRunnerRim;')
+      .replace(
+        '#include <lights_fragment_end>',
+        `#include <lights_fragment_end>
+        {
+          vec3 nW = inverseTransformDirection(normal, viewMatrix);
+          vec3 hemi = mix(vec3(0.46, 0.36, 0.28), vec3(0.62, 0.68, 0.78), nW.y * 0.5 + 0.5);
+          float rim = pow(1.0 - saturate(dot(normal, normalize(vViewPosition))), 3.0);
+          reflectedLight.indirectDiffuse += diffuseColor.rgb * (hemi * uRunnerFill + vec3(1.0, 0.86, 0.68) * rim * uRunnerRim);
+        }`,
+      );
+  };
+  m.customProgramCacheKey = () => 'runner-lift';
+  m.needsUpdate = true;
+}
 
 /** A damped angular spring (one axis), driven by an external acceleration. */
 class Spring {
@@ -205,7 +266,10 @@ export class Runner {
           m.alphaTest = 0.45;
           m.depthWrite = true;
           m.side = THREE.DoubleSide;
-        } else if (m.name === 'M_runner') m.side = THREE.FrontSide;
+        } else if (m.name === 'M_runner') {
+          m.side = THREE.FrontSide;
+          liftRunner(m);
+        }
       }
     });
     this.root.add(this.body);
@@ -374,12 +438,8 @@ export class Runner {
     // near an elite sprinter's (~5 steps/s), a touch higher in the desperate dash.
     this.driveS += (this.drive - this.driveS) * (1 - Math.exp(-dt * 1.5));
     const d = this.driveS;
-    const hasDash = this.actions.has('dash');
-    const wDash = hasDash ? smoothstep(2.8, 3.9, d) : 0;
-    const wRun = 1 - smoothstep(0.5, 2.0, d);
-    const mix: Record<string, number> = { run: wRun, sprint: Math.max(0, 1 - wRun - wDash), dash: wDash };
-    const stride = STRIDE.run * mix.run! + STRIDE.sprint * mix.sprint! + STRIDE.dash * mix.dash!;
-    const cadence = THREE.MathUtils.clamp(speed / stride, 1.1, 2.4 + 0.06 * d);
+    const mix: Record<string, number> = gaitMix(this.actions.has('dash') ? d : Math.min(d, 2.2));
+    const cadence = gaitCadence(speed, this.actions.has('dash') ? d : Math.min(d, 2.2));
     this.cadence = cadence;
     const prevPhase = this.phase;
     if (this.current === 'run') this.phase = (this.phase + dt * cadence) % 1;
