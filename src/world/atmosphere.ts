@@ -30,7 +30,7 @@ export const ATMOSPHERE: AtmosphereOptions = {
   // warm gold looking into the light.
   color: 0x9db7bb,
   sunColor: 0xf6d6a0,
-  density: 0.0032,
+  density: 0.0027,
   falloff: 0.05,
   mistDensity: 0.022,
   mistHeight: 1.1,
@@ -119,7 +119,9 @@ export function installAtmosphere(scene: THREE.Scene, sunDir: THREE.Vector3, o: 
     float fogOpt = fogDensity * fogDist * exp(-${o.falloff.toFixed(4)} * fogH0) * fogLayer(${o.falloff.toFixed(4)}, fogDy);
     float fogFactor = 1.0 - exp(-fogOpt);
     float fogSun = max(dot(fogDir, fogSunDir), 0.0);
-    vec3 fogCol = mix(fogColor, ${glslVec3(sun)}, pow(fogSun, 8.0) * 0.6);
+    // Warm only close around the sun: a broad warm in-scatter laid a milky veil over every
+    // sun-facing frame (round 5).
+    vec3 fogCol = mix(fogColor, ${glslVec3(sun)}, pow(fogSun, 14.0) * 0.45);
     // Far away the haze thickens to the sky's own horizon colour.
     gl_FragColor.rgb = mix(gl_FragColor.rgb, fogCol, clamp(fogFactor, 0.0, 0.94));
     if (fogMist.y > 0.0) {
@@ -129,8 +131,8 @@ export function installAtmosphere(scene: THREE.Scene, sunDir: THREE.Vector3, o: 
       float mOpt = ${o.mistDensity.toFixed(4)} * fogMist.y * fogDist * exp(-mb * mh) * fogLayer(mb, fogDy);
       vec3 fogP = cameraPosition + fogW;
       float bank = 0.55 + 0.45 * sin(fogP.x * 0.07 + fogMist.x * 0.11) * sin(fogP.z * 0.05 - fogMist.x * 0.07 + 1.3);
-      float mist = (1.0 - exp(-mOpt * bank)) * 0.65;
-      vec3 mistCol = mix(vec3(0.86, 0.9, 0.88), ${glslVec3(sun)} * 1.1, pow(fogSun, 3.0) * 0.7);
+      float mist = (1.0 - exp(-mOpt * bank)) * 0.5;
+      vec3 mistCol = mix(vec3(0.84, 0.89, 0.87), ${glslVec3(sun)} * 1.05, pow(fogSun, 6.0) * 0.5);
       gl_FragColor.rgb = mix(gl_FragColor.rgb, mistCol, mist);
     }
   #else

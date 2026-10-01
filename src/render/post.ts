@@ -140,9 +140,9 @@ class SunShaftsEffect extends Effect {
         acc /= float(${samples});
         open /= float(${samples});
         float r = length(vec2((uv.x - sunPos.x) * aspectRatio, uv.y - sunPos.y));
-        float fall = exp(-r * 1.45);
+        float fall = exp(-r * 2.4);
         // In-scatter: warm haze in the light's path, gated by how much sky the pixel can see.
-        vec3 veil = tint * open * exp(-r * 3.0) * 0.04;
+        vec3 veil = tint * open * exp(-r * 4.0) * 0.02;
         outputColor = vec4(inputColor.rgb + (acc * tint * fall + veil) * strength, inputColor.a);
       }`,
       {
@@ -661,7 +661,7 @@ export class Post {
     if (this.shafts) {
       const u = this.shafts.uniforms;
       u.get('sunPos')!.value.set(x, y);
-      u.get('strength')!.value = behind ? 0 : 1.35 * Math.max(0, 1 - off * 1.6);
+      u.get('strength')!.value = behind ? 0 : 1.1 * Math.max(0, 1 - off * 1.6);
     }
     if (this.lens) {
       const u = this.lens.uniforms;
