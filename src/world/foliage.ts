@@ -58,6 +58,11 @@ export function upgradeLeafMaterial(m: THREE.Material): void {
         {
           float lv = leafN(vLeafW.xz * 0.11) * 0.65 + leafN(vLeafW.xz * 0.37 + 7.0) * 0.35;
           diffuseColor.rgb *= mix(vec3(0.7, 0.8, 0.72), vec3(0.95, 0.9, 0.66), lv);
+          // A leaf facing the sun takes the full low sun: pale texels (fern tips, young fronds) would
+          // burn out to white. A gamma on the albedo keeps the lights green and deepens the greens.
+          // The atlas is painted bright (it reads under Blender's soft sky); under a sun of 13 a fern
+          // facing it went to white. Bring it into the stone's albedo range.
+          diffuseColor.rgb = pow(diffuseColor.rgb, vec3(1.15)) * 0.8;
         }`,
       )
       .replace(
@@ -93,6 +98,14 @@ export function upgradeLeafMaterial(m: THREE.Material): void {
           diffuseColor.rgb *= mix(0.55, 1.0, smoothstep(-0.6, 0.5, toSun));
           #endif
         }`,
+      )
+      .replace(
+        '#include <lights_physical_fragment>',
+        `#include <lights_physical_fragment>
+        // Leaves are matte: horizontal fronds seen from a low camera sit at grazing angles, where
+        // Fresnel took the low sun to a white sheen that hid the leaf.
+        material.specularColor *= 0.12;
+        material.specularF90 *= 0.12;`,
       )
       .replace(
         '#include <emissivemap_fragment>',
