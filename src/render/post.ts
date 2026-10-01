@@ -380,6 +380,46 @@ class DepthAOEffect extends Effect {
   }
 }
 
+/**
+ * Contrast-adaptive sharpening (after AMD FidelityFX CAS, 5-tap cross). Restores the edge contrast
+ * a frame loses when it is drawn below the screen's pixel ratio and stretched by the browser; the
+ * per-pixel weight backs off where the neighbourhood already spans the full range, so it does not
+ * ring or amplify noise. Runs on HDR input, in a Reinhard-compressed domain. First in the final
+ * pass (it is its only convolution), so it costs four extra taps and no extra pass.
+ */
+class SharpenEffect extends Effect {
+  constructor() {
+    super(
+      'Sharpen',
+      /* glsl */ `
+      uniform float sharpness;
+      vec3 casIn(vec3 c) { return c / (1.0 + c); }
+      void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
+        if (sharpness < 0.001) { outputColor = inputColor; return; }
+        vec3 e = casIn(max(inputColor.rgb, 0.0));
+        vec3 b = casIn(max(texture2D(inputBuffer, uv + vec2(0.0, texelSize.y)).rgb, 0.0));
+        vec3 d = casIn(max(texture2D(inputBuffer, uv - vec2(texelSize.x, 0.0)).rgb, 0.0));
+        vec3 f = casIn(max(texture2D(inputBuffer, uv + vec2(texelSize.x, 0.0)).rgb, 0.0));
+        vec3 h = casIn(max(texture2D(inputBuffer, uv - vec2(0.0, texelSize.y)).rgb, 0.0));
+        vec3 mn = min(e, min(min(b, d), min(f, h)));
+        vec3 mx = max(e, max(max(b, d), max(f, h)));
+        vec3 amp = sqrt(clamp(min(mn, 1.0 - mx) / max(mx, 1e-4), 0.0, 1.0));
+        // Leave near-flat neighbourhoods alone: there the only contrast is dither (shaft and PCF
+        // jitter, grain), and sharpening it would print the noise pattern over the sky.
+        vec3 rng = mx - mn;
+        float edge = smoothstep(0.015, 0.05, max(rng.r, max(rng.g, rng.b)));
+        vec3 w = -amp * (0.2 * sharpness * edge);
+        vec3 r = clamp((e + (b + d + f + h) * w) / (1.0 + 4.0 * w), 0.0, 0.998);
+        outputColor = vec4(r / (1.0 - r), inputColor.a);
+      }`,
+      {
+        attributes: EffectAttribute.CONVOLUTION,
+        uniforms: new Map<string, THREE.Uniform>([['sharpness', new THREE.Uniform(0)]]),
+      },
+    );
+  }
+}
+
 /** Mood: warmth, contrast, danger heat, the cold of a fall and the gold of an escape. */
 class GradeEffect extends Effect {
   constructor() {
@@ -410,7 +450,13 @@ class GradeEffect extends Effect {
         vec3 k = clamp(c, 0.0, 1.0);
         vec3 s = k * k * (3.0 - 2.0 * k);
         c = mix(c, mix(k, s, 0.22), step(c, vec3(1.0)));
-        c = (c - 0.5) * (contrast + danger * 0.06 + cold * 0.1) + 0.5;
+        // Contrast about mid grey with a soft toe. A straight (c - 0.5) * k + 0.5 in this linear
+        // space clipped everything under ~0.04 (sRGB ~0.2) to pure black: backlit jungle and cliffs
+        // against the sun became flat black holes in the sky, and deep shade lost all detail.
+        // Here the offset fades in with c, so the curve is the same above ~0.3 and reaches 0 only at 0.
+        float kc = contrast + danger * 0.06 + cold * 0.1;
+        c = max(c, 0.0);
+        c = c * kc - (kc - 1.0) * 0.5 * (c / (c + 0.15));
         c *= tint;
         // Danger: embers in the highlights, a clamp in the shadows.
         c = mix(c, c * vec3(1.1, 0.95, 0.86), danger * 0.4);
@@ -463,7 +509,10 @@ export const EXPOSURE = 1.14;
 export class Post {
   readonly composer: EffectComposer;
   private blur: MotionBlurEffect | null = null;
+  private blurPass: EffectPass | null = null;
   private cameraBlur = false;
+  private sharpen = new SharpenEffect();
+  private sharpenBase = 0;
   private shafts: SunShaftsEffect | null = null;
   private lens: LensEffect | null = null;
   private ssr: WaterReflectEffect | null = null;
@@ -502,15 +551,19 @@ export class Post {
     if (lightFx.length) this.composer.addPass(new EffectPass(this.camera, ...lightFx));
     this.cameraBlur = q.motionBlur === 'camera';
     this.blur = q.speedBlur ? new MotionBlurEffect(q.blurSamples, this.cameraBlur) : null;
-    if (this.blur) this.composer.addPass(new EffectPass(this.camera, this.blur));
+    this.blurPass = this.blur ? new EffectPass(this.camera, this.blur) : null;
+    if (this.blurPass) this.composer.addPass(this.blurPass);
     this.hasPrev = false;
-    this.bloom = q.bloom ? new BloomEffect({ mipmapBlur: true, luminanceThreshold: 1.0, luminanceSmoothing: 0.25, intensity: 0.75, radius: 0.62 }) : null;
+    this.sharpenBase = q.sharpen;
+    // Bloom: a tighter radius and a slightly higher knee, so the sky does not haze over every
+    // silhouette (a soft halo around all edges against the sky reads as a blurred frame).
+    this.bloom = q.bloom ? new BloomEffect({ mipmapBlur: true, luminanceThreshold: 1.1, luminanceSmoothing: 0.25, intensity: 0.75, radius: 0.5 }) : null;
     this.lens = new LensEffect(q.lensFlare);
     this.flareOn = q.lensFlare;
     const tone = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
     const grain = new NoiseEffect({ premultiply: true, blendFunction: BlendFunction.SCREEN });
     grain.blendMode.opacity.value = 0.035;
-    const effects: Effect[] = [this.lens];
+    const effects: Effect[] = [this.sharpen, this.lens];
     if (this.bloom) effects.push(this.bloom);
     effects.push(tone, this.grade, this.vignette, grain);
     this.composer.addPass(new EffectPass(this.camera, ...effects));
@@ -519,6 +572,9 @@ export class Post {
 
   setSize(w: number, h: number): void {
     this.composer.setSize(w, h);
+    // Sharpen harder the more the browser will stretch this frame (screen px per drawn px).
+    const up = (globalThis.devicePixelRatio || 1) / Math.max(0.25, this.renderer.getPixelRatio());
+    this.sharpen.uniforms.get('sharpness')!.value = Math.min(1, this.sharpenBase + 0.35 * Math.min(1.5, Math.max(0, up - 1)));
     for (const e of [this.blur, this.shafts, this.lens]) if (e) e.uniforms.get('aspectRatio')!.value = w / h;
   }
 
@@ -528,25 +584,31 @@ export class Post {
     this.vp.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
     if (!this.hasPrev) this.prevVP.copy(this.vp);
     this.invVP.copy(this.vp).invert();
-    if (this.blur) {
+    if (this.blur && this.blurPass) {
       const u = this.blur.uniforms;
       const motion = p.motion ?? 1;
+      // Clarity: blur is a speed accent for the top of the run only. `speed` is ~0.3 at 2× and
+      // ~0.57 at 7×, so the rush is exactly 0 through 1–7× (the pass is skipped outright), eases in
+      // from ~8× and peaks past 30×. It never runs in the setup or cinematic shots. Portrait screens
+      // put the walls right at the frame edges, so they get half of it.
+      const x = Math.min(1, Math.max(0, (p.speed - 0.6) / 0.3));
+      const rush = x * x * (3 - 2 * x) * motion;
+      const portrait = cam.aspect < 1 ? 0.5 : 1;
+      this.blurPass.enabled = rush > 0.002;
       u.get('protectPos')!.value.copy(p.runnerScreen);
       if (p.runnerSize) u.get('protectSize')!.value.copy(p.runnerSize);
-      u.get('fringe')!.value = 0.02 + p.speed * 0.05;
+      u.get('fringe')!.value = 0.02 + rush * 0.04;
       if (this.cameraBlur) {
-        // Shutter in seconds: a film-like 1/60 s at a jog, opening to ~1/16 s at full tilt.
-        // Portrait screens bring the walls closer to the lens, so they get a shorter shutter.
-        const portrait = cam.aspect < 1 ? 0.75 : 1;
-        const shutter = (0.016 + 0.045 * p.speed) * motion * portrait;
+        // Shutter in seconds: up to ~1/40 s at full tilt (was 1/60 s even standing still).
+        const shutter = 0.025 * rush * portrait;
         u.get('shutterScale')!.value = shutter / Math.max(1 / 240, p.dt ?? 1 / 60);
-        u.get('radial')!.value = p.speed * 0.05;
-        u.get('maxLen')!.value = (0.05 + 0.08 * p.speed) * portrait;
+        u.get('radial')!.value = rush * 0.035 * portrait;
+        u.get('maxLen')!.value = (0.01 + 0.04 * rush) * portrait;
         u.get('invViewProj')!.value.copy(this.invVP);
         u.get('prevViewProj')!.value.copy(this.prevVP);
       } else {
-        u.get('radial')!.value = p.speed * 0.1;
-        u.get('maxLen')!.value = 0.12;
+        u.get('radial')!.value = rush * 0.05 * portrait;
+        u.get('maxLen')!.value = 0.04 * portrait;
       }
     }
     if (this.ssr) {

@@ -4,6 +4,7 @@ import { multiplierAtSmooth } from '../engine/curve';
 import { Rng, hashString } from '../engine/rng';
 import { loadKit, pickAssetSet, wind, type Kit } from '../world/assets';
 import { DynamicResolution, warmUp } from './perf';
+import { installShadowEdgeFade } from './shadows';
 import { installAtmosphere, patchFogUniforms, setAtmosphereMist, setAtmosphereSun } from '../world/atmosphere';
 import { Debris } from '../world/debris';
 import { forward } from '../world/path';
@@ -166,6 +167,9 @@ export class Game {
     // texels so edges do not crawl); depth bias small for the long range, normal bias kills acne.
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.06;
+    // Filter radius in texels (PCF: 5 rotated taps): a touch wider than 1 so edges are not stair-stepped.
+    this.sun.shadow.radius = 1.4;
+    installShadowEdgeFade();
     const sc = this.sun.shadow.camera;
     sc.near = 1;
     sc.far = 130; // casters within ~55 m sunward only: far scenery must not blanket the causeway in a low sun

@@ -248,9 +248,16 @@ export class CameraRig {
         break;
       }
       case 'setup': {
-        // On a tall screen with the dock up, pull back, rise and aim low so the whole runner stands
-        // above the dock.
-        fov = this.shot(runnerPos, mixFrame(F(-2.75, 0.5, 1.66, 7, 0.2, 1.2, 54), F(-3.0, 0.35, 1.9, 2.5, 0.1, 0.7, 54), this.compact));
+        // The whole runner stands in the band the interface leaves free (the view offset centres
+        // that band, see setInsets): stand back far enough that head to feet fill ~60 % of it,
+        // and aim at the hips.
+        const sfov = 52;
+        // The lens as update() will open it on a portrait screen (see `portrait` there).
+        const a = this.camera.aspect;
+        const lens = Math.min(96, sfov * (a < 1 ? Math.min(1.55, 1 + (1 - a) * 0.95) : 1));
+        const span = 0.6 * this.free * 2 * Math.tan((lens * Math.PI) / 360);
+        const back = Math.min(7.5, Math.max(2.75, 1.95 / span));
+        fov = this.shot(runnerPos, F(-back, 0.25 + 0.06 * back, 1.15 + 0.12 * back, 0.6, 0.1, 0.92, sfov));
         break;
       }
       case 'lead': {
@@ -574,7 +581,10 @@ export class CameraRig {
   /** Compose for the part of the screen the interface leaves free (px covered at top/bottom). */
   setInsets(top: number, bottom: number, heightPx: number): void {
     this.shiftTarget = Math.min(0.32, Math.max(-0.1, (bottom - top) / 2 / Math.max(1, heightPx)));
+    this.free = Math.min(1, Math.max(0.3, 1 - (Math.max(0, top) + Math.max(0, bottom)) / Math.max(1, heightPx)));
   }
+  /** Fraction of the screen height the interface leaves free (1 with no insets). */
+  private free = 1;
 
   private applyShift(dt: number) {
     this.shift += (this.shiftTarget - this.shift) * (1 - Math.exp(-dt * 3));
