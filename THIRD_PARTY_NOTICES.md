@@ -5,4 +5,4 @@ CAUSEWAY ships no third-party art. Every mesh, texture and animation in
 runner's source mesh and textures, which were supplied by the project owner —
 see `blender/sources/runner/PROVENANCE.md`.
 
-Fonts: Archivo (SIL Open Font License 1.1), via `@fontsource-variable/archivo`.
+Fonts, all under the SIL Open Font License 1.1 and bundled from npm: Bungee (`@fontsource/bungee`), Marcellus SC (`@fontsource/marcellus-sc`) and Space Grotesk (`@fontsource-variable/space-grotesk`). Interface frame art in `public/ui/` is rendered by `blender/build_ui.py`.

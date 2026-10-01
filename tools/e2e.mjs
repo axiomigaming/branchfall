@@ -1,5 +1,5 @@
 // End-to-end: plays the real app in headless Chromium and checks money and state.
-//   URL=http://localhost:5180 node tools/e2e.mjs [viewport…]      (viewports: desktop, full-hd, laptop, mobile)
+//   URL=http://localhost:5180 node tools/e2e.mjs [viewport…]      (viewports: desktop, full-hd, laptop, hd, mobile, mobile-small)
 import { mkdirSync } from 'node:fs';
 import { chromium } from 'playwright-core';
 
@@ -10,6 +10,8 @@ const VIEWPORTS = {
   'full-hd': { width: 1920, height: 1080 },
   laptop: { width: 1366, height: 768 },
   mobile: { width: 390, height: 844, isMobile: true, hasTouch: true },
+  'mobile-small': { width: 360, height: 740, isMobile: true, hasTouch: true },
+  hd: { width: 1280, height: 720 },
 };
 const pick = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(VIEWPORTS);
 mkdirSync(OUT, { recursive: true });

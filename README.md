@@ -5,7 +5,7 @@
   <img src="docs/screenshots/run-arch.jpg" alt="A cliff gorge with waterfalls, the golden face gate at the vanishing point" width="49%">
 </p>
 <p align="center">
-  <img src="docs/screenshots/title.jpg" alt="Mid-run with the amber CASH OUT slab" width="49%">
+  <img src="docs/screenshots/title.jpg" alt="Mid-run with the carved-stone CASH OUT plate" width="49%">
   <img src="docs/screenshots/crash-gate.jpg" alt="An escape: the runner celebrates among the ruined columns" width="49%">
 </p>
 <p align="center">

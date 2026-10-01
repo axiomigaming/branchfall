@@ -21,7 +21,7 @@ function Sheet({ title, eyebrow, children, wide, onClose }: { title: string; eye
         <div className="sheet-head">
           <div>
             <div className="eyebrow">{eyebrow}</div>
-            <h2>{title}</h2>
+            <h2 className="gold">{title}</h2>
           </div>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
             <IconClose />

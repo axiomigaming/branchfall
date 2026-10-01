@@ -1,5 +1,9 @@
-// Archivo on its width and weight axes: the whole type system is this one family.
-import '@fontsource-variable/archivo/wdth.css';
+// Three families: Bungee for the gold block lettering on the plates and titles, Marcellus SC
+// for carved small-caps captions, Space Grotesk (variable weight, tabular figures) for the
+// interface and every amount of money.
+import '@fontsource/bungee/latin-400.css';
+import '@fontsource/marcellus-sc/latin-400.css';
+import '@fontsource-variable/space-grotesk/wght.css';
 import './ui/styles.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';

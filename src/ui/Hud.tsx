@@ -123,7 +123,7 @@ export function Hud() {
   return (
     <div className={`hud ${phase}`} aria-live="off">
       <div className="hud-slot">
-        {phase === 'lead' ? <span className="getready">Get ready</span> : <span className="flare" ref={flareRef} aria-hidden="true" />}
+        {phase === 'lead' ? <span className="getready">Get ready</span> : <span className="flare gold" ref={flareRef} aria-hidden="true" />}
       </div>
       <div className="mult-wrap">
         <div className="ring" ref={ringRef} aria-hidden="true" />
@@ -173,7 +173,9 @@ export function ResultPlate() {
   return (
     <div className="result lost" role="status" key={r.id} data-grade={tierOf(r.crash)}>
       <div className="hud-slot">
-        <span className="eyebrow">The way fell</span>
+        <span className="stamp fell">
+          <b className="gold">The way fell</b>
+        </span>
       </div>
       <div className="big num crack" aria-label={m} style={{ '--chars': m.length } as CSSProperties}>
         <span className="half a" aria-hidden="true">
@@ -228,7 +230,7 @@ function WonPlate({ stake, payout, mult, auto, verify }: { stake: number; payout
         Escaped at {formatMult(mult)}×. Paid {formatCredits(payout)}, profit {formatCredits(profit)}.
       </span>
       <div className="hud-slot" aria-hidden="true">
-        <span className="stamp">Escaped</span>
+        <span className="stamp"><b className="gold">Escaped</b></span>
         {auto && <span className="stamp-note">auto cash-out</span>}
       </div>
       <div className="big num" aria-hidden="true" style={{ '--chars': formatCredits(payout).length + 1 } as CSSProperties}>
@@ -239,7 +241,7 @@ function WonPlate({ stake, payout, mult, auto, verify }: { stake: number; payout
         </span>
       </div>
       <div className="line" aria-hidden="true">
-        at <b className="num gold">{formatMult(mult)}×</b>
+        at <b className="num hot">{formatMult(mult)}×</b>
         <i className="dot">·</i>
         stake <b className="num">{formatCredits(stake)}</b>
         <i className="dot">·</i>
