@@ -187,6 +187,137 @@ def repair(mesh, J):
     print("  weight repair:", fixed, flush=True)
 
 
+ARM = ("upper_arm.", "forearm.", "hand.", "fingers.")
+
+
+def gear(mesh, J, leather):
+    """The leather kit the source wears is part of its shell: the cross-harness, the two pouches under
+    the arms and the thigh holster. Bone heat hands their outer edges to the nearest bone (the upper arm,
+    for the under-arm pouches), so they swung out behind the shoulder blade with every arm swing. Here
+    they are strapped to the body: the harness and pouches ride the ribcage (spine to chest by height;
+    the straps over the trapezius keep a little of the clavicle), the holster rides the pelvis with at
+    most a third of the thigh. The cloth round each piece blends into its weights over two rings of
+    vertices, so nothing tears or pops at the seam."""
+    import bmesh
+    co = [v.co.copy() for v in mesh.data.vertices]
+    sp, ch = J["spine"].z, J["chest"].z
+    W = _weights(mesh)
+    bm = bmesh.new()
+    bm.from_mesh(mesh.data)
+    bm.verts.ensure_lookup_table()
+
+    def arm_dist(c, s):
+        sh, el, wr = J[f"shoulder.{s}"], J[f"elbow.{s}"], J[f"wrist.{s}"]
+        out = 9.0
+        for a_, b_ in ((sh, el), (el, wr)):
+            t = max(0.0, min(1.0, _seg_t(c, a_, b_)))
+            out = min(out, (c - (a_ + (b_ - a_) * t)).length)
+        return out
+    # Leather pieces are connected patches of leather-coloured vertices. A patch is kit when it sits on
+    # the body, not on an arm: shadowed sleeve folds and sun-browned forearms are patches too, centred on
+    # the arm's axis.
+    seen = set()
+    pieces = set()
+    for i0 in range(len(co)):
+        if i0 in seen or not leather[i0]:
+            continue
+        comp, st = [], [i0]
+        seen.add(i0)
+        while st:
+            i = st.pop()
+            comp.append(i)
+            for e in bm.verts[i].link_edges:
+                j = e.other_vert(bm.verts[i]).index
+                if j not in seen and leather[j]:
+                    seen.add(j)
+                    st.append(j)
+        cen = sum((co[i] for i in comp), Vector()) / len(comp)
+        s = "L" if cen.x > 0 else "R"
+        if len(comp) < 4 or abs(cen.x) > 0.3:
+            continue
+        if cen.z > 1.0 and (arm_dist(cen, s) < 0.075 or (abs(cen.x) < 0.08 and cen.z > 1.36)):
+            continue
+        if not (0.68 < cen.z < J[f"shoulder.{s}"].z + 0.14):
+            continue
+        pieces.update(comp)
+    # Under the arms (the pouches, the harness's side straps, the shirt's flanks): anything outside the
+    # arm's own surface sheds its arm weights into the ribcage. The arm's surface is measured on its outer
+    # half, which nothing else touches: per slab along the upper arm and forearm, the radius of the outer
+    # half; a vertex further from the axis than that (on the body side) is not arm. Feathered over 2.5 cm.
+    prof = {}
+    for s_ in "LR":
+        sx = 1 if s_ == "L" else -1
+        for seg, (a_, b_) in enumerate(((J[f"shoulder.{s_}"], J[f"elbow.{s_}"]), (J[f"elbow.{s_}"], J[f"wrist.{s_}"]))):
+            d = b_ - a_
+            lat = Vector((sx, 0, 0))
+            lat = (lat - d.normalized() * lat.dot(d.normalized())).normalized()
+            radii = [[] for _ in range(20)]
+            for c in co:
+                if c.x * sx < 0.1:
+                    continue
+                t = _seg_t(c, a_, b_)
+                if not (0.0 <= t < 1.0):
+                    continue
+                pp = c - (a_ + d * t)
+                if pp.length < 0.16 and pp.normalized().dot(lat) > 0.3:
+                    radii[int(t * 20)].append(pp.length)
+            prof[(s_, seg)] = [float(np.percentile(r, 95)) if len(r) >= 3 else 0.07 for r in radii]
+
+    def outside(c, s_):
+        """How far outside the arm's surface (m); negative inside."""
+        best = 9.0
+        for seg, (a_, b_) in enumerate(((J[f"shoulder.{s_}"], J[f"elbow.{s_}"]), (J[f"elbow.{s_}"], J[f"wrist.{s_}"]))):
+            t = _seg_t(c, a_, b_)
+            tt = max(0.0, min(0.999, t))
+            r = (c - (a_ + (b_ - a_) * tt)).length
+            best = min(best, r - prof[(s_, seg)][int(tt * 20)])
+        return best
+    flank = 0
+    for i, c in enumerate(co):
+        s = "L" if c.x > 0 else "R"
+        if not (1.0 < c.z < J[f"shoulder.{s}"].z - 0.05) or abs(c.x) > 0.34:
+            continue
+        f = smooth((outside(c, s) - 0.008) / 0.025)
+        w = W[i]
+        armw = sum(x for n, x in w.items() if n.startswith(ARM))
+        if f <= 0 or armw <= 1e-4:
+            continue
+        k = smooth((c.z - sp) / (ch - sp))
+        lost = armw * f
+        for n in list(w):
+            if n.startswith(ARM):
+                w[n] *= 1 - f
+        w["spine"] = w.get("spine", 0.0) + lost * (1 - k)
+        w["chest"] = w.get("chest", 0.0) + lost * k
+        flank += 1
+    # The thigh holster rides the pelvis with at most a third of the thigh.
+    pieces = {i for i in pieces if co[i].z < 1.0}
+    for i in pieces:
+        s = "L" if co[i].x > 0 else "R"
+        th = min(0.33, W[i].get(f"thigh.{s}", 0.0))
+        W[i] = {"hips": 1 - th, f"thigh.{s}": th}
+    done = set(pieces)
+    front = set(pieces)
+    for k in (2 / 3, 1 / 3):
+        ring = {e.other_vert(bm.verts[i]).index for i in front for e in bm.verts[i].link_edges} - done
+        for j in ring:
+            nb = [e.other_vert(bm.verts[j]).index for e in bm.verts[j].link_edges]
+            src = [W[n] for n in nb if n in front]
+            avg = {}
+            for w in src:
+                for n, x in w.items():
+                    avg[n] = avg.get(n, 0.0) + x / len(src)
+            out = {n: x * (1 - k) for n, x in W[j].items()}
+            for n, x in avg.items():
+                out[n] = out.get(n, 0.0) + x * k
+            W[j] = out
+        done |= ring
+        front = ring
+    bm.free()
+    _write(mesh, W)
+    print(f"  under-arm kit and flanks off the arm bones: {flank} verts; holster to the pelvis: {len(pieces)} (+{len(done) - len(pieces)} feathered)", flush=True)
+
+
 def finish(mesh, rig):
     with bpy.context.temp_override(object=mesh, active_object=mesh, selected_objects=[mesh], selected_editable_objects=[mesh]):
         bpy.ops.object.vertex_group_clean(group_select_mode="ALL", limit=0.01)
