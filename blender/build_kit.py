@@ -288,12 +288,15 @@ for key, (mat, size) in mats.items():
         log(f"reuse {key} ({len(objs)} objects)")
         reuse_group(objs, key)
         continue
-    digest = group_hash(objs, key, size // Q)
+    # KIT_BAKE_CAP: bake no larger than this (the UVs keep the full size's packing). The shipped sets
+    # are capped at 2048 px by assets:optimize, so a 2048 bake ships the same texels in a quarter of the time.
+    bake_size = min(size // Q, int(os.environ.get("KIT_BAKE_CAP", "0")) or size // Q)
+    digest = group_hash(objs, key, bake_size)
     if cached_group(objs, key, digest):
         log(f"cached {key} ({len(objs)} objects)")
         continue
-    log(f"bake {key} ({len(objs)} objects, {size // Q}px)")
-    bake_group(objs, mat, key, size // Q, ao_samples=6 if FAST else 20, ao_strength=0.6 if key != "rock" else 0.7)
+    log(f"bake {key} ({len(objs)} objects, {bake_size}px)")
+    bake_group(objs, mat, key, bake_size, ao_samples=6 if FAST else 20, ao_strength=0.6 if key != "rock" else 0.7)
     cache_group(key, digest)
     log(f"cached {key} for reruns")
 
