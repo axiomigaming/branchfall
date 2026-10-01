@@ -242,9 +242,7 @@ def group_hash(objs, key, size):
         co = np.zeros(len(me.vertices) * 3, np.float32)
         me.vertices.foreach_get("co", co)
         h.update(np.round(co, 4).tobytes())
-        uv = np.zeros(len(me.loops) * 2, np.float32)
-        me.uv_layers.active.data.foreach_get("uv", uv)
-        h.update(np.round(uv, 5).tobytes())
+        h.update(np.array([len(me.loops), len(me.polygons)], np.int64).tobytes())
         for ca in me.color_attributes:
             c = np.zeros(len(ca.data) * 4, np.float32)
             ca.data.foreach_get("color", c)
@@ -252,14 +250,37 @@ def group_hash(objs, key, size):
     return h.hexdigest()
 
 
+def _uv_file(key):
+    return os.path.join(CACHE, f"bake_{key}", "uvs.npz")
+
+
+def save_uvs(objs, key):
+    import numpy as np
+    arrs = {}
+    for o in objs:
+        uv = np.zeros(len(o.data.loops) * 2, np.float32)
+        o.data.uv_layers.active.data.foreach_get("uv", uv)
+        arrs[o.name] = uv
+    np.savez(_uv_file(key), **arrs)
+
+
 def cached_group(objs, key, digest):
+    """The packing is not bit-identical from run to run: the hash covers the meshes, and a hit puts
+    back the very UVs the cached atlas was baked with."""
+    import numpy as np
     d = os.path.join(CACHE, f"bake_{key}")
     try:
         with open(os.path.join(d, "hash.json")) as f:
             if json.load(f)["hash"] != digest:
                 return False
+        uvs = np.load(_uv_file(key))
+        for o in objs:
+            if len(uvs[o.name]) != len(o.data.loops) * 2:
+                return False
     except (OSError, ValueError, KeyError):
         return False
+    for o in objs:
+        o.data.uv_layers.active.data.foreach_set("uv", uvs[o.name])
     global REUSE
     keep = REUSE
     REUSE = d
@@ -273,6 +294,7 @@ def cache_group(key, digest):
     os.makedirs(d, exist_ok=True)
     for k in ("color", "normal", "orm"):
         shutil.copyfile(os.path.join(CACHE, f"{key}_{k}.png"), os.path.join(d, f"{key}_{k}.png"))
+    save_uvs(groups[key], key)
     with open(os.path.join(d, "hash.json"), "w") as f:
         json.dump({"hash": digest}, f)
 
