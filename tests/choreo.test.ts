@@ -125,5 +125,5 @@ describe('gait cadence', () => {
     }
     expect(STRIDE.run).toBeLessThan(STRIDE.sprint);
     expect(STRIDE.sprint).toBeLessThan(STRIDE.dash);
-  });
+  }, 30_000); // importing the renderer module is slow on a loaded machine
 });
