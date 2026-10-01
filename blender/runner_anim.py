@@ -216,14 +216,14 @@ SPRINT = dict(
     af=[(0.0, -0.2), (0.4, -0.05), (0.55, -0.08), (1.0, -1.12)],
     swing=[(0.15, -0.4, 1.28, 0.55), (0.38, 0.2, 2.3, 0.1), (0.64, 1.12, 1.75, -0.2), (0.84, 0.92, 0.78, -0.12)],
     hp=0.15, lean=0.1, hyaw=0.16, hroll=0.06, chest=0.75, head_down=0.08,
-    arm_c=0.15, arm_a=1.0, elbow=1.5, elbow_a=0.32, out=0.15, curl=0.5, peak=0.74, frames=48,
+    arm_c=0.15, arm_a=1.0, elbow=1.45, elbow_a=0.45, out=0.15, curl=0.5, peak=0.74, frames=48,
 )
 # The desperate all-out run of the top tiers: longer reach, higher knees, a harder pump, a deeper lean.
 DASH = dict(SPRINT, ts=0.19, D=0.92, xtd=0.21, knee=(0.42, 0.78, 0.18), v=12.6,
             af=[(0.0, -0.26), (0.4, -0.08), (0.55, -0.1), (1.0, -1.18)],
             swing=[(0.15, -0.42, 1.38, 0.55), (0.37, 0.24, 2.42, 0.1), (0.63, 1.26, 1.85, -0.22), (0.83, 1.02, 0.84, -0.12)],
             hp=0.18, lean=0.14, hyaw=0.19, hroll=0.07, chest=0.8, head_down=0.05,
-            arm_c=0.18, arm_a=1.18, elbow=1.46, elbow_a=0.4, out=0.17, curl=0.55, peak=0.73)
+            arm_c=0.18, arm_a=1.18, elbow=1.42, elbow_a=0.5, out=0.17, curl=0.55, peak=0.73)
 
 
 def _rot(y, z, a):
@@ -425,7 +425,7 @@ def _gait(ph, G, k=1.0):
         wide = 0.0 if m == "R" else 0.02            # … the left rides a touch wider
         fwd = (G["arm_c"] + G["arm_a"] * a * asym) * k + 0.05 * (1 - k)
         arm(P, m, fwd=fwd, elbow=(G["elbow"] + G["elbow_a"] * lag) * (0.55 + 0.45 * k),
-            out=G["out"] + wide - 0.07 * a * k, wrist=0.08 + 0.12 * flop * k, twist=0.14 * a * k,
+            out=G["out"] + wide - 0.06 * k + 0.03 * a * k, wrist=0.08 + 0.12 * flop * k, twist=0.08 * a * k,
             curl=G["curl"] + 0.1 * lag * k, prot=0.1 * a * k, shrug=0.04 * max(0.0, a) * k)
     # Trunk: a steady forward lean with a small flex as each stance loads, the chest counter-rotating
     # against the pelvis; the head keeps its gaze level through all of it.

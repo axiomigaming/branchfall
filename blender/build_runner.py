@@ -60,6 +60,8 @@ def build_model():
     rig["sole"] = [J["heel.L"].y - J["ankle.L"].y, J["toe.L"].y - J["ankle.L"].y, J["tip.L"].y - J["ankle.L"].y, J["ankle.L"].z]
     R.heat_skin(rig, body)
     R.repair(body, J)
+    hue, sat, val = CP.vertex_hsv(body, tex["color"])
+    R.gear(body, J, (hue < 33) & (sat > 0.42) & (val < 0.72))
     R.bind(body, rig)
     R.repose(rig, body, J)
     # The sole as it now stands: the ankle's height above the lowest point of the boot (left).
