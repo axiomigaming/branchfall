@@ -11,9 +11,9 @@
       },
       "runner": {
         "file": "runner.high.glb",
-        "bytes": 599924,
-        "v": "16cd625bc6",
-        "src": "4f33988ca8"
+        "bytes": 604412,
+        "v": "3b380d9f54",
+        "src": "f4950f0029"
       }
     },
     "mobile": {
@@ -25,9 +25,9 @@
       },
       "runner": {
         "file": "runner.mobile.glb",
-        "bytes": 599924,
-        "v": "16cd625bc6",
-        "src": "8e34fdc984"
+        "bytes": 604412,
+        "v": "3b380d9f54",
+        "src": "34404df815"
       }
     }
   },
