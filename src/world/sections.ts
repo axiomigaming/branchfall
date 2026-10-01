@@ -233,7 +233,8 @@ function pathFall(b: Builder, side: number, z: number, top: number) {
     new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (-side * Math.PI) / 2),
     new THREE.Vector3(1, 1, 1),
   );
-  b.falls.push({ m: fm, w: b.rng.range(1.3, 2.0), h: top + 0.05, bow: 0.75, path: true });
+  // Bowed out far enough to land on the causeway's edge, so the spray and the wet stone are on the way.
+  b.falls.push({ m: fm, w: b.rng.range(2.2, 3.0), h: top + 0.05, bow: 1.25, path: true });
   spill(b, side, z + 2, top - 0.15, PATH_HALF + 0.12);
 }
 

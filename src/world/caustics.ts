@@ -70,7 +70,8 @@ float wetAt(vec3 p) {
 const FRAG_WET = /* glsl */ `
 float wetK = wetAt(vWetPos);
 diffuseColor.rgb *= mix(1.0, 0.66, wetK);
-roughnessFactor = mix(roughnessFactor, 0.2, wetK);`;
+// Wet faces shine; flat ones less (a mirror-flat wet slab would just show the sky's blue).
+roughnessFactor = mix(roughnessFactor, mix(0.22, 0.45, abs(vWetN.y)), wetK);`;
 
 const FRAG_CAUSTIC = /* glsl */ `
 {
