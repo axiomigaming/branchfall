@@ -29,9 +29,33 @@ const GAITS = ['run', 'sprint', 'dash'] as const;
 /**
  * Ground covered per stride cycle (m) while a foot is planted, per gait clip. The clips are solved in
  * blender/runner_anim.py so the stance foot slides back exactly D per stance (S = D / ts); setting the
- * cadence to speed / S keeps the planted foot still on the floor. Keep in step with the clip builder.
+ * cadence to speed / S keeps the planted foot still on the floor. Keep in step with the clip builder
+ * (it prints S for each gait).
  */
-const STRIDE: Record<(typeof GAITS)[number], number> = { run: 2.93, sprint: 3.4, dash: 3.9 };
+export const STRIDE: Record<(typeof GAITS)[number], number> = { run: 2.8, sprint: 3.911, dash: 4.842 };
+
+/** Blend weights of the gait clips for a (continuous) run tier. */
+export function gaitMix(drive: number): Record<(typeof GAITS)[number], number> {
+  const dash = smoothstep(2.2, 3.6, drive);
+  const run = 1 - smoothstep(0.5, 2.0, drive);
+  return { run, sprint: Math.max(0, 1 - run - dash), dash };
+}
+
+/** Turnover ceiling (stride cycles per second): an elite sprinter's ~5 steps/s, a touch more all-out. */
+export function cadenceCap(drive: number): number {
+  return 2.45 + 0.1 * drive;
+}
+
+/**
+ * Stride cycles per second for a speed and run tier: speed over the blended stride length, so the planted
+ * foot keeps pace with the floor. The strides are sized so this never reaches the cap at the speeds the
+ * game runs at (tests/choreo.test.ts); the clamp only guards the extremes.
+ */
+export function gaitCadence(speed: number, drive: number): number {
+  const m = gaitMix(drive);
+  const stride = STRIDE.run * m.run + STRIDE.sprint * m.sprint + STRIDE.dash * m.dash;
+  return Math.min(Math.max(speed / stride, 1.1), cadenceCap(drive));
+}
 const IDLES = ['idle', 'idle_b', 'idle_c'] as const;
 const ONE_SHOT = new Set<string>(['start', 'fall_start', 'fall_chasm', 'fall_chasm_b', 'fall_gate', 'fall_gate_b', 'fall_rock', 'fall_rock_b', 'win', 'win_cheer', 'win_salute', 'win_leap']);
 /** Foot plants inside one-shot clips (seconds, foot, strength 0..1). Skids read heavier. */
@@ -53,10 +77,10 @@ const EVENTS: Record<string, [number, Foot, number][]> = {
 /** Spring-driven cloth bones (three strips the dots from the Blender names). */
 const CLOTH = ['hemF', 'hemL', 'hemB', 'hemR', 'sleeveL', 'sleeveR'];
 
-const smoothstep = (a: number, b: number, x: number) => {
+function smoothstep(a: number, b: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
-};
+}
 
 /** A damped angular spring (one axis), driven by an external acceleration. */
 class Spring {
@@ -374,12 +398,8 @@ export class Runner {
     // near an elite sprinter's (~5 steps/s), a touch higher in the desperate dash.
     this.driveS += (this.drive - this.driveS) * (1 - Math.exp(-dt * 1.5));
     const d = this.driveS;
-    const hasDash = this.actions.has('dash');
-    const wDash = hasDash ? smoothstep(2.8, 3.9, d) : 0;
-    const wRun = 1 - smoothstep(0.5, 2.0, d);
-    const mix: Record<string, number> = { run: wRun, sprint: Math.max(0, 1 - wRun - wDash), dash: wDash };
-    const stride = STRIDE.run * mix.run! + STRIDE.sprint * mix.sprint! + STRIDE.dash * mix.dash!;
-    const cadence = THREE.MathUtils.clamp(speed / stride, 1.1, 2.4 + 0.06 * d);
+    const mix: Record<string, number> = gaitMix(this.actions.has('dash') ? d : Math.min(d, 2.2));
+    const cadence = gaitCadence(speed, this.actions.has('dash') ? d : Math.min(d, 2.2));
     this.cadence = cadence;
     const prevPhase = this.phase;
     if (this.current === 'run') this.phase = (this.phase + dt * cadence) % 1;
