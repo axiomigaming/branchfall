@@ -179,9 +179,11 @@ function Setup() {
           <div className="run-cell">
             {broke ? (
               <button className="btn btn-cta cta-sun run-btn" onClick={() => void ctl?.refill()} onMouseEnter={() => ctl?.audio.ui('hover')}>
-                <span className="btn-label">Refill</span>
-                <span className="sep" aria-hidden />
-                <small className="btn-sub">Demo credits</small>
+                <span className="btn-label gold">Refill</span>
+                <small className="btn-sub">
+                  <small>Demo</small>
+                  credits
+                </small>
               </button>
             ) : (
               <button
@@ -192,12 +194,28 @@ function Setup() {
                 aria-busy={busy}
                 aria-label={busy ? 'Placing your stake' : `${s.phase === 'result' ? 'Run again' : 'Run'} with a stake of ${formatCredits(s.stake)}`}
               >
-                {busy && <span className="spinner" aria-hidden />}
-                <span className="btn-label">{busy ? 'Placing' : s.phase === 'result' ? 'Run again' : 'Run'}</span>
-                <span className="sep" aria-hidden />
+                {busy ? (
+                  <span className="btn-label gold">
+                    <span className="spinner" aria-hidden />
+                    Placing
+                  </span>
+                ) : (
+                  <span className="btn-label">
+                    {/* RUN as three gold tiles; the button's aria-label carries the words */}
+                    <span className="tiles" aria-hidden>
+                      <i>R</i>
+                      <i>U</i>
+                      <i>N</i>
+                    </span>
+                    {s.phase === 'result' && <span className="again gold">again</span>}
+                  </span>
+                )}
                 <small className="btn-sub num">
-                  {formatCredits(s.stake)}
-                  <i>CR</i>
+                  <small>Stake</small>
+                  <span className="fig">
+                    {formatCredits(s.stake)}
+                    <i>CR</i>
+                  </span>
                 </small>
               </button>
             )}
@@ -226,10 +244,20 @@ function CashOut() {
     if (!ctl) return;
     let raf = 0;
     let lastHeat = -1;
+    let lastText = '';
     const tick = () => {
       raf = requestAnimationFrame(tick);
-      if (amtRef.current) amtRef.current.textContent = formatCredits(ctl.currentReturn());
-      // The plate's glow follows the multiplier, on the same curve as the HUD figure.
+      const el = amtRef.current;
+      if (el) {
+        const text = formatCredits(ctl.currentReturn());
+        if (text !== lastText) {
+          el.textContent = text;
+          // The figure steps down a size as it grows a digit, so it always fits the plate.
+          if (text.length !== lastText.length) el.dataset.len = String(text.length);
+          lastText = text;
+        }
+      }
+      // The stone's heat follows the multiplier, on the same curve as the HUD figure.
       const heat = heatOf(ctl.currentMult());
       if (btnRef.current && Math.abs(heat - lastHeat) > 0.004) {
         btnRef.current.style.setProperty('--heat', heat.toFixed(3));
@@ -255,12 +283,16 @@ function CashOut() {
         aria-disabled={lead}
         aria-label="Cash out"
       >
-        <span className="aura" aria-hidden />
+        {/* The stone heats: ember seams open in the panel as --heat climbs, the crest's ruby kindles. */}
+        <span className="heat hot" aria-hidden />
+        <span className="heat glow" aria-hidden />
+        <span className="crest" aria-hidden />
+        <span className="pendant" aria-hidden />
         <span className="label">
-          <span className="btn-label">{lead ? 'Get set' : phase === 'cashing' ? 'Securing' : 'Cash out'}</span>
+          <span className="btn-label gold">{lead ? 'Get set' : phase === 'cashing' ? 'Securing' : 'Cash out'}</span>
           <small>{lead ? 'The run starts in a moment' : phase === 'cashing' ? 'Taking the return' : 'Take the return now'}</small>
         </span>
-        <span className="amt num" ref={amtRef}>
+        <span className="amt num" ref={amtRef} data-len={formatCredits(live.stake).length}>
           {formatCredits(live.stake)}
         </span>
       </button>

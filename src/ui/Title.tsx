@@ -27,7 +27,7 @@ export function Title() {
       <section className={`title${leaving ? ' leaving' : ''}`} aria-labelledby="wordmark">
         <div className="title-inner">
           <div className="eyebrow">A crash game in the sunken ruins</div>
-          <h1 className="wordmark" id="wordmark">
+          <h1 className="wordmark gold" id="wordmark">
             Causeway
           </h1>
           <div className="rule" />
@@ -39,7 +39,8 @@ export function Title() {
           ) : ready ? (
             <div className="title-actions">
               <button className={`btn btn-cta cta-go enter-btn${leaving ? ' busy' : ''}`} onClick={enter} onMouseEnter={() => ctl?.audio.ui('hover')} autoFocus>
-                <span className="btn-label">Enter the ruins</span>
+                <span className="crest" aria-hidden />
+                <span className="btn-label gold">Enter the ruins</span>
               </button>
               <button
                 className="btn btn-ghost"

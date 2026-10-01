@@ -22,7 +22,9 @@
     "bench": "node tools/bench.mjs"
   },
   "dependencies": {
-    "@fontsource-variable/archivo": "^5.3.0",
+    "@fontsource-variable/space-grotesk": "^5.3.0",
+    "@fontsource/bungee": "^5.3.0",
+    "@fontsource/marcellus-sc": "^5.3.0",
     "@noble/hashes": "^2.4.0",
     "postprocessing": "^6.39.5",
     "react": "^19.3.0",
