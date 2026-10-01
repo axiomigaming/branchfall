@@ -202,13 +202,37 @@ groups["stoneB"] = [o for o in groups["stoneB"] if o not in glyph_objs]
 groups["glyph"] = glyph_objs + groups.pop("relief")
 mats["glyph"] = (M.stone("glyph", moss=0.35, glyphs=True), 2048)
 
+# KIT_REUSE=<dir> (with KIT_REUSE_GROUPS=a,b,…): for groups whose pieces and materials did not change,
+# lay out the UVs exactly as a full bake does (packing is deterministic) and take the atlases from a
+# previous full bake (tools/kit-atlases.mjs extracts them) instead of re-baking: hours on a shared CPU.
+REUSE = os.environ.get("KIT_REUSE")
+REUSE_GROUPS = set(filter(None, os.environ.get("KIT_REUSE_GROUPS", "").split(",")))
+
+
+def reuse_group(objs, key):
+    imgs = []
+    for k, cs in (("color", "sRGB"), ("normal", "Non-Color"), ("orm", "Non-Color")):
+        im = bpy.data.images.load(os.path.join(REUSE, f"{key}_{k}.png"))
+        im.colorspace_settings.name = cs
+        im.name = f"{key}_{k}"
+        imgs.append(im)
+    pbr = textured_material(key, *imgs)
+    for o in objs:
+        o.data.materials.clear()
+        o.data.materials.append(pbr)
+
+
 for key, (mat, size) in mats.items():
     objs = groups[key]
     if not objs:
         continue
-    log(f"uv + bake {key} ({len(objs)} objects, {size // Q}px)")
+    reuse = bool(REUSE) and key in REUSE_GROUPS and not FAST
+    log(f"uv + {'reuse' if reuse else 'bake'} {key} ({len(objs)} objects, {size // Q}px)")
     # Margins in texels of the shipped (optimized, halved) atlas stay at 3–4 px.
     ensure_uvs_packed_weighted(objs, size // Q, margin_px=max(2, (8 if size >= 4096 else 6 if size >= 2048 else 4) // Q))
+    if reuse:
+        reuse_group(objs, key)
+        continue
     bake_group(objs, mat, key, size // Q, ao_samples=6 if FAST else 20, ao_strength=0.6 if key != "rock" else 0.7)
 
 leaf_mat = textured_material("leaf", leaf_img, None, None, alpha=True)
@@ -228,5 +252,5 @@ for o in groups["jungle"]:
 for o in all_objs:
     o.location = (0, 0, 0)
 
-export_glb(os.path.join(OUT, "kit.glb"), all_objs, quality=82)
+export_glb(os.environ.get("KIT_OUT", os.path.join(OUT, "kit.glb")), all_objs, quality=82)
 log("done")
