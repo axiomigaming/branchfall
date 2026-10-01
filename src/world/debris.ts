@@ -118,7 +118,11 @@ export class Debris {
     const mat = this.matOf(piece, opts.mat);
     if (!geo || !mat) return null;
     while (this.bodies.length >= this.budget) {
-      const i = this.bodies.findIndex((b) => !b.heavy);
+      // Over budget: drop what nobody will miss first — a resting pebble, then a small fragment,
+      // then the oldest loose piece. Never the slab across the way.
+      let i = this.bodies.findIndex((b) => !b.heavy && b.rest);
+      if (i < 0) i = this.bodies.findIndex((b) => !b.heavy && b.lift > 0);
+      if (i < 0) i = this.bodies.findIndex((b) => !b.heavy);
       if (i < 0) break;
       this.remove(i);
     }
