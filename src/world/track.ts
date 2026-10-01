@@ -432,7 +432,27 @@ export class Track {
 function stageKit(kit: Kit): void {
   // Round 5: the jungle clumps come in on a material of their own so the loader keeps their authored
   // normals; they draw with (and merge into) the one leaf material.
-  for (const [name, key] of kit.matOf) if (key === 'leaf_jungle') kit.matOf.set(name, 'leaf');
+  // The optimizer quantizes UVs per material (KHR_texture_transform on each material's map), so
+  // the clumps' UVs are brought into the leaf material's frame before they share its draw call.
+  const lj = (kit.mat.get('leaf_jungle') as THREE.MeshStandardMaterial | undefined)?.map;
+  const lf = (kit.mat.get('leaf') as THREE.MeshStandardMaterial | undefined)?.map;
+  let uvFix: THREE.Matrix3 | null = null;
+  if (lj && lf) {
+    lj.updateMatrix();
+    lf.updateMatrix();
+    uvFix = new THREE.Matrix3().copy(lf.matrix).invert().multiply(lj.matrix);
+  }
+  for (const [name, key] of kit.matOf) {
+    if (key !== 'leaf_jungle') continue;
+    kit.matOf.set(name, 'leaf');
+    const g = kit.geo.get(name);
+    const uv = g?.getAttribute('uv') as THREE.BufferAttribute | undefined;
+    if (uv && uvFix && !g!.userData.uvFixed) {
+      g!.userData.uvFixed = true;
+      uv.applyMatrix3(uvFix);
+      uv.needsUpdate = true;
+    }
+  }
   const leaf = kit.mat.get('leaf');
   if (leaf) upgradeLeafMaterial(leaf);
   for (const key of ['stoneA', 'stoneB', 'floor', 'rock', 'cliff', 'statue', 'glyph', 'wood']) {
