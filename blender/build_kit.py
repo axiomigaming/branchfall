@@ -315,11 +315,13 @@ for key, (mat, size) in mats.items():
     # are capped at 2048 px by assets:optimize, so a 2048 bake ships the same texels in a quarter of the time.
     bake_size = min(size // Q, int(os.environ.get("KIT_BAKE_CAP", "0")) or size // Q)
     # Two faces on the same texels bake as one: refuse to bake a group whose packing overlaps.
-    over = overlap_texels(objs, 512)
+    # (Slivers where curved islands graze, well under 0.5 % of the coverage, are tolerated: the
+    # shipped glyph and cliff atlases have them; a shared island is far more.)
+    over, covered = overlap_texels(objs, 512)
     if over:
-        log(f"  {key}: {over} overlapping texels at 512 px")
-    if over > 200:
-        raise SystemExit(f"{key}: UV islands overlap ({over} texels at 512 px); fix the packing before baking")
+        log(f"  {key}: {over} of {covered} texels overlap at 512 px")
+    if over > 0.005 * covered:
+        raise SystemExit(f"{key}: UV islands overlap ({over} of {covered} texels at 512 px); fix the packing before baking")
     digest = group_hash(objs, key, bake_size)
     if cached_group(objs, key, digest):
         log(f"cached {key} ({len(objs)} objects)")

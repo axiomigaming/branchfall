@@ -36,7 +36,7 @@ def raster_count(tris, res):
 
 
 def overlap_texels(objs, res=512):
-    """Texels shared by two faces among Blender objects `objs` (their active UV layers)."""
+    """(texels shared by two faces, texels covered) among Blender objects `objs` (active UV layers)."""
     tris = []
     for o in objs:
         me = o.data
@@ -48,8 +48,9 @@ def overlap_texels(objs, res=512):
         me.loop_triangles.foreach_get("loops", lt)
         tris.append(uv[lt.reshape(-1, 3)])
     if not tris:
-        return 0
-    return int((raster_count(np.concatenate(tris), res) > 1).sum())
+        return 0, 0
+    c = raster_count(np.concatenate(tris), res)
+    return int((c > 1).sum()), int((c > 0).sum())
 
 
 def _glb(fn):
