@@ -29,10 +29,16 @@ export class Fx {
   private rimTarget = 0;
   private rimColor = new THREE.Color(1.0, 0.66, 0.3);
   private sunView = new THREE.Vector3();
+  private eye = new THREE.Vector3();
 
   constructor() {
     this.root.name = 'fx';
     this.root.add(this.cracks.mesh, this.rings.mesh, this.billows.mesh, this.flock.mesh, this.beams.mesh, this.sparkles.points, this.glory.mesh, this.pool.mesh, this.bars.mesh);
+    // Nothing here is solid: none of it may cast (or take) a shadow.
+    this.root.traverse((o) => {
+      o.castShadow = false;
+      o.receiveShadow = false;
+    });
   }
 
   /** Patch the runner's materials for the escape rim (before programs compile). */
@@ -65,7 +71,7 @@ export class Fx {
     this.billows.update(dt, cam, sunDir);
     this.rings.update(dt);
     this.cracks.update(dt);
-    this.flock.update(dt);
+    this.flock.update(dt, this.eye.setFromMatrixPosition(cam.matrixWorld));
     this.beams.update(rawDt, time);
     if (this.rim) {
       this.rimLevel += (this.rimTarget - this.rimLevel) * (1 - Math.exp(-rawDt * 2.5));
