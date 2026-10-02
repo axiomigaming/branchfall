@@ -513,7 +513,8 @@ export class Runner {
     const drivePhase = this.current === 'run' || this.current === 'start' ? THREE.MathUtils.clamp(this.accel * 0.022, -0.05, 0.16) : 0;
     const lean = this.lean + drivePhase + THREE.MathUtils.clamp(this.slope, -0.5, 0.5) * 0.35;
     this.body.rotation.z = THREE.MathUtils.lerp(this.body.rotation.z, this.roll, 1 - Math.exp(-dt * 6));
-    this.body.rotation.x = THREE.MathUtils.lerp(this.body.rotation.x, lean, 1 - Math.exp(-dt * 4));
+    // The body faces −Z: a forward pitch is a negative rotation about X (positive tipped him back).
+    this.body.rotation.x = THREE.MathUtils.lerp(this.body.rotation.x, -lean, 1 - Math.exp(-dt * 4));
 
     // Exertion builds with running (faster in the high tiers) and recovers slowly at rest.
     if (this.current === 'run' || this.current === 'start') this.exertion = Math.min(1, this.exertion + dt * (0.03 + 0.012 * speed));
