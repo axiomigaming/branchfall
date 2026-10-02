@@ -15,8 +15,10 @@ from mathutils import Vector, Matrix, Euler, noise
 from common import add_block, add_stone, drop_faces_below, finish_obj, hexcol, jitter_color
 
 # Warm, saturated sandstone (round 3: the beige read dusty; the references are red-orange and cream).
-SAND = [hexcol(h) for h in ("#c4814d", "#b37043", "#d39560", "#a5653d", "#c07c4e", "#b88660", "#d09058")]
-TERRA = [hexcol(h) for h in ("#a3634a", "#ae7057", "#94583f", "#b67b5e", "#8b5543", "#a36d57")]
+# Round 8: less brick-red. Weathered limestone and tan sandstone (the critic read the red bricks as
+# European ruins); the pavers are a warm grey-tan stone rather than terracotta.
+SAND = [hexcol(h) for h in ("#c39a6c", "#b58b60", "#d1aa7c", "#a8825c", "#bf9670", "#b9946c", "#cba57a", "#b5a080")]
+TERRA = [hexcol(h) for h in ("#b08a6a", "#a07c60", "#bc9878", "#987458", "#a98a70", "#b39072")]
 WOOD = [hexcol(h) for h in ("#8a6547", "#7a5a40", "#96714f", "#6d4f38")]
 # Weathered boards: warm honey-brown, bleached where the sun takes them (round 5: never grey).
 BOARDS = [hexcol(h) for h in ("#b8895c", "#a87a4e", "#c4986a", "#9e754e", "#c09c72", "#b08458")]
@@ -42,7 +44,7 @@ def weathered(rng, moss=0.12):
     return sand(rng)
 
 
-def blk(bm, rng, size, loc, rot=(0, 0, 0), color=None, radius=0.5, erode=0.55, cuts=2, lean=(0, 0), pillow=0.12, uvshrink=None, taper=0.05):
+def blk(bm, rng, size, loc, rot=(0, 0, 0), color=None, radius=0.26, erode=0.45, cuts=2, lean=(0, 0), pillow=0.04, uvshrink=None, taper=0.04):
     add_stone(bm, size, loc, rot, rng=rng, color=color or weathered(rng), radius=radius, erode=erode, cuts=cuts, lean=lean,
               pillow=pillow, uvshrink=uvshrink, taper=taper)
 
@@ -211,7 +213,7 @@ def floor(name, seed, width=PATH_W, length=4.0, broken=0.0, thickness=0.22, pale
             dz = -rng.uniform(0.025, 0.06) if sunk else rng.uniform(-0.012, 0.006)
             tl = 0.035 if sunk else 0.009
             rot = (rng.uniform(-tl, tl), rng.uniform(-tl, tl), rng.uniform(-0.025, 0.025))
-            rad = rng.uniform(0.35, 0.6)
+            rad = rng.uniform(0.12, 0.22)  # round 8: crisp arrises, not soft clay
             if sl > 0.85 and rng.random() < 0.14 + broken * 0.25:
                 # Cracked in two: halves settle a little differently.
                 t = rng.uniform(0.38, 0.62)
@@ -221,10 +223,10 @@ def floor(name, seed, width=PATH_W, length=4.0, broken=0.0, thickness=0.22, pale
                 for (w_, c_) in ((a, x0 + a / 2), (b, x0 + a + 0.012 + b / 2)):
                     blk(bm, rng, (w_, rd - jt, thickness), (c_, cy, -thickness / 2 + dz + rng.uniform(-0.008, 0.004)),
                         (rot[0] + rng.uniform(-0.012, 0.012), rot[1] + rng.uniform(-0.012, 0.012), rot[2]), color=col,
-                        radius=rad, erode=0.3 + broken * 0.3, pillow=0.06, uvshrink=hidden, taper=0.02)
+                        radius=rad, erode=0.3 + broken * 0.3, pillow=0.015, uvshrink=hidden, taper=0.02)
             else:
                 blk(bm, rng, (sl - jt, rd - jt, thickness), (cx, cy, -thickness / 2 + dz), rot, color=col,
-                    radius=rad, erode=0.3 + broken * 0.3, pillow=0.06, uvshrink=hidden, taper=0.02)
+                    radius=rad, erode=0.3 + broken * 0.3, pillow=0.015, uvshrink=hidden, taper=0.02)
             x += sl
         y += rd
     # The bed: packed sand showing in the joints and where slabs are gone. Its top (−0.085) stays below
@@ -336,28 +338,36 @@ def arch(name, seed, span=6.8, pier_h=4.0, depth=1.3):
             blk(bm, rng, (1.25, depth, h - 0.02), (side * (r + 0.62) + rng.uniform(-0.03, 0.03), 0, z + h / 2),
                 (0, 0, rng.uniform(-0.04, 0.04)), radius=0.35, erode=0.5)
             z += h
-    n = 15
-    for i in range(n):
-        a0 = math.pi * i / n
-        a1 = math.pi * (i + 1) / n
-        am = (a0 + a1) / 2
-        rin, rout = r, r + 1.05 + (0.18 if i == n // 2 else 0)
-        rm = (rin + rout) / 2
-        cx, cz = -math.cos(am) * rm, pier_h + math.sin(am) * rm
-        chord = 2 * rm * math.sin((a1 - a0) / 2) - 0.03
-        blk(bm, rng, (chord, depth * (1.05 if i == n // 2 else 1.0), rout - rin), (cx, 0, cz), (0, am - math.pi / 2, 0),
-            radius=0.3, erode=0.5, taper=0.0)
-    # Spandrel fill and a broken, ragged crown course.
+    # Round 8: a corbel (Maya) vault instead of a Roman voussoir ring: courses step inward over the
+    # opening until a capstone closes it, under a carved lintel band.
     z = pier_h
-    top = pier_h + r + 1.6
+    inner = r
+    while inner > 0.5:
+        h = rng.uniform(0.5, 0.6)
+        for side in (-1, 1):
+            w = r + 1.25 - inner + 0.15
+            blk(bm, rng, (w, depth, h - 0.02), (side * (inner + w / 2 - 0.15), 0, z + h / 2), (0, 0, rng.uniform(-0.02, 0.02)),
+                radius=0.2, erode=0.4, cuts=1)
+        z += h
+        inner -= r / 6.5
+    blk(bm, rng, (2 * r + 2.6, depth * 1.06, 0.62), (0, 0, z + 0.31), radius=0.18, erode=0.35, cuts=1)
+    # Glyph squares along the lintel's faces.
+    for side in (-1, 1):
+        for k in range(7):
+            x = -r + 2 * r * (k + 0.5) / 7
+            blk(bm, rng, (2 * r / 7 * 0.7, 0.08, 0.36), (x, side * depth * 0.53, z + 0.31), color=jitter_color(hexcol("#8f8268"), rng, 0.05),
+                radius=0.2, erode=0.2, cuts=1, pillow=0.0, taper=0.0)
+    z += 0.62
+    # A broken, ragged crown course over the lintel.
+    top = z + 1.3
     while z < top:
         h = rng.uniform(0.4, 0.6)
         x = -r - 1.25
         while x < r + 1.25:
             w = rng.uniform(0.6, 1.2)
             xc = x + w / 2
-            inside = (xc ** 2 + (z + h / 2 - pier_h) ** 2) ** 0.5 < r + 1.1
-            crest = top - abs(xc) * 0.25 - rng.uniform(0, 1.2)
+            inside = False
+            crest = top - abs(xc) * 0.12 - rng.uniform(0, 1.0)
             if not inside and z + h / 2 < crest:
                 blk(bm, rng, (w - 0.02, depth * 0.92, h - 0.02), (xc, rng.uniform(-0.05, 0.05), z + h / 2),
                     (0, rng.uniform(-0.03, 0.03), rng.uniform(-0.05, 0.05)), radius=0.4, erode=0.6, cuts=1)

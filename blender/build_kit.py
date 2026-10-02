@@ -19,6 +19,7 @@ import foliage as F
 import setpieces as S
 import stage as G
 import jungle as J
+import meso as X
 from uvcheck import overlap_texels
 
 FAST = "--fast" in sys.argv
@@ -166,11 +167,12 @@ for i, (h, ln) in enumerate([(18, 24), (23, 24), (27, 28)]):
     groups["leaf"].append(v)
     groups["bark"].append(t)
 # Temples share the statuary atlas (mid-distance pieces; packed tight, there is room).
-groups["statue"] += [G.temple_prang("temple_0", 930), G.temple_pagoda("temple_1", 931)]
-s_, g_ = G.face_gate("face_gate_0", 950)
+# Round 8: Mesoamerican, not Khmer — talud-tablero pyramids, a corbel-vaulted gateway, an angular mask.
+groups["statue"] += [X.step_pyramid("temple_0", 930), X.step_pyramid("temple_1", 931, base=12.0, tiers=4, ruin=0.6)]
+s_, g_ = X.face_gate("face_gate_0", 950)
 groups["statue"].append(s_)
 groups["gold"].append(g_)
-s_, g_ = G.idol("idol_0", 940)
+s_, g_ = X.idol("idol_0", 940)
 groups["statue"].append(s_)
 groups["gold"].append(g_)
 for i in range(2):
