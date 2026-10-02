@@ -515,7 +515,7 @@ def logo_frame():
             loops.append(P(chipped(rect(46, 50, W - 46, 114), rng, depth=0.5, bites=0.03), H))
         o = curve_obj(name, loops, extrude=z / 2, bevel=1.6, offset=-1.6, z=z / 2, res=3)
         o.data.materials.append(st)
-    plane("panel", 44, 48, W - 44, 116, 0.2, panel_material("panel", W - 88, 68))
+    plane("panel", 44, 48, W - 44, 116, 0.2, panel_material("panel-jade", W - 88, 68))
     # a step-fret carved along the beam (raised stone relief)
     pats = []
     x = 14
@@ -564,7 +564,7 @@ def tablet(name, face):
     import random
     W, H, s = 96, 48, 3
     scene(W, H)
-    sun_lamp(1.6)
+    sun_lamp(2.2, el=34)
     rng = random.Random(9)
     st = limestone("rim", scale=0.6)
     outer = chipped(stepped_rect(0.5, 0.5, W - 0.5, H - 0.5, s), rng, step=2.0, depth=0.4, bites=0.04)
@@ -576,7 +576,7 @@ def tablet(name, face):
         fm = gem_face("jade", ("#0a3a28", "#13573c", "#1d7552"))
     else:
         fm = limestone("basalt", scale=0.5, palette=BASALT)
-    key = curve_obj("key", [P(chipped(stepped_rect(4.4, 4.4, W - 4.4, H - 4.4, 2), rng, step=2.5, depth=0.25, bites=0.03), H)], extrude=1.8, bevel=2.2, offset=-2.2, z=2.8, res=3)
+    key = curve_obj("key", [P(chipped(stepped_rect(4.4, 4.4, W - 4.4, H - 4.4, 2), rng, step=2.5, depth=0.25, bites=0.03), H)], extrude=2.4, bevel=3.0, offset=-3.0, z=3.4, res=4)
     key.data.materials.append(fm)
     render(name)
 
@@ -605,9 +605,11 @@ def gold_panel():
     nz.inputs["Detail"].default_value = 4
     L(nt, tc.outputs["Object"], nz.inputs["Vector"])
     ham = N(nt, "ShaderNodeTexVoronoi")
-    ham.inputs["Scale"].default_value = 0.09
+    ham.inputs["Scale"].default_value = 0.06
     L(nt, tc.outputs["Object"], ham.inputs["Vector"])
-    base = ramp(nt, nz.outputs["Fac"], [(0.3, hexcol("#d9952a")), (0.7, hexcol("#f6c757"))])
+    gy = N(nt, "ShaderNodeSeparateXYZ")
+    L(nt, tc.outputs["Object"], gy.inputs[0])
+    base = ramp(nt, maprange(nt, gy.outputs["Y"], -H, 0.0, 0.0, 1.0, smooth=False), [(0.0, hexcol("#c9861f")), (0.45, hexcol("#f2bd48")), (0.8, hexcol("#ffd975")), (1.0, hexcol("#ffe9a6"))])
     sep = N(nt, "ShaderNodeSeparateXYZ")
     L(nt, tc.outputs["Object"], sep.inputs[0])
     top = maprange(nt, math_node(nt, "MULTIPLY", sep.outputs["Y"], -1.0), 0.0, 8.0, 0.7, 0.0)
@@ -622,9 +624,9 @@ def gold_panel():
     mx.inputs[7].default_value = hexcol("#4a2a06")
     L(nt, mx.outputs[2], bs.inputs["Base Color"])
     bs.inputs["Metallic"].default_value = 1.0
-    bs.inputs["Roughness"].default_value = 0.32
+    bs.inputs["Roughness"].default_value = 0.22
     bump = N(nt, "ShaderNodeBump")
-    bump.inputs["Strength"].default_value = 0.12
+    bump.inputs["Strength"].default_value = 0.035
     L(nt, ham.outputs["Distance"], bump.inputs["Height"])
     L(nt, bump.outputs["Normal"], bs.inputs["Normal"])
     # a lit emission floor, so the gold never goes muddy under a flat top-down camera
