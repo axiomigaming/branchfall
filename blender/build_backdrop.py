@@ -42,15 +42,15 @@ sky.sun_rotation = math.radians(SUN_ROT)
 sky.sun_size = math.radians(1.2)
 sky.sun_intensity = 0.4
 sky.altitude = 200
-sky.air_density = 1.15
+sky.air_density = 1.35  # round 9: a bluer sky overhead (portrait frames see a lot of it)
 sky.dust_density = 0.8  # round 8: less white veil around the sun
 sky.ozone_density = 2.2
 _tc = nt.nodes.new("ShaderNodeTexCoord")
 _sep = nt.nodes.new("ShaderNodeSeparateXYZ")
 nt.links.new(_tc.outputs["Generated"], _sep.inputs[0])
-_hz = maprange(nt, _sep.outputs[2], 0.0, 0.45, 0.0, 1.0)
+_hz = maprange(nt, _sep.outputs[2], 0.0, 0.38, 0.0, 1.0)
 # A warm band of haze on the horizon under a clear blue zenith.
-_warm = ramp(nt, _hz, [(0.0, (1.12, 1.0, 0.84, 1)), (0.3, (1.0, 1.0, 1.0, 1)), (1.0, (0.88, 0.96, 1.08, 1))])
+_warm = ramp(nt, _hz, [(0.0, (1.12, 1.0, 0.84, 1)), (0.22, (0.98, 1.0, 1.02, 1)), (1.0, (0.7, 0.9, 1.22, 1))])
 nt.links.new(mix(nt, 1.0, sky.outputs[0], _warm, "MULTIPLY"), bg.inputs[0])
 bg.inputs[1].default_value = 0.22
 

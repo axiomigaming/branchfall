@@ -81,6 +81,18 @@ class Builder {
     readonly variant = 0,
   ) {}
 
+  /** Share of a section's parapet runs built as carved walls (glyph band, fret crest): a third of the
+   * variants are carved stretches, the rest only now and then. */
+  get carving(): number {
+    return this.variant % 3 === 1 ? 0.65 : 0.12;
+  }
+
+  /** A round pillar; the whole ones (pillar_0, 5 m) often carry a carved capital. */
+  pillar(piece: string, x: number, y: number, z: number, rotY = 0) {
+    this.place(piece, x, y, z, rotY);
+    if (piece === 'pillar_0' && this.rng.chance(0.7)) this.place('pillar_cap_0', x, y + 5.0, z, rotY);
+  }
+
   place(piece: string, x: number, y: number, z: number, rotY = 0, s: number | [number, number, number] = 1, tilt?: [number, number]) {
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(tilt?.[0] ?? 0, rotY, tilt?.[1] ?? 0, 'YXZ'));
@@ -245,8 +257,11 @@ type Vista = 'arch' | 'guardians' | 'temple' | 'towers' | 'falls';
  * colossi flanking it, a temple or twin towers rising beside it, a fall pouring off a cliff.
  */
 function vista(b: Builder, len: number, kinds: Vista[], p = 0.7) {
-  if (!b.rng.chance(p)) return;
-  const kind = b.rng.pick(kinds);
+  // Variants rotate through the kinds (so every landmark shows up among a type's variants); the
+  // remaining variants roll for one.
+  const rolled = b.rng.chance(p);
+  const kind = b.variant < kinds.length ? kinds[b.variant]! : b.rng.pick(kinds);
+  if (b.variant >= kinds.length && !rolled) return;
   const z = -len + 1.5;
   const side = b.rng.chance(0.5) ? -1 : 1;
   switch (kind) {
@@ -313,6 +328,7 @@ function floorRun(b: Builder, z0: number, n: number, y = 0, broken = 0.12, medal
 function lowWalls(b: Builder, z0: number, n: number, sides: number[] = [-1, 1], opts: { gaps?: number; foundation?: boolean } = {}) {
   const gaps = opts.gaps ?? 0.12;
   for (const side of sides) {
+    let carvedRun = false;
     for (let i = 0; i < n; i++) {
       const z = z0 - TILE * i;
       if (opts.foundation !== false) {
@@ -326,6 +342,15 @@ function lowWalls(b: Builder, z0: number, n: number, sides: number[] = [-1, 1], 
         b.place(`rubble_${b.rng.int(0, 3)}`, side * (PATH_HALF + 0.6), 0, z - 2, b.rng.range(0, 6.28));
         continue;
       }
+      if (b.rng.chance(b.carving)) {
+        // A carved parapet; a feathered-serpent post guards the start of each carved run.
+        b.wall(`wall_carved_${b.rng.int(0, 1)}`, side, PATH_HALF + 0.36, 0, z);
+        if (!carvedRun) b.place('serpent_0', side * (PATH_HALF + 0.36), 0, z + 0.45, 0);
+        carvedRun = true;
+        if (b.foliage(0.3)) b.place(`roots_${b.rng.int(0, 1)}`, side * (PATH_HALF + 0.75), 1.7, z - 2, -side * Math.PI / 2, [0.55, b.rng.range(0.4, 0.6), 1]);
+        continue;
+      }
+      carvedRun = false;
       b.wall(b.rng.pick(LOW_WALLS), side, PATH_HALF + 0.36, 0, z);
       if (b.foliage(0.4)) b.place(`bush_${b.rng.int(0, 3)}`, side * (PATH_HALF + 0.5), b.rng.range(0.9, 1.4), z - b.rng.range(0.5, 3.5), b.rng.range(0, 6.28), b.rng.range(0.55, 0.9));
       // Green spilling over the wall's outer side, down toward the water.
@@ -454,7 +479,7 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
       b.place('arch_0', 0, 0, 3.2);
       for (const side of [-1, 1]) {
         b.place('stele_0', side * 4.2, 0, -0.5, side * 0.3);
-        b.place('pillar_0', side * 4.4, 0, -3.6);
+        b.pillar('pillar_0', side * 4.4, 0, -3.6);
         b.place(`bush_${b.rng.int(1, 3)}`, side * 4.6, 0.2, 1.2, 0, 1.1);
         b.place(`grass_1`, side * 3.6, 0, -2.2, 0, 1.1);
         b.place(`palm_${side > 0 ? 0 : 2}_trunk`, side * 6.5, -2.2, -1, 0, 1);
@@ -617,7 +642,7 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
           const f = evalSeg({ s0: 0, len, p0: new THREE.Vector3(), yaw0: 0, turn, dy: 0 }, len * t, { pos: new THREE.Vector3(), yaw: 0 });
           o.set(Math.cos(f.yaw) * side * 5.2, 0, -Math.sin(f.yaw) * side * 5.2).add(f.pos);
           const piece = b.rng.pick(['pillar_0', 'pillar_1', 'stele_0', 'pillar_2']);
-          b.place(piece, o.x, 0, o.z, b.rng.range(0, 6.28));
+          b.pillar(piece, o.x, 0, o.z, b.rng.range(0, 6.28));
           if (b.foliage(0.7)) b.place(`bush_${b.rng.int(0, 3)}`, o.x + b.rng.range(-0.8, 0.8), 0, o.z + b.rng.range(-0.8, 0.8), 0, b.rng.range(0.8, 1.2));
         }
         const f = evalSeg({ s0: 0, len, p0: new THREE.Vector3(), yaw0: 0, turn, dy: 0 }, len * 0.5, { pos: new THREE.Vector3(), yaw: 0 });
@@ -647,7 +672,7 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
       lowWalls(b, -4, 2, [-1, 1], { gaps: 0.1 });
       for (const side of [-1, 1]) {
         b.wall('foundation_1', side, PATH_HALF + 0.42, 0, 0);
-        b.place('pillar_0', side * 3.1, 0, 0.3);
+        b.pillar('pillar_0', side * 3.1, 0, 0.3);
       }
       jungleBank(b, b.rng.pick([-1, 1]), PATH_HALF + 2.2, -6, -1.6, 0.45);
       canopy(b, b.rng.pick([-1, 1]), -6, -1.6, 0.3);
@@ -892,7 +917,7 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
         // Grit fallen from the vault along the kerbs.
         for (const side of [-1, 1]) b.edgeRubble(side, z, PATH_HALF - 0.4, 0, 0.8);
         // Roots and vines through the crown, the odd shaft of green.
-        if (b.foliage(0.45)) b.place(`roots_${b.rng.int(0, 1)}`, b.rng.range(-1.2, 1.2), 5.9, z - b.rng.range(0.5, 3.5), 0, [0.5, b.rng.range(0.5, 0.8), 1]);
+        if (b.foliage(0.45)) b.place(`roots_${b.rng.int(0, 1)}`, b.rng.range(-0.4, 0.4), 6.6, z - b.rng.range(0.5, 3.5), 0, [0.35, b.rng.range(0.5, 0.8), 1]);
       }
       // Hanging vines across the mouth, jungle heaped over the portal and along the vault's back.
       for (const [z, face] of [[mouthZ, 1], [exitZ, -1]] as const) {
@@ -905,10 +930,11 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
       }
       for (let z = mouthZ - 3; z > exitZ; z -= b.rng.range(3, 5)) {
         if (b.foliage(0.8)) b.place(`shrub_mass_${b.rng.int(0, 1)}`, b.rng.range(-2.5, 2.5), 6.9, z, b.rng.range(0, 6.28), b.rng.range(0.7, 1.0));
-        // Bushes on the vault's shoulders (its back is a 3.65 m radius over the springing at 3.2 m).
+        // Bushes on the vault's sloping shoulders (a corbel vault: its back falls from ~7.4 m over the
+        // middle to the springing at 3.2 m, 3.45 m out).
         if (b.foliage(0.55)) {
-          const x = b.rng.range(2.6, 3.2);
-          b.place(`bush_${b.rng.int(0, 3)}`, b.rng.pick([-1, 1]) * x, 3.05 + Math.sqrt(3.65 * 3.65 - x * x), z, 0, b.rng.range(0.9, 1.3));
+          const x = b.rng.range(1.6, 2.8);
+          b.place(`bush_${b.rng.int(0, 3)}`, b.rng.pick([-1, 1]) * x, 3.2 + 4.2 * (1 - x / 3.45) + 0.2, z, 0, b.rng.range(0.9, 1.3));
         }
       }
       if (b.foliage(0.8)) {
@@ -994,7 +1020,25 @@ export function buildLayout(type: SectionType, seed: string, density: { foliage:
 export const SECTION_TYPES = Object.keys(BUILDERS) as SectionType[];
 
 /** Pacing: what can follow what, and how often. Elevation stays within one flight of stairs. */
+/**
+ * Biome beats (presentation only: a function of the current multiplier's intensity, never of the hidden
+ * fall point). A run opens on the causeway over open water, passes the gates and the guardians, goes into
+ * the sanctum (tunnels, tall walls, gorges) and ends in the chasm country (cliffs, gorges, rope bridges).
+ * The beat's types get a strong bias; every type stays possible.
+ */
+export const BIOMES: { until: number; types: SectionType[] }[] = [
+  { until: 0.22, types: ['corridor', 'bridge', 'boardwalk', 'plaza', 'ruins'] },
+  { until: 0.45, types: ['gate', 'statues', 'avenue', 'arcade', 'corridor'] },
+  { until: 0.7, types: ['tunnel', 'tall', 'gorge', 'arcade', 'statues'] },
+  { until: 2, types: ['cliff', 'gorge', 'bridge', 'tunnel'] },
+];
+
+export function biomeOf(intensity: number): number {
+  return BIOMES.findIndex((b) => intensity < b.until);
+}
+
 export function nextType(rng: Rng, prev: SectionType, elevation: number, intensity: number): SectionType {
+  const beat = BIOMES[biomeOf(intensity)]!.types;
   const w: [SectionType, number][] = [
     ['corridor', 4],
     ['bridge', 2.2],
@@ -1011,7 +1055,7 @@ export function nextType(rng: Rng, prev: SectionType, elevation: number, intensi
     ['statues', 1.2],
     [elevation > -0.5 ? 'stairsDown' : 'stairsUp', 1.1],
   ];
-  const options = w.filter(([t]) => t !== prev || t === 'corridor');
+  const options = w.filter(([t]) => t !== prev || t === 'corridor').map(([t, k]) => [t, beat.includes(t) ? k * 2.2 : k] as [SectionType, number]);
   return rng.weighted(options);
 }
 
