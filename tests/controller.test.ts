@@ -89,6 +89,7 @@ class LocalService implements RoundService {
 function stubGame() {
   return {
     elapsed: () => null,
+    onReveal: () => {},
     live: { mult: 1 },
     calls: [] as string[],
     toSetup() {

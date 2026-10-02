@@ -4,6 +4,7 @@ import { Billows } from './fxBillows';
 import { Cracks, Rings } from './fxDecals';
 import { Beams, installRim, type RimUniforms } from './fxEscape';
 import { Flock } from './fxFlock';
+import { Glory, Letterbox, LightPool, Sparkles } from './fxReward';
 import { FX_CAPACITY, fxBudget, type FxBudget, type Motion } from './fxScale';
 
 /**
@@ -18,6 +19,10 @@ export class Fx {
   readonly cracks = new Cracks(8);
   readonly flock = new Flock(FX_CAPACITY.birds);
   readonly beams = new Beams(FX_CAPACITY.beams);
+  readonly sparkles = new Sparkles(FX_CAPACITY.sparks);
+  readonly glory = new Glory();
+  readonly pool = new LightPool();
+  readonly bars = new Letterbox();
   budget: FxBudget = fxBudget('high');
   private rim: RimUniforms | null = null;
   private rimLevel = 0;
@@ -27,7 +32,7 @@ export class Fx {
 
   constructor() {
     this.root.name = 'fx';
-    this.root.add(this.cracks.mesh, this.rings.mesh, this.billows.mesh, this.flock.mesh, this.beams.mesh);
+    this.root.add(this.cracks.mesh, this.rings.mesh, this.billows.mesh, this.flock.mesh, this.beams.mesh, this.sparkles.points, this.glory.mesh, this.pool.mesh, this.bars.mesh);
   }
 
   /** Patch the runner's materials for the escape rim (before programs compile). */
@@ -43,6 +48,7 @@ export class Fx {
     this.rings.budget = b.rings;
     this.flock.budget = b.birds;
     this.beams.budget = b.beams;
+    this.sparkles.budget = b.sparks;
   }
 
   /** Golden rim strength target (0 = off). */
@@ -50,7 +56,12 @@ export class Fx {
     this.rimTarget = x;
   }
 
-  update(dt: number, rawDt: number, cam: THREE.Camera, sunDir: THREE.Vector3, time: number): void {
+  /** `pointScale` converts metres to pixels at 1 m (viewport height / (2·tan(fov/2))). */
+  update(dt: number, rawDt: number, cam: THREE.Camera, sunDir: THREE.Vector3, time: number, pointScale = 600): void {
+    this.sparkles.update(dt, time, pointScale);
+    this.glory.update(rawDt, time);
+    this.pool.update(rawDt, time);
+    this.bars.update(rawDt);
     this.billows.update(dt, cam, sunDir);
     this.rings.update(dt);
     this.cracks.update(dt);
@@ -71,6 +82,10 @@ export class Fx {
     this.cracks.clear();
     this.flock.clear();
     this.beams.clear();
+    this.sparkles.clear();
+    this.glory.clear();
+    this.pool.clear();
+    this.bars.clear();
     this.rimLevel = this.rimTarget = 0;
     this.rim?.uRimColor.value.setRGB(0, 0, 0);
   }

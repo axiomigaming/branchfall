@@ -22,6 +22,8 @@ export class Controller {
     readonly audio: AudioEngine,
   ) {
     game.elapsed = () => this.elapsedMs();
+    // The result card waits for the fall or escape to play (presentation only; see State.revealed).
+    game.onReveal = () => useStore.getState().set({ revealed: true });
     service.onPush((p) => this.onPush(p));
   }
 
@@ -164,6 +166,7 @@ export class Controller {
       nextCommitment,
       nextNonce,
       result: { round, won },
+      revealed: false,
       history: [round, ...st.history.filter((h) => h.id !== round.id)].slice(0, 60),
     });
     // Size the stinger: the cash-out multiplier for an escape (never the fall point), the fall point for a fall.

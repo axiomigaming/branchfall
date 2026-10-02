@@ -37,6 +37,12 @@ interface State {
   limits: Limits | null;
   live: LiveRound | null;
   result: Result | null;
+  /**
+   * Presentation only: false from settlement until the world's fall or escape has played its beat
+   * (Game.onReveal), so the result card does not cover the moment. Balance, history and phase are
+   * already settled while it is false.
+   */
+  revealed: boolean;
   history: SettledRound[];
   clientSeed: string;
   nextCommitment: string;
@@ -64,6 +70,7 @@ export const useStore = create<State>((set, get) => ({
   limits: null,
   live: null,
   result: null,
+  revealed: true,
   history: [],
   clientSeed: '',
   nextCommitment: '',
