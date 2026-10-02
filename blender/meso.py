@@ -18,6 +18,7 @@ FX gate door (game.ts dressDoor: face_gate_0_gold centred 11.51 m up) depend on 
 import math
 import random
 
+import bpy
 import bmesh
 from mathutils import Matrix, Vector
 
@@ -163,7 +164,7 @@ def glyph_panel(bm, rng, cx, y, cz, w, h, axis="x"):
 
 def fret_frieze(bm, rng, x0, x1, y, z, h):
     """A stepped-fret (xicalcoliuhqui) band: alternating raised steps and hooks along a facade."""
-    w = h * 1.2
+    w = max(0.2, h * 1.2)  # (never a non-positive step)
     x = x0
     k = 0
     while x < x1 - w * 0.5:
@@ -361,3 +362,88 @@ def idol(name, seed, size=2.8):
     bmesh.ops.transform(g, matrix=Matrix.Translation((0, -w * 0.3 + 0.1, z + size * 1.1 + size * 0.62)), verts=g.verts)
     gold = finish_obj(name + "_gold", g, 30)
     return stone, gold
+
+
+# ------------------------------------------------------------------ round 9: carved walls, serpents, capitals
+def _two_faced(build, length, depth):
+    """Build a frieze with `build(bm)` facing −Y along x ∈ [0, length], copy it turned to face +Y, and lay
+    the pair along +Y (the kit's wall convention: runs y ∈ [0, length], faces ±X, centred on x=0)."""
+    out = bmesh.new()
+    for flip in (False, True):
+        t = bmesh.new()
+        build(t)
+        if flip:
+            bmesh.ops.transform(t, matrix=Matrix.Translation((length, 0, 0)) @ Matrix.Rotation(math.pi, 4, "Z"), verts=t.verts)
+        bmesh.ops.transform(t, matrix=Matrix.Rotation(math.pi / 2, 4, "Z"), verts=t.verts)
+        me = bpy.data.meshes.new("_tf")
+        t.to_mesh(me)
+        t.free()
+        out.from_mesh(me)
+        bpy.data.meshes.remove(me)
+    return out
+
+
+def carved_wall(name, seed, length=4.0, height=1.7, depth=0.72, ruin=0.25):
+    """A dressed parapet for the causeway's edge: squared courses, a band of glyph cartouches on both
+    faces, a stepped-fret crest under a coping, here and there a stone gone or the crest broken."""
+    rng = random.Random(seed)
+    d2 = depth / 2
+
+    def body(bm):
+        z = -0.3
+        row = 0
+        while z < height * 0.38:
+            ch = min(rng.uniform(0.34, 0.44), height * 0.45 - z)
+            x = -rng.uniform(0, 0.4) if row % 2 else 0.0
+            while x < length - 0.05:
+                bw = min(rng.uniform(0.7, 1.2), length - max(x, 0.0))
+                x0 = max(x, 0.0)
+                box(bm, rng, (bw - 0.03, d2 - 0.01, ch - 0.03), (x0 + bw / 2, -d2 / 2, z + ch / 2), lime(rng, 0.15), chip=0.25)
+                x = x0 + bw
+            z += ch
+            row += 1
+        band = height * 0.28
+        box(bm, rng, (length - 0.04, d2 - 0.05, band), (length / 2, -d2 / 2 + 0.03, z + band / 2), jitter_color(rng.choice(LIME_DARK), rng, 0.05, 0.02))
+        glyph_panel(bm, rng, length / 2, -d2 + 0.06, z + band / 2, length - 0.3, band * 0.8)
+        z += band
+        crest = max(0.32, height - z)
+        for k in range(int(length / 0.5)):
+            x = 0.25 + 0.5 * k
+            if ruin and rng.random() < ruin * 0.5:
+                continue
+            box(bm, rng, (0.46, d2 - 0.02, crest * 0.6), (x, -d2 / 2, z + crest * 0.3), lime(rng, 0.1), chip=0.2)
+        fret_frieze(bm, rng, 0.0, length, -d2 + 0.02, z + crest * 0.3, crest * 0.55)
+        if not ruin or rng.random() > ruin:
+            box(bm, rng, (length - 0.02, d2 + 0.06, 0.16), (length / 2, -d2 / 2 - 0.03, height - 0.02), lime(rng, 0.2), chip=0.3)
+
+    bm = _two_faced(body, length, depth)
+    return finish_obj(name, bm, 40)
+
+
+def serpent_post(name, seed, s=0.85):
+    """A feathered-serpent head on a squared post, jaws open toward −Y: it ends a balustrade or guards a
+    stair at the causeway's edge."""
+    rng = random.Random(seed)
+    bm = bmesh.new()
+    box(bm, rng, (1.0 * s, 1.4 * s, 0.9), (0, 0.2 * s, 0.45 - 0.3), lime(rng, 0.2), chip=0.2)
+    serpent_head(bm, rng, (0, 0, 0.75), 0.0, s)
+    return finish_obj(name, bm, 40)
+
+
+def pillar_cap(name, seed, w=1.3):
+    """A carved capital for the round pillars (pillar_0 is 5 m tall, r 0.42): a glyph-carved block under a
+    square abacus, a cartouche on each face."""
+    rng = random.Random(seed)
+    bm = bmesh.new()
+    box(bm, rng, (w * 0.78, w * 0.78, 0.5), (0, 0, 0.25), lime(rng, 0.1))
+    for a in range(4):
+        t = bmesh.new()
+        glyph_panel(t, rng, 0, -w * 0.39 - 0.01, 0.25, w * 0.6, 0.36)
+        bmesh.ops.transform(t, matrix=Matrix.Rotation(a * math.pi / 2, 4, "Z"), verts=t.verts)
+        me = bpy.data.meshes.new("_pc")
+        t.to_mesh(me)
+        t.free()
+        bm.from_mesh(me)
+        bpy.data.meshes.remove(me)
+    box(bm, rng, (w, w, 0.26), (0, 0, 0.63), lime(rng, 0.25), chip=0.3)
+    return finish_obj(name, bm, 40)

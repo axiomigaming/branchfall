@@ -156,44 +156,32 @@ def cliff_wall(name, seed, length=24.0, height=20.0, depth=7.0, res=0.72):
     return ob, ledges
 
 
-def cliff_veg(name, seed, ledges, length=24.0, height=20.0, density=1.0):
-    """Leaf cards clinging to a cliff: shrubs on its ledges, curtains of vines from the beds, a crown of trees."""
-    rng = random.Random(seed)
-    bm = bmesh.new()
-    uvl = bm.loops.layers.uv.new("UVMap")
+def cliff_veg(f, rng, ledges, density=1.0):
+    """Round 9: plants clinging to a cliff as volumetric clumps (jungle.Fol: normals out of each clump),
+    not flat cards — seen against the sky they read as soft masses, not pale cut-outs. Vines trail
+    from some ledges."""
     rng.shuffle(ledges)
-    n = int(min(len(ledges), 34 * density))
+    n = int(min(len(ledges), 30 * density))
     for (p, nrm) in ledges[:n]:
-        r = rng.uniform(0.8, 1.9)
-        for k in range(rng.randint(6, 9)):
-            a = rng.uniform(0, 2 * math.pi)
-            el = rng.uniform(0.2, 1.1)
-            d = Vector((math.cos(a) * math.cos(el) - 0.35, math.sin(a) * math.cos(el), math.sin(el))).normalized()
-            F._card(bm, uvl, rng.choice(("fern", "broad", "fern")), p + Vector((-0.2, 0, -0.1)), d * r * rng.uniform(0.8, 1.2),
-                    r * rng.uniform(0.8, 1.1), droop=rng.uniform(0.2, 0.45), seg=3, twist=rng.uniform(-0.3, 0.3))
-        # Some ledges trail vines down the face.
+        r = rng.uniform(0.7, 1.4)
+        c = p + Vector((-0.3, 0, r * 0.3))
+        f.clump(rng, c, r, rng.choice(("broad", "cluster_s", "cluster")), squash=0.8, centre=c + Vector((0.5, 0, -r * 0.5)))
         if rng.random() < 0.45:
             ln = rng.uniform(2.0, 6.5)
-            F._card(bm, uvl, "vine", p + Vector((-0.5, rng.uniform(-0.5, 0.5), 0.1)), (rng.uniform(-0.6, -0.2), 0, -ln), ln * 0.4,
-                    seg=4, up=Vector((1, 0, 0)), flip_v=True)
-    return bm, uvl
+            f.card("vine", p + Vector((-0.5, rng.uniform(-0.5, 0.5), 0.1)), (rng.uniform(-0.6, -0.2), 0, -ln), ln * 0.4,
+                   normal=(-1, 0, 0), up_bias=0.2, seg=4, up=Vector((1, 0, 0)), flip_v=True)
 
 
-def crest_trees(bm, uvl, rng, pts, scale=1.0):
-    """Tree crowns (leaf clusters) along a cliff's crest; returns trunk segments for the bark object."""
+def crest_trees(f, rng, pts, scale=1.0):
+    """Tree crowns along a cliff's crest as soft clumps; returns trunk segments for the bark object."""
     trunks = []
     for p in pts:
         s = rng.uniform(0.8, 1.3) * scale
         top = p + Vector((rng.uniform(-1.0, 0.2), 0, rng.uniform(3.5, 6.0) * s))
         trunks.append((p, top, 0.22 * s))
-        for cl in range(rng.randint(4, 6)):
-            cc = top + Vector((rng.uniform(-2.2, 2.2), rng.uniform(-2.2, 2.2), rng.uniform(-1.0, 1.4))) * s
-            for k in range(7):
-                a = rng.uniform(0, 2 * math.pi)
-                el = rng.uniform(-0.3, 1.0)
-                d = Vector((math.cos(a) * math.cos(el), math.sin(a) * math.cos(el), math.sin(el)))
-                F._card(bm, uvl, "broad", cc - d * 0.4, d * rng.uniform(1.8, 2.6) * s, rng.uniform(1.8, 2.4) * s, droop=0.2, seg=2,
-                        twist=rng.uniform(-0.5, 0.5))
+        for cl in range(rng.randint(3, 4)):
+            cc = top + Vector((rng.uniform(-1.8, 1.8), rng.uniform(-1.8, 1.8), rng.uniform(-0.8, 1.2))) * s
+            f.clump(rng, cc, rng.uniform(1.8, 2.4) * s, "cluster", squash=0.8, centre=top - Vector((0, 0, 1.0 * s)))
     return trunks
 
 
@@ -206,11 +194,12 @@ def _trunk_bm(trunks, segs=6):
 
 
 def cliff_set(name, seed, length=24.0, height=20.0, depth=7.0):
-    """cliff_wall_N (rock), cliff_wall_N_veg (leaf), cliff_wall_N_trees (bark)."""
+    """cliff_wall_N (rock), cliff_wall_N_veg (leaf clumps: material leaf_jungle), cliff_wall_N_trees (bark)."""
+    import jungle as J
     rng = random.Random(seed + 5)
     rock, ledges = cliff_wall(name, seed, length, height, depth)
-    bm, uvl = cliff_veg(name + "_veg", seed, ledges, length, height)
-    # Trees and shrubs along the crest: read the crest height off the displaced mesh.
+    f = J.Fol()
+    cliff_veg(f, random.Random(seed), ledges)
     me = rock.data
     crest = []
     for y in [-length / 2 + length * (k + rng.uniform(0.2, 0.8)) / 5 for k in range(5)]:
@@ -221,18 +210,15 @@ def cliff_set(name, seed, length=24.0, height=20.0, depth=7.0):
                     best = v.co.copy()
         if best is not None:
             crest.append(best + Vector((1.2, 0, -0.4)))
-    trunks = crest_trees(bm, uvl, rng, crest[: rng.randint(3, 5)])
-    # Shrub masses tumbling over the crest edge.
+    trunks = crest_trees(f, rng, crest[: rng.randint(3, 5)])
+    # Green tumbling over the crest edge, a vine down the face.
     for p in crest:
-        for k in range(10):
-            a = rng.uniform(0, 2 * math.pi)
-            el = rng.uniform(0.0, 1.0)
-            d = Vector((math.cos(a) * math.cos(el) - 0.5, math.sin(a) * math.cos(el), math.sin(el))).normalized()
-            F._card(bm, uvl, rng.choice(("fern", "broad")), p + Vector((-0.8, rng.uniform(-2, 2), 0)), d * rng.uniform(1.5, 2.4),
-                    rng.uniform(1.4, 2.0), droop=0.45, seg=3, twist=rng.uniform(-0.3, 0.3))
+        c = p + Vector((-0.6, rng.uniform(-1.5, 1.5), 0.3))
+        f.clump(rng, c, rng.uniform(1.2, 1.7), rng.choice(("broad", "cluster_s")), squash=0.8, centre=c + Vector((0.8, 0, -0.8)))
         ln = rng.uniform(3.0, 7.0)
-        F._card(bm, uvl, "vine", p + Vector((-1.4, rng.uniform(-1.5, 1.5), 0.2)), (-0.4, 0, -ln), ln * 0.5, seg=4, up=Vector((1, 0, 0)), flip_v=True)
-    veg = new_mesh_obj(name + "_veg", bm)
+        f.card("vine", p + Vector((-1.4, rng.uniform(-1.5, 1.5), 0.2)), (-0.4, 0, -ln), ln * 0.5, normal=(-1, 0, 0), up_bias=0.2,
+               seg=4, up=Vector((1, 0, 0)), flip_v=True)
+    veg = f.finish(name + "_veg")
     trees = new_mesh_obj(name + "_trees", _trunk_bm(trunks))
     return rock, veg, trees
 

@@ -93,6 +93,9 @@ groups["statue"] += [
     S.stepping_stones("steps_water_0", 730),
 ]
 groups["relief"] += [S.relief_wall("relief_wall_0", 740), S.relief_wall("relief_wall_1", 741)]
+# Round 9: carved parapets, serpent posts and pillar capitals share the glyph atlas (and its carving).
+groups["relief"] += [X.carved_wall("wall_carved_0", 1300), X.carved_wall("wall_carved_1", 1301, ruin=0.5),
+                     X.serpent_post("serpent_0", 1310), X.pillar_cap("pillar_cap_0", 1320)]
 
 # ---- floors
 groups["floor"] += [
@@ -164,7 +167,7 @@ for i in range(2):
 for i, (h, ln) in enumerate([(18, 24), (23, 24), (27, 28)]):
     r, v, t = G.cliff_set(f"cliff_wall_{i}", 900 + i, length=ln, height=h)
     groups["cliff"].append(r)
-    groups["leaf"].append(v)
+    groups["jungle"].append(v)
     groups["bark"].append(t)
 # Temples share the statuary atlas (mid-distance pieces; packed tight, there is room).
 # Round 8: Mesoamerican, not Khmer — talud-tablero pyramids, a corbel-vaulted gateway, an angular mask.

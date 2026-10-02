@@ -77,6 +77,7 @@ export function installAtmosphere(scene: THREE.Scene, sunDir: THREE.Vector3, o: 
   for (const lib of Object.values(THREE.ShaderLib)) {
     if (lib.uniforms && 'fogColor' in lib.uniforms) Object.assign(lib.uniforms, { fogSunDir: { value: shared.fogSunDir.value }, fogMist: { value: shared.fogMist.value } });
   }
+  installSkyGrade();
   const sun = new THREE.Color(o.sunColor);
   const C = THREE.ShaderChunk as Record<string, string>;
   C.fog_pars_vertex = /* glsl */ `
@@ -148,4 +149,31 @@ export function installAtmosphere(scene: THREE.Scene, sunDir: THREE.Vector3, o: 
 function glslVec3(v: THREE.Vector3 | THREE.Color): string {
   const [a, b, c] = v instanceof THREE.Color ? [v.r, v.g, v.b] : [v.x, v.y, v.z];
   return `vec3(${a.toFixed(5)}, ${b.toFixed(5)}, ${c.toFixed(5)})`;
+}
+
+/**
+ * Round 9: the sky as the camera sees it. A portrait (phone) frame shows a lot of sky, most of it the
+ * pale band around the low sun ahead, which read flat grey-brown after the grade. Away from the sun and
+ * up toward the zenith the panorama is pushed to a deeper blue-teal (at the same luminance, a touch
+ * darker); close to the sun it stays warm. Patched into three's background shader (one program).
+ */
+function installSkyGrade(): void {
+  const bc = THREE.ShaderLib.backgroundCube as { uniforms: Record<string, { value: unknown }>; fragmentShader: string };
+  if (bc.uniforms.skySun) return;
+  bc.uniforms.skySun = { value: atmosphereUniforms.fogSunDir.value };
+  bc.fragmentShader = bc.fragmentShader
+    .replace('uniform float backgroundIntensity;', 'uniform float backgroundIntensity;\nuniform vec3 skySun;')
+    .replace(
+      'texColor.rgb *= backgroundIntensity;',
+      `texColor.rgb *= backgroundIntensity;
+      {
+        vec3 skyD = normalize(vWorldDirection);
+        float skyEl = clamp(skyD.y, 0.0, 1.0);
+        float skyToSun = max(dot(skyD, normalize(skySun)), 0.0);
+        float zen = smoothstep(0.06, 0.6, skyEl) * (1.0 - pow(skyToSun, 5.0) * 0.85);
+        float skyL = dot(texColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+        texColor.rgb = mix(texColor.rgb, skyL * vec3(0.6, 0.93, 1.42), zen * 0.6) * (1.0 - zen * 0.14);
+        texColor.rgb *= mix(vec3(1.0), vec3(1.07, 1.0, 0.88), pow(skyToSun, 3.0) * (1.0 - skyEl));
+      }`,
+    );
 }

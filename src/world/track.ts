@@ -448,6 +448,7 @@ function stageKit(kit: Kit): void {
     if (key !== 'leaf_jungle') continue;
     kit.matOf.set(name, 'leaf');
     const g = kit.geo.get(name);
+    if (g) g.userData.authoredNormals = true;
     const uv = g?.getAttribute('uv') as THREE.BufferAttribute | undefined;
     if (uv && uvFix && !g!.userData.uvFixed) {
       g!.userData.uvFixed = true;
@@ -478,7 +479,8 @@ function stageKit(kit: Kit): void {
   const lean = new THREE.Vector3(-0.55, 0.85, 0.05).normalize();
   const n = new THREE.Vector3();
   for (const [name, g] of kit.geo) {
-    if (!name.endsWith('_veg') || g.userData.staged) continue;
+    // (Round 9: the cliff plants are clumps with authored normals; only card-built ones lean.)
+    if (!name.endsWith('_veg') || g.userData.staged || g.userData.authoredNormals) continue;
     g.userData.staged = true;
     const nrm = g.getAttribute('normal') as THREE.BufferAttribute | undefined;
     if (!nrm) continue;

@@ -67,7 +67,15 @@ export function upgradeLeafMaterial(m: THREE.Material): void {
       )
       .replace(
         '#include <alphatest_fragment>',
-        `#include <alphatest_fragment>
+        `{
+          // Round 9: far away a leaf card's mipmapped alpha thins out and its pale texels average up,
+          // so distant crowns read as flat, pale cut-outs against the haze. Past ~30 m the silhouette
+          // fills in (a softer alpha threshold) and the green deepens.
+          float leafFar = smoothstep(30.0, 90.0, length(vLeafW - cameraPosition));
+          diffuseColor.a = mix(diffuseColor.a, smoothstep(0.12, 0.5, diffuseColor.a), leafFar);
+          diffuseColor.rgb *= mix(vec3(1.0), vec3(0.72, 0.82, 0.7), leafFar);
+        }
+        #include <alphatest_fragment>
         // Past the alpha test a leaf is opaque: the frame's alpha channel marks water for the
         // reflection pass, and a leaf left at its texel alpha (≤ 0.6 in the mips of a cluster)
         // was taken for water and painted over with the sky.

@@ -567,32 +567,43 @@ def planks(name, seed, width=3.6, length=4.0):
 
 
 # ------------------------------------------------------------------ round 4 set pieces: tunnel, facades, gate
+# Round 9: the tunnel is corbel-vaulted (Maya), not a Roman barrel: from the springing the courses step
+# inward until a capstone closes the vault RISE·r_in above it. corbel_inner(dz) is the half-width of
+# the opening dz above the springing.
+RISE = 1.25
+
+
+def corbel_inner(r_in, dz):
+    return max(0.0, r_in * (1.0 - dz / (RISE * r_in)))
+
+
 def _voussoirs(bm, rng, r_in, thick, zs, y0, y1, n, course=0.7, dark=0.0, far_out=None):
-    """A barrel vault from y0 to y1 over x ∈ [−r_in, r_in], springing at zs: rings of rounded wedge stones,
-    staggered between courses. Inside faces are darkened (`dark`) — soot, damp, no sky."""
+    """A corbel vault from y0 to y1 over x ∈ [−r_in, r_in], springing at zs: courses of long stones
+    stepping inward (staggered between rings along the length), closed by capstones. Inside faces
+    are darkened (`dark`) — soot, damp, no sky. (Name kept from the barrel vault it replaced.)"""
+    rise = RISE * r_in
+    levels = max(4, n // 2)
+    ch = rise / levels
     y = y0
     ring = 0
     while y < y1 - 0.05:
         cl = min(rng.uniform(course * 0.8, course * 1.2), y1 - y)
-        rot0 = (0.5 if ring % 2 else 0.0) / n
-        for i in range(n):
-            a0 = math.pi * (i + rot0) / n
-            a1 = math.pi * (i + 1 + rot0) / n
-            a0, a1 = max(0.0, a0), min(math.pi, a1)
-            if a1 - a0 < 0.05:
-                continue
-            am = (a0 + a1) / 2
-            rm = r_in + thick / 2
-            chord = 2 * rm * math.sin((a1 - a0) / 2) - 0.035
-            cx, cz = -math.cos(am) * rm, zs + math.sin(am) * rm
-            if rng.random() < 0.035 and 0.6 < am < 2.5:
-                continue  # a stone gone from the vault
-            c = sand(rng)
-            c = (c[0] * (1 - dark), c[1] * (1 - dark * 0.95), c[2] * (1 - dark * 0.85), 1)
-            drop = rng.uniform(0.0, 0.04)
-            blk(bm, rng, (chord, cl - 0.035, thick * rng.uniform(0.9, 1.05)),
-                (cx + math.cos(am) * drop, y + cl / 2, cz - math.sin(am) * drop), (0, am - math.pi / 2, rng.uniform(-0.03, 0.03)),
-                color=c, radius=0.35, erode=0.55, cuts=1, taper=0.0, uvshrink=far_out)
+        for k in range(levels):
+            dz = k * ch
+            inner = corbel_inner(r_in, dz + ch)
+            for side in (-1, 1):
+                if rng.random() < 0.03 and 0 < k < levels - 1:
+                    continue  # a stone gone from the vault
+                w = r_in + thick - inner
+                c = sand(rng)
+                c = (c[0] * (1 - dark), c[1] * (1 - dark * 0.95), c[2] * (1 - dark * 0.85), 1)
+                blk(bm, rng, (w, cl - 0.035, ch - 0.03), (side * (inner + w / 2), y + cl / 2, zs + dz + ch / 2),
+                    (0, 0, rng.uniform(-0.02, 0.02)), color=c, radius=0.22, erode=0.45, cuts=1, taper=0.0, uvshrink=far_out)
+        # Capstones closing the top.
+        c = sand(rng)
+        c = (c[0] * (1 - dark), c[1] * (1 - dark * 0.95), c[2] * (1 - dark * 0.85), 1)
+        blk(bm, rng, (2 * (r_in * 0.25) + 0.6, cl - 0.035, 0.5), (0, y + cl / 2, zs + rise + 0.25), color=c, radius=0.22, erode=0.45,
+            cuts=1, taper=0.0, uvshrink=far_out)
         y += cl
         ring += 1
 
@@ -618,12 +629,14 @@ def _backing(bm, rng, half, thick, spring, wall_d, y0, y1):
     for side in (-1, 1):
         add_stone(bm, (0.2, y1 - y0, spring + 0.4), (side * (half + wall_d * 0.72), (y0 + y1) / 2, spring / 2 - 0.2), rng=rng, color=dark,
                   radius=0.1, erode=0.0, cuts=1, taper=0.0, uvshrink=uv)
-    n = 10
+    # Two sloped slabs over the corbel courses, meeting over the capstones.
+    rise = RISE * half
     r = half + thick * 0.72
-    for i in range(n):
-        am = math.pi * (i + 0.5) / n
-        add_stone(bm, (2 * r * math.sin(math.pi / n / 2) + 0.08, y1 - y0, 0.2), (-math.cos(am) * r, (y0 + y1) / 2, spring + math.sin(am) * r),
-                  (0, am - math.pi / 2, 0), rng=rng, color=dark, radius=0.1, erode=0.0, cuts=1, taper=0.0, uvshrink=uv)
+    ln = math.hypot(r, rise + 0.6)
+    ang = math.atan2(rise + 0.6, r)
+    for side in (-1, 1):
+        add_stone(bm, (ln, y1 - y0, 0.2), (side * r / 2, (y0 + y1) / 2, spring + (rise + 0.6) / 2),
+                  (0, side * ang, 0), rng=rng, color=dark, radius=0.1, erode=0.0, cuts=1, taper=0.0, uvshrink=uv)
 
 
 def vault(name, seed, length=4.0, half=2.9, spring=3.2, thick=0.75):
@@ -658,10 +671,11 @@ def vault(name, seed, length=4.0, half=2.9, spring=3.2, thick=0.75):
     outer = {"top": 0.75, "side": 0.75, "end": 0.75, "bottom": 0.95}
     for _ in range(6):
         s = rng.uniform(0.35, 0.7)
-        a = rng.uniform(0.3, 2.8)
-        rr = half + thick + s * 0.2
-        blk(bm, rng, (s * 1.6, s * 1.4, s), (-math.cos(a) * rr, rng.uniform(0.3, length - 0.3), spring + math.sin(a) * rr),
-            (rng.uniform(-0.3, 0.3), a - math.pi / 2, rng.uniform(0, 6)), radius=0.6, erode=0.9, cuts=1, uvshrink=outer)
+        t = rng.uniform(0.0, 1.0)
+        x = (half + thick) * (1 - t) * rng.choice((-1, 1))
+        z = spring + RISE * half * t + 0.5 + s * 0.4
+        blk(bm, rng, (s * 1.6, s * 1.4, s), (x, rng.uniform(0.3, length - 0.3), z),
+            (rng.uniform(-0.3, 0.3), rng.uniform(-0.4, 0.4), rng.uniform(0, 6)), radius=0.6, erode=0.9, cuts=1, uvshrink=outer)
     drop_faces_below(bm, zmax=0.2)
     return finish_obj(name, bm, 55)
 
@@ -696,7 +710,7 @@ def tunnel_mouth(name, seed, half=2.9, spring=3.2, height=9.5, width=13.0, depth
             xc = x + bw / 2
             zc = z + ch / 2
             dz_ = zc - spring
-            in_arch = (abs(xc) < rim and zc < spring) or (dz_ >= 0 and (xc * xc + dz_ * dz_) ** 0.5 < rim + 0.1)
+            in_arch = (abs(xc) < rim and zc < spring) or (0 <= dz_ < RISE * r_arch + 1.1 and abs(xc) < corbel_inner(r_arch, dz_) + ring_t + 0.15)
             crest = height - 1.2 - abs(xc) * 0.38 + 1.4 * noise.noise(Vector((xc * 0.7, seed * 0.3, 0))) - rng.uniform(0, 0.8)
             if not in_arch and zc < crest:
                 blk(bm, rng, (bw - 0.03, depth * rng.uniform(0.85, 1.0), ch - 0.025), (xc, depth / 2 + rng.uniform(-0.06, 0.06), zc),
