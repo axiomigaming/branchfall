@@ -32,7 +32,7 @@ export const ATMOSPHERE: AtmosphereOptions = {
   sunColor: 0xf6d6a0,
   density: 0.0022,
   falloff: 0.05,
-  mistDensity: 0.016,
+  mistDensity: 0.012,
   mistHeight: 1.1,
 };
 
@@ -119,7 +119,7 @@ export function installAtmosphere(scene: THREE.Scene, sunDir: THREE.Vector3, o: 
     float fogDy = fogW.y;
     // Round 8: the first stretch of air in front of the lens is clear (in-scatter close to the
     // camera only greyed the whole frame); the haze builds beyond it, so distance keeps its depth.
-    float fogNearClear = smoothstep(8.0, 40.0, fogDist);
+    float fogNearClear = smoothstep(14.0, 70.0, fogDist); // round 10: a clear near field (crash results)
     float fogOpt = fogDensity * fogDist * fogNearClear * exp(-${o.falloff.toFixed(4)} * fogH0) * fogLayer(${o.falloff.toFixed(4)}, fogDy);
     float fogFactor = 1.0 - exp(-fogOpt);
     float fogSun = max(dot(fogDir, fogSunDir), 0.0);
@@ -170,9 +170,10 @@ function installSkyGrade(): void {
         vec3 skyD = normalize(vWorldDirection);
         float skyEl = clamp(skyD.y, 0.0, 1.0);
         float skyToSun = max(dot(skyD, normalize(skySun)), 0.0);
-        float zen = smoothstep(0.06, 0.6, skyEl) * (1.0 - pow(skyToSun, 5.0) * 0.85);
+        float zen = smoothstep(0.02, 0.5, skyEl) * (1.0 - pow(skyToSun, 6.0) * 0.8);
         float skyL = dot(texColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-        texColor.rgb = mix(texColor.rgb, skyL * vec3(0.6, 0.93, 1.42), zen * 0.6) * (1.0 - zen * 0.14);
+        // Round 10: further toward teal-blue (portrait frames are 35–45 % sky).
+        texColor.rgb = mix(texColor.rgb, skyL * vec3(0.5, 0.9, 1.5), zen * 0.85) * (1.0 - zen * 0.2);
         texColor.rgb *= mix(vec3(1.0), vec3(1.07, 1.0, 0.88), pow(skyToSun, 3.0) * (1.0 - skyEl));
       }`,
     );
