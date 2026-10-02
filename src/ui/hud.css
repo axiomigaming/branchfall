@@ -266,7 +266,7 @@
 @keyframes fellShake { 20% { translate: -4px 2px; } 40% { translate: 4px -2px; } 60% { translate: -2px 1px; } 80% { translate: 1px 0; } }
 /* Phones: the card sits in the upper third, clear of the runner. */
 @media (max-width: 760px) {
-  .result { --hud-top: 11vh; }
+  .result { --hud-top: 112px; }
 }
 
 /* desktop: a compact result card (headline, number, one line, Verify) so the runner stays in view */
