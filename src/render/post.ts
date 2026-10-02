@@ -1,13 +1,11 @@
 import * as THREE from 'three';
 import {
-  BlendFunction,
   BloomEffect,
   Effect,
   EffectAttribute,
   EffectComposer,
   EffectPass,
   FXAAEffect,
-  NoiseEffect,
   RenderPass,
   SMAAEffect,
   ToneMappingEffect,
@@ -127,14 +125,13 @@ class SunShaftsEffect extends Effect {
       uniform float strength;
       uniform float aspectRatio;
       uniform vec3 tint;
-      float ign2(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
       void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
         if (strength < 0.001) { outputColor = inputColor; return; }
         vec2 delta = sunPos - uv;
-        // A small dither, centred on the half step: a full 0..1 jitter breaks the march's banding
-        // but prints the noise's lattice over the whole sky as a halftone. ±0.2 of a step keeps the
-        // bands broken up where they would show (the hard edges of occluders) and the sky clean.
-        float jitter = 0.5 + (ign2(gl_FragCoord.xy) - 0.5) * 0.4;
+        // No per-pixel dither: even at ±0.2 of a step its lattice survived the upscale to the screen
+        // as a crosshatch over the haze. The march samples at the half step; the extra taps per tier
+        // (see QUALITY.godRays) keep the bands fine enough to read as rays.
+        const float jitter = 0.5;
         vec3 acc = vec3(0.0);
         float open = 0.0;
         for (int i = 0; i < ${samples}; i++) {
@@ -551,6 +548,7 @@ export class Post {
   private invVP = new THREE.Matrix4();
   private hasPrev = false;
   private flareOn = true;
+  private near = -1;
   private exposureK = 1;
 
   constructor(
@@ -588,12 +586,11 @@ export class Post {
     this.exposureK = q.bloom ? 1 : 1.07;
     this.flareOn = q.lensFlare;
     const tone = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
-    const grain = new NoiseEffect({ premultiply: true, blendFunction: BlendFunction.SCREEN });
-    // Film grain, kept below what reads as dirt on a phone (was 0.035).
-    grain.blendMode.opacity.value = 0.018;
+    // No film grain: per-pixel noise drawn below the screen's pixel ratio and stretched by the
+    // browser reads as a dirty crosshatch over the fog and sky on a phone.
     const effects: Effect[] = [this.sharpen, this.lens];
     if (this.bloom) effects.push(this.bloom);
-    effects.push(tone, this.grade, this.vignette, grain);
+    effects.push(tone, this.grade, this.vignette);
     this.composer.addPass(new EffectPass(this.camera, ...effects));
     if (q.smaa) this.composer.addPass(new EffectPass(this.camera, new SMAAEffect()));
     else if (q.fxaa) this.composer.addPass(new EffectPass(this.camera, new FXAAEffect()));
@@ -691,6 +688,13 @@ export class Post {
 
   render(dt: number): void {
     this.updateSun();
+    // The rig moves the near plane (a far one on the title fly-over); depth-reading effects copy the
+    // camera's near/far only when built, so re-copy on a change or their depth would be wrong.
+    const cam = this.camera as THREE.PerspectiveCamera;
+    if (cam.near !== this.near) {
+      this.near = cam.near;
+      for (const p of this.composer.passes) (p.fullscreenMaterial as { copyCameraSettings?: (c: THREE.Camera) => void } | null)?.copyCameraSettings?.(cam);
+    }
     if (this.ao) {
       const pm = (this.camera as THREE.PerspectiveCamera).projectionMatrix.elements;
       this.ao.uniforms.get('projInfo')!.value.set(1 / pm[0]!, 1 / pm[5]!);
