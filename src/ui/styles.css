@@ -867,3 +867,17 @@ input[type='range']:focus-visible::-webkit-slider-thumb { filter: var(--ring-on)
 /* the history strip says what it is; the tally you cashed out on wears a gold gem, not mint */
 .hist-k { font-family: var(--f-display); font-size: 11px; letter-spacing: 0.12em; color: var(--ivory); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.8), 0 0 8px rgba(0, 0, 0, 0.6); white-space: nowrap; margin-right: 2px; }
 .chip.mine::after { background: var(--gold-1); box-shadow: 0 0 6px rgba(255, 200, 90, 0.9); }
+
+/* ------------------------------------------------------------------ history: quiet, never a near miss */
+.history .chip { color: var(--ivory); }
+.history .chip::after { display: none; }
+.history { transition: opacity 0.3s; }
+.history.quiet { opacity: 0.55; }
+.hist-k { font-family: var(--f); font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-2); }
+.hhead { display: grid; grid-template-columns: 76px 1fr; gap: 16px; padding: 0 16px 4px; font-family: var(--f-display); font-size: 12px; letter-spacing: 0.12em; color: var(--gold-1); }
+@media (max-width: 760px) {
+  /* the strip keeps its own row under the bar; the result card starts below that row */
+  .history { margin: 2px 0 0 2px; gap: 4px; }
+  .history .chip { padding: 6px 7px; font-size: 11.5px; }
+
+}
