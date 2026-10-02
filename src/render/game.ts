@@ -5,6 +5,7 @@ import { Rng, hashString } from '../engine/rng';
 import { loadKit, pickAssetSet, wind, type Kit } from '../world/assets';
 import { DynamicResolution, warmUp } from './perf';
 import { installShadowEdgeFade } from './shadows';
+import { ContactShadow } from './contact';
 import { installAtmosphere, patchFogUniforms, setAtmosphereMist, setAtmosphereSun } from '../world/atmosphere';
 import { Debris } from '../world/debris';
 import { forward } from '../world/path';
@@ -70,6 +71,7 @@ export class Game {
   private debris!: Debris;
   private particles = new Particles(1100);
   private motes = new Motes(420);
+  private contact = new ContactShadow(); // grounds the runner on every tier
   private ambient = new Ambient(); // world art: birds, butterflies, leaves
   /** Cinematic effects: lit dust, water shockwaves, cracks, birds, sun shafts, escape rim. */
   private cine = new Fx();
@@ -205,6 +207,8 @@ export class Game {
     this.runner = new Runner(kit);
     this.runner.onFootstep = (foot, k) => this.footstep(foot, k);
     scene.add(this.runner.root);
+    this.contact.attach(this.runner.root);
+    scene.add(this.contact.mesh);
     scene.add(this.particles.points, this.motes.points, this.ambient.root);
     // Cinematic fx (before the fog patch and the program warm-up below).
     this.cine.attachRunner(this.runner.root);
@@ -1341,6 +1345,8 @@ export class Game {
       this.runner.lookAt(k > 7 && k < 9.5 ? this.rig.camera.position : null, 0.6);
     } else this.runner.lookAt(null);
     this.runner.update(dt, this.speed);
+    // Contact shadow: on the floor under him (it fades by itself as a fall takes him off it).
+    this.contact.update(this.runner.root);
     // Braking: the soles scour the floor.
     if (this.stage === 'crash' && this.speed > 1.5) {
       const rp0 = this.runner.root.position;

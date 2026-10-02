@@ -173,8 +173,10 @@ export class CameraRig {
   /** A footfall: the operator is running too. */
   footfall(strength: number, foot: 'L' | 'R'): void {
     if (this.mode !== 'run' && this.mode !== 'lead') return;
-    this.bobV -= (0.18 + 0.3 * strength) * this.motionScale;
+    this.bobV -= (0.22 + 0.34 * strength) * this.motionScale;
     this.swayV += (foot === 'L' ? -1 : 1) * 0.06 * strength * this.motionScale;
+    // Each plant flares the lens open a hair, more as he drives: the cadence is felt, not only seen.
+    if (this.mode === 'run') this.fovKick += (0.35 + 0.25 * Math.min(4, this.drive) * 0.25) * strength * this.motionScale;
   }
 
   /**
@@ -266,10 +268,14 @@ export class CameraRig {
         const period = this.motionScale < 1 ? 90 : 46;
         const c = ease(0.5 - 0.5 * Math.cos((2 * Math.PI * this.t) / period));
         const drift = Math.sin(this.t * 0.11) * 0.25;
+        // On a tall screen the lens opens ~40 % wider vertically, so at 5.4 m the high pass looked
+        // straight into the crowns of the arches over the road (7–8 m): big soft blocks across the
+        // top of every phone title. There it rides above them instead.
+        const tall = Math.min(1, Math.max(0, (1 - this.camera.aspect) / 0.5));
         fov = this.shot(runnerPos, {
           along: lerp(-8.5, -2.3, c),
           lat: lerp(-0.5, -1.45, c) + drift,
-          up: lerp(5.4, 1.05, Math.pow(c, 1.5)),
+          up: lerp(5.4 + 4.4 * tall, 1.05, Math.pow(c, 1.5)),
           lAlong: lerp(22, 6, c),
           lLat: lerp(0.2, 0.95, c),
           lUp: lerp(0.4, 1.55, c),
@@ -306,7 +312,10 @@ export class CameraRig {
         const hi = Math.max(0, d - 2.5);
         const dist = 2.2 + 0.3 * I - 0.1 * hi;
         const drift = 0.22 * I * Math.sin(this.t * 0.37) * this.motionScale;
-        fov = this.shot(runnerPos, this.fitInBand(F(-dist, 0.3 + drift, 1.55 - 0.06 * I - 0.05 * hi, 9, 0.35 + drift * 0.4, 1.1, 60 + 16 * I + 2 * hi)));
+        // Round 8: a three-quarter view over his right shoulder, a hand lower than before. Straight
+        // from behind the forward lean of the run (9°) and the sprint (17°) vanished into his own
+        // silhouette and read as an upright jog; from the side and below it reads as drive.
+        fov = this.shot(runnerPos, this.fitInBand(F(-dist, 0.72 + drift, 1.34 - 0.06 * I - 0.05 * hi, 9, 0.6 + drift * 0.4, 1.0, 60 + 16 * I + 2 * hi)));
         break;
       }
       case 'crash': {
@@ -617,6 +626,14 @@ export class CameraRig {
     this.camera.rotateZ((Math.sin(t * 13.1) * 0.5 + Math.sin(t * 7.7)) * amp * 0.25 + this.dutch + hr);
     this.camera.fov = this.fov;
     this.revealK += ((this.revealed && (this.mode === 'crash' || this.mode === 'cashout') ? 1 : 0) - this.revealK) * (1 - Math.exp(-dt * 2.5));
+    // The title fly-over rides high over the causeway, level with the arch crowns: their stones
+    // passed a metre or two above the lens and filled the top of a phone frame as huge, soft blocks.
+    // Nothing the title is about is nearer than the runner, so its near plane follows him: up to
+    // 6.5 m out on the high pass (the floor is ≥ 9 m below it there), ~1.5 m on the low pass.
+    if (this.mode === 'title') {
+      const d = this.camera.position.distanceTo(this.tmp.copy(runnerPos).setY(runnerPos.y + 1));
+      this.camera.near = Math.min(6.5, Math.max(0.1, 0.55 * d));
+    } else this.camera.near = 0.1;
     this.applyShift(dt);
     this.camera.updateProjectionMatrix();
   }
