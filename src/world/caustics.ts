@@ -15,6 +15,8 @@ export const MAX_FEET = 6;
 export const causticUniforms = {
   uCausticTime: { value: 0 },
   uCausticStrength: { value: 1 },
+  /** Procedural detail normals on the near stone (0 = off: the lightest tier). */
+  uDetail: { value: 1 },
   /** xyz: foot of a waterfall (world), w: reach of its spray (m). w = 0: unused. */
   uFeet: { value: Array.from({ length: MAX_FEET }, () => new THREE.Vector4(0, -1e4, 0, 0)) },
 };
@@ -67,6 +69,44 @@ float wetAt(vec3 p) {
   return wet;
 }`;
 
+// Round 8: detail normals. The baked atlases hold the shape of each stone; up close they read as
+// soft clay. A height field in world space — chisel pits, a fine grain and hairline cracks — is
+// turned into a normal through screen-space derivatives (Mikkelsen's surface gradient, unnormalised
+// so the tilt is in world units and holds at any distance). No textures, nothing to download.
+const DETAIL_PARS = /* glsl */ `
+uniform float uDetail;
+float dtH(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+float dtN(vec3 p) {
+  vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(dtH(i), dtH(i + vec3(1, 0, 0)), f.x), mix(dtH(i + vec3(0, 1, 0)), dtH(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(dtH(i + vec3(0, 0, 1)), dtH(i + vec3(1, 0, 1)), f.x), mix(dtH(i + vec3(0, 1, 1)), dtH(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+float detailHeight(vec3 p, float px) {
+  // Each octave fades out before it is finer than a couple of pixels (no shimmer at a distance).
+  float h = 0.0;
+  h += (dtN(p * 7.0) - 0.5) * 0.0045 * (1.0 - smoothstep(0.08, 0.3, px * 7.0));
+  h += (dtN(p * 23.0 + 3.1) - 0.5) * 0.0016 * (1.0 - smoothstep(0.08, 0.3, px * 23.0));
+  float c = abs(dtN(p * vec3(1.7, 2.3, 1.9) + 7.0) - 0.5);
+  h -= (1.0 - smoothstep(0.0, 0.035, c)) * 0.0035 * (1.0 - smoothstep(0.05, 0.25, px * 4.0));
+  return h;
+}`;
+
+const FRAG_DETAIL = /* glsl */ `
+if (uDetail > 0.0) {
+  float dist = length(vViewPosition);
+  float px = length(fwidth(vWetPos));
+  float k = uDetail * DETAIL_AMP * (1.0 - smoothstep(16.0, 34.0, dist));
+  float h = detailHeight(vWetPos, px) * k;
+  vec3 sp = -vViewPosition;
+  vec3 sx = dFdx(sp), sy = dFdy(sp);
+  vec3 r1 = cross(sy, normal), r2 = cross(normal, sx);
+  float det = dot(sx, r1) * faceDirection;
+  vec3 g = sign(det) * (dFdx(h) * r1 + dFdy(h) * r2);
+  normal = normalize(abs(det) * normal - g);
+  // The chisel pits and cracks hold a little dirt.
+  diffuseColor.rgb *= 1.0 + clamp(h * 140.0, -0.22, 0.08);
+}`;
+
 const FRAG_WET = /* glsl */ `
 #ifdef WET_MOSS
 {
@@ -98,7 +138,7 @@ const FRAG_CAUSTIC = /* glsl */ `
 }`;
 
 /** Patch a standard material (once). Chains any existing onBeforeCompile. */
-export function patchWetStone(m: THREE.Material, caustics = true, moss = false): void {
+export function patchWetStone(m: THREE.Material, caustics = true, moss = false, detail = 0): void {
   const sm = m as THREE.MeshStandardMaterial;
   if (!sm.isMeshStandardMaterial || sm.userData.wetStone) return;
   sm.userData.wetStone = true;
@@ -108,15 +148,17 @@ export function patchWetStone(m: THREE.Material, caustics = true, moss = false):
     prev?.call(sm, shader, renderer);
     Object.assign(shader.uniforms, causticUniforms);
     if (moss) shader.fragmentShader = '#define WET_MOSS\n' + shader.fragmentShader;
+    if (detail > 0) shader.fragmentShader = `#define DETAIL_AMP ${detail.toFixed(3)}\n` + shader.fragmentShader;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${VERT_PARS}`)
       .replace('#include <project_vertex>', `#include <project_vertex>\n${VERT}`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\n${FRAG_PARS}`)
+      .replace('#include <common>', `#include <common>\n${FRAG_PARS}\n${detail > 0 ? DETAIL_PARS : ''}`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${detail > 0 ? FRAG_DETAIL : ''}`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\n${FRAG_WET}`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${caustics ? FRAG_CAUSTIC : ''}`);
   };
-  sm.customProgramCacheKey = () => `${prevKey?.() ?? ''}|wet${caustics ? 'c' : ''}${moss ? 'm' : ''}`;
+  sm.customProgramCacheKey = () => `${prevKey?.() ?? ''}|wet${caustics ? 'c' : ''}${moss ? 'm' : ''}${detail}`;
   sm.needsUpdate = true;
 }
 

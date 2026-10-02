@@ -116,19 +116,22 @@ export function installAtmosphere(scene: THREE.Scene, sunDir: THREE.Vector3, o: 
     vec3 fogDir = fogW / max(fogDist, 1e-4);
     float fogH0 = max(cameraPosition.y - (${WATER_Y.toFixed(2)}), 0.0);
     float fogDy = fogW.y;
-    float fogOpt = fogDensity * fogDist * exp(-${o.falloff.toFixed(4)} * fogH0) * fogLayer(${o.falloff.toFixed(4)}, fogDy);
+    // Round 8: the first stretch of air in front of the lens is clear (in-scatter close to the
+    // camera only greyed the whole frame); the haze builds beyond it, so distance keeps its depth.
+    float fogNearClear = smoothstep(8.0, 40.0, fogDist);
+    float fogOpt = fogDensity * fogDist * fogNearClear * exp(-${o.falloff.toFixed(4)} * fogH0) * fogLayer(${o.falloff.toFixed(4)}, fogDy);
     float fogFactor = 1.0 - exp(-fogOpt);
     float fogSun = max(dot(fogDir, fogSunDir), 0.0);
     // Warm only close around the sun: a broad warm in-scatter laid a milky veil over every
     // sun-facing frame (round 5).
-    vec3 fogCol = mix(fogColor, ${glslVec3(sun)}, pow(fogSun, 14.0) * 0.45);
+    vec3 fogCol = mix(fogColor, ${glslVec3(sun)}, pow(fogSun, 18.0) * 0.35);
     // Far away the haze thickens to the sky's own horizon colour.
-    gl_FragColor.rgb = mix(gl_FragColor.rgb, fogCol, clamp(fogFactor, 0.0, 0.94));
+    gl_FragColor.rgb = mix(gl_FragColor.rgb, fogCol, clamp(fogFactor, 0.0, 0.86));
     if (fogMist.y > 0.0) {
       // Mist lying on the water: a thin exponential layer, drifting in slow banks.
       float mb = ${(1 / o.mistHeight).toFixed(4)};
       float mh = max(cameraPosition.y - (${WATER_Y.toFixed(2)}), 0.0);
-      float mOpt = ${o.mistDensity.toFixed(4)} * fogMist.y * fogDist * exp(-mb * mh) * fogLayer(mb, fogDy);
+      float mOpt = ${o.mistDensity.toFixed(4)} * fogMist.y * fogDist * fogNearClear * exp(-mb * mh) * fogLayer(mb, fogDy);
       vec3 fogP = cameraPosition + fogW;
       float bank = 0.55 + 0.45 * sin(fogP.x * 0.07 + fogMist.x * 0.11) * sin(fogP.z * 0.05 - fogMist.x * 0.07 + 1.3);
       float mist = (1.0 - exp(-mOpt * bank)) * 0.5;
