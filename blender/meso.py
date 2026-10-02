@@ -152,14 +152,14 @@ def glyph_panel(bm, rng, cx, y, cz, w, h, axis="x"):
         ch = h / rows
         for j in range(rows):
             z = cz - h / 2 + ch * (j + 0.5)
-            box(bm, rng, (cell * 0.88, 0.1, ch * 0.88), (x, y - 0.02, z), jitter_color(rng.choice(LIME_DARK), rng, 0.05, 0.02), chip=0.0, bevel=0.02)
+            box(bm, rng, (cell * 0.88, 0.1, ch * 0.88), (x, y - 0.02, z), jitter_color(rng.choice(LIME_DARK), rng, 0.05, 0.02), chip=0.0, bevel=0.0)
             # A day-sign: a ring of 2–4 raised bars and a dot.
             k = rng.randint(2, 4)
             for b in range(k):
                 bz = z - ch * 0.25 + ch * 0.5 * b / max(1, k - 1)
                 bw = cell * rng.uniform(0.35, 0.62)
-                box(bm, rng, (bw, 0.1, ch * 0.09), (x + rng.uniform(-0.08, 0.08) * cell, y - 0.07, bz), lime(rng, 0), chip=0.0, bevel=0.015)
-            box(bm, rng, (cell * 0.14, 0.1, cell * 0.14), (x + cell * 0.27, y - 0.08, z + ch * 0.27), lime(rng, 0), chip=0.0, bevel=0.015)
+                box(bm, rng, (bw, 0.1, ch * 0.09), (x + rng.uniform(-0.08, 0.08) * cell, y - 0.07, bz), lime(rng, 0), chip=0.0, bevel=0.0)
+            box(bm, rng, (cell * 0.14, 0.1, cell * 0.14), (x + cell * 0.27, y - 0.08, z + ch * 0.27), lime(rng, 0), chip=0.0, bevel=0.0)
 
 
 def fret_frieze(bm, rng, x0, x1, y, z, h):
@@ -169,9 +169,9 @@ def fret_frieze(bm, rng, x0, x1, y, z, h):
     k = 0
     while x < x1 - w * 0.5:
         c = lime(rng, 0.04)
-        box(bm, rng, (w * 0.45, 0.22, h * 0.32), (x + w * 0.22, y - 0.1, z - h * 0.3), c, chip=0.05)
-        box(bm, rng, (w * 0.22, 0.22, h * 0.6), (x + w * 0.5, y - 0.1, z - h * 0.05), c, chip=0.05)
-        box(bm, rng, (w * 0.45, 0.22, h * 0.3), (x + w * 0.72, y - 0.1, z + h * 0.3), c, chip=0.05)
+        box(bm, rng, (w * 0.45, 0.22, h * 0.32), (x + w * 0.22, y - 0.1, z - h * 0.3), c, chip=0.0, bevel=0.0)
+        box(bm, rng, (w * 0.22, 0.22, h * 0.6), (x + w * 0.5, y - 0.1, z - h * 0.05), c, chip=0.0, bevel=0.0)
+        box(bm, rng, (w * 0.45, 0.22, h * 0.3), (x + w * 0.72, y - 0.1, z + h * 0.3), c, chip=0.0, bevel=0.0)
         x += w
         k += 1
 
@@ -431,19 +431,170 @@ def serpent_post(name, seed, s=0.85):
 
 
 def pillar_cap(name, seed, w=1.3):
-    """A carved capital for the round pillars (pillar_0 is 5 m tall, r 0.42): a glyph-carved block under a
-    square abacus, a cartouche on each face."""
+    """Round 10: a stepped (inverted talud-tablero) capital for the square piers — three widening courses,
+    a fret band, and a serpent head looking out from one face. Not a Doric echinus."""
     rng = random.Random(seed)
     bm = bmesh.new()
-    box(bm, rng, (w * 0.78, w * 0.78, 0.5), (0, 0, 0.25), lime(rng, 0.1))
+    z = 0.0
+    for k, (ww, hh) in enumerate(((0.95, 0.22), (1.15, 0.24), (1.38, 0.34))):
+        box(bm, rng, (ww, ww, hh), (0, 0, z + hh / 2), lime(rng, 0.15 if k < 2 else 0.25), chip=0.25)
+        z += hh
     for a in range(4):
         t = bmesh.new()
-        glyph_panel(t, rng, 0, -w * 0.39 - 0.01, 0.25, w * 0.6, 0.36)
+        fret_frieze(t, rng, -0.62, 0.62, -0.69 - 0.02, z - 0.17, 0.22)
         bmesh.ops.transform(t, matrix=Matrix.Rotation(a * math.pi / 2, 4, "Z"), verts=t.verts)
-        me = bpy.data.meshes.new("_pc")
-        t.to_mesh(me)
-        t.free()
-        bm.from_mesh(me)
-        bpy.data.meshes.remove(me)
-    box(bm, rng, (w, w, 0.26), (0, 0, 0.63), lime(rng, 0.25), chip=0.3)
+        _merge_bm(bm, t)
+    serpent_head(bm, rng, (0, -0.65, 0.05), 0.0, 0.42)
+    return finish_obj(name, bm, 40)
+
+
+# ------------------------------------------------------------------ round 10: bold glyphs, piers, the door
+GLYPH_RAISED = hexcol("#d6c9a8")
+GLYPH_GROUND = hexcol("#5e5442")
+
+
+def cartouche(bm, rng, x, y, z, s, motif=None):
+    """One bold glyph block, s × s, facing −Y with its front at y: a dark sunk ground, a raised rounded
+    frame and a simple, chunky sign (legible at phone size, unlike fine strokes). Motifs: 0 a face
+    (ahau: two eyes and a mouth), 1 a kan cross, 2 a bar-and-dot numeral, 3 a stepped spiral, 4 three bars."""
+    motif = rng.randint(0, 4) if motif is None else motif
+    box(bm, rng, (s, 0.12, s), (x, y + 0.06, z), GLYPH_GROUND, bevel=0.0, chip=0.0)
+    t = s * 0.13
+    for dx, dz, w, h in ((0, s / 2 - t / 2, s, t), (0, -s / 2 + t / 2, s, t), (-s / 2 + t / 2, 0, t, s - 2 * t), (s / 2 - t / 2, 0, t, s - 2 * t)):
+        box(bm, rng, (w, 0.16, h), (x + dx, y - 0.02, z + dz), GLYPH_RAISED, bevel=0.0, chip=0.0)
+    u = s * 0.12
+
+    def R(dx, dz, w, h):
+        box(bm, rng, (w * s, 0.16, h * s), (x + dx * s, y - 0.02, z + dz * s), GLYPH_RAISED, bevel=0.0, chip=0.0)
+
+    if motif == 0:
+        R(-0.17, 0.12, 0.18, 0.18); R(0.17, 0.12, 0.18, 0.18); R(0, -0.18, 0.42, 0.1); R(0, -0.06, 0.1, 0.12)
+    elif motif == 1:
+        R(0, 0, 0.5, 0.14); R(0, 0, 0.14, 0.5)
+    elif motif == 2:
+        R(0, -0.16, 0.56, 0.1); R(0, -0.02, 0.56, 0.1)
+        for k in (-1, 0, 1):
+            R(k * 0.18, 0.18, 0.1, 0.1)
+    elif motif == 3:
+        R(-0.12, 0.14, 0.32, 0.1); R(0.03, 0.0, 0.1, 0.26); R(0.12, -0.14, 0.32, 0.1); R(-0.2, -0.04, 0.1, 0.26)
+    else:
+        for k in (-1, 0, 1):
+            R(k * 0.17, 0, 0.1, 0.5)
+    del u
+
+
+def glyph_grid(bm, rng, cx, y, cz, cols, rows, s, gap=0.08):
+    w = cols * s + (cols - 1) * gap
+    h = rows * s + (rows - 1) * gap
+    for i in range(cols):
+        for j in range(rows):
+            cartouche(bm, rng, cx - w / 2 + s / 2 + i * (s + gap), y, cz - h / 2 + s / 2 + j * (s + gap), s)
+
+
+def square_pier(name, seed, height=5.0, w=0.95, broken=False):
+    """A square limestone pier (Maya, not a Greek drum column): a stepped base, squared courses with a
+    band of glyph blocks on all four faces, broken piers stop short in a ragged top."""
+    rng = random.Random(seed)
+    bm = bmesh.new()
+    box(bm, rng, (w * 1.45, w * 1.45, 0.3), (0, 0, 0.15 - 0.1), lime(rng, 0.25), chip=0.3)
+    box(bm, rng, (w * 1.2, w * 1.2, 0.25), (0, 0, 0.32), lime(rng, 0.2), chip=0.3)
+    top = height if not broken else height * rng.uniform(0.38, 0.62)
+    z = 0.45
+    band_z = 0.45 + (height - 0.45) * 0.62
+    while z < top - 0.1:
+        h = min(rng.uniform(0.5, 0.75), top - z)
+        ox, oy = rng.uniform(-0.02, 0.02), rng.uniform(-0.02, 0.02)
+        if broken and z + h >= top - 0.1:
+            box(bm, rng, (w * rng.uniform(0.6, 0.9), w * rng.uniform(0.6, 0.9), h), (ox, oy, z + h / 2), lime(rng, 0.3),
+                rot=(rng.uniform(-0.1, 0.1), rng.uniform(-0.1, 0.1), rng.uniform(-0.3, 0.3)), chip=0.6)
+        else:
+            box(bm, rng, (w, w, h - 0.025), (ox, oy, z + h / 2), lime(rng, 0.15), rot=(0, 0, rng.uniform(-0.03, 0.03)), chip=0.2)
+        z += h
+    if top > band_z + 0.5:
+        for a in range(4):
+            t = bmesh.new()
+            glyph_grid(t, rng, 0, -w / 2 - 0.01, band_z + 0.25, 2, 1, w * 0.4, 0.04)
+            bmesh.ops.transform(t, matrix=Matrix.Rotation(a * math.pi / 2, 4, "Z"), verts=t.verts)
+            _merge_bm(bm, t)
+    if broken:
+        for _ in range(3):
+            s = rng.uniform(0.18, 0.32)
+            box(bm, rng, (s * 1.4, s, s * 0.8), (rng.uniform(-1, 1), rng.uniform(-1, 1), s * 0.3), lime(rng, 0.4),
+                rot=(0.2, 0.1, rng.uniform(0, 6)), chip=0.6)
+    return finish_obj(name, bm, 40)
+
+
+def _merge_bm(bm, t):
+    me = bpy.data.meshes.new("_mb")
+    t.to_mesh(me)
+    t.free()
+    bm.from_mesh(me)
+    bpy.data.meshes.remove(me)
+
+
+def door_slab(name, seed, w=6.2, h=6.0, d=0.8):
+    """The carved stone that drops across the path when the way falls (game.ts dresses it: the mask fills
+    the roundel 3.3 m up, r 1.35). A plain bevelled frame, a sunk roundel, and two columns of bold glyph
+    blocks either side; the back face carries a glyph grid too."""
+    rng = random.Random(seed)
+    bm = bmesh.new()
+    box(bm, rng, (w, d, h), (0, 0, h / 2), lime(rng, 0.05), bevel=0.06, chip=0.05)
+    fr = 0.32
+    for x, z, ww, hh in ((0, h - fr / 2, w, fr), (0, fr / 2, w, fr), (-w / 2 + fr / 2, h / 2, fr, h - 2 * fr), (w / 2 - fr / 2, h / 2, fr, h - 2 * fr)):
+        for sy in (-1, 1):
+            box(bm, rng, (ww, 0.1, hh), (x, sy * (d / 2 + 0.04), z), lime(rng, 0.0), bevel=0.03, chip=0.0)
+    # The roundel the mask sits in: a dark sunk disc in a raised ring.
+    for r0, r1, y, col in ((1.42, 1.42, -d / 2 - 0.06, GLYPH_RAISED), (1.25, 1.25, -d / 2 - 0.1, GLYPH_GROUND)):
+        t = _cyl(r0, r1, 0.14 if col is GLYPH_RAISED else 0.1, 40, Matrix.Translation((0, y + 0.07, h * 0.55)) @ Matrix.Rotation(math.pi / 2, 4, "X"))
+        _merge(bm, t, col)
+    s = 0.84
+    for sx in (-1, 1):
+        glyph_grid(bm, rng, sx * 2.2, -d / 2 - 0.02, h * 0.5, 1, 4, s, 0.12)
+    t = bmesh.new()
+    glyph_grid(t, rng, 0, -d / 2 - 0.02, h * 0.5, 3, 3, 0.95, 0.2)
+    bmesh.ops.transform(t, matrix=Matrix.Rotation(math.pi, 4, "Z"), verts=t.verts)
+    _merge_bm(bm, t)
+    return finish_obj(name, bm, 40)
+
+
+def relief_wall(name, seed, length=4.0, depth=0.9):
+    """Dressed ashlar with a band of bold glyph blocks on both faces under a projecting cornice. Runs along
+    +Y like the wall pieces (the FX door also wears it as a carved band)."""
+    rng = random.Random(seed)
+    hgt = 3.4
+
+    def body(bm):
+        z = -0.35
+        for ci, ch in enumerate([0.6, 0.7]):
+            x = -rng.uniform(0, 0.5) if ci % 2 else 0.0
+            while x < length - 0.05:
+                bw = min(rng.uniform(1.0, 1.7), length - max(x, 0.0))
+                x0 = max(x, 0.0)
+                box(bm, rng, (bw - 0.03, depth / 2, ch - 0.03), (x0 + bw / 2, -depth / 4, z + ch / 2), lime(rng, 0.15), chip=0.2)
+                x = x0 + bw
+            z += ch
+        band = 1.5
+        box(bm, rng, (length - 0.02, depth / 2, band), (length / 2, -depth / 4, z + band / 2), lime(rng, 0.05), chip=0.05)
+        glyph_grid(bm, rng, length / 2, -depth / 2 - 0.02, z + band / 2, 4, 2, 0.66, 0.16)
+        z += band
+        box(bm, rng, (length - 0.02, depth / 2, hgt - z - 0.25), (length / 2, -depth / 4, (z + hgt - 0.25) / 2), lime(rng, 0.15), chip=0.2)
+        box(bm, rng, (length, depth / 2 + 0.15, 0.25), (length / 2, -depth / 4 - 0.07, hgt - 0.12), lime(rng, 0.2), chip=0.3)
+
+    return finish_obj(name, _two_faced(body, length, depth), 40)
+
+
+def stele_glyph(name, seed, w=1.4, h=3.2, d=0.55):
+    """A stele: a plinth and a slab carved with a column of bold glyph blocks on both faces."""
+    rng = random.Random(seed)
+    bm = bmesh.new()
+    box(bm, rng, (w * 1.3, d * 1.5, 0.4), (0, 0, 0.2), lime(rng, 0.3), chip=0.4)
+    box(bm, rng, (w, d, h), (0, 0, 0.4 + h / 2), lime(rng, 0.1), rot=(0, 0, rng.uniform(-0.05, 0.05)), chip=0.2)
+    rows = max(2, int(h / (w * 0.5)))
+    s = min(w * 0.38, (h - 0.4) / rows - 0.1)
+    for flip in (0, 1):
+        t = bmesh.new()
+        glyph_grid(t, rng, 0, -d / 2 - 0.01, 0.4 + h / 2, 2, rows, s, 0.08)
+        if flip:
+            bmesh.ops.transform(t, matrix=Matrix.Rotation(math.pi, 4, "Z"), verts=t.verts)
+        _merge_bm(bm, t)
     return finish_obj(name, bm, 40)

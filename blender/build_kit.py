@@ -55,15 +55,15 @@ groups["stoneA"].append(K.foundation("foundation_1", 161, height=4.0))
 
 # ---- stone B: architecture
 groups["stoneB"] += [
-    K.pillar("pillar_0", 200, height=5.0),
-    K.pillar("pillar_1", 201, height=5.0, broken=True),
-    K.pillar("pillar_2", 202, height=3.0, broken=True),
+    # Round 10: square glyph piers (the drum columns read Greco-Roman).
+    X.square_pier("pillar_0", 200, height=5.0),
+    X.square_pier("pillar_1", 201, height=5.0, broken=True),
+    X.square_pier("pillar_2", 202, height=3.0, broken=True),
     K.arch("arch_0", 210),
     K.arch("arch_1", 211, span=7.2, pier_h=4.6),
     K.stairs("stairs_0", 220),
-    K.slab_gate("gate_0", 230),
-    K.stele("stele_0", 240),
-    K.stele("stele_1", 241, w=1.1, h=2.4),
+    X.stele_glyph("stele_0", 240),
+    X.stele_glyph("stele_1", 241, w=1.1, h=2.4),
     K.drum("drum_0", 250),
     K.tower("tower_0", 260),
     K.tower("tower_1", 261, w=3.4, h=14),
@@ -92,7 +92,10 @@ groups["statue"] += [
     S.fallen_column("column_fallen_1", 721, radius=0.6, n=4),
     S.stepping_stones("steps_water_0", 730),
 ]
-groups["relief"] += [S.relief_wall("relief_wall_0", 740), S.relief_wall("relief_wall_1", 741)]
+# Round 10: the FX door (gate_0 with relief_wall_0/1 and the gold mask as children) is drawn in the statue
+# material (game.ts dressDoor), so its pieces live in the statue atlas — which now holds only near pieces
+# (the pyramids and the gateway moved to their own "temple" atlas), for texel density on the door.
+groups["statue"] += [X.door_slab("gate_0", 230), X.relief_wall("relief_wall_0", 740), X.relief_wall("relief_wall_1", 741)]
 # Round 9: carved parapets, serpent posts and pillar capitals share the glyph atlas (and its carving).
 groups["relief"] += [X.carved_wall("wall_carved_0", 1300), X.carved_wall("wall_carved_1", 1301, ruin=0.5),
                      X.serpent_post("serpent_0", 1310), X.pillar_cap("pillar_cap_0", 1320)]
@@ -171,12 +174,12 @@ for i, (h, ln) in enumerate([(18, 24), (23, 24), (27, 28)]):
     groups["bark"].append(t)
 # Temples share the statuary atlas (mid-distance pieces; packed tight, there is room).
 # Round 8: Mesoamerican, not Khmer — talud-tablero pyramids, a corbel-vaulted gateway, an angular mask.
-groups["statue"] += [X.step_pyramid("temple_0", 930), X.step_pyramid("temple_1", 931, base=12.0, tiers=4, ruin=0.6)]
+groups["temple"] = [X.step_pyramid("temple_0", 930), X.step_pyramid("temple_1", 931, base=12.0, tiers=4, ruin=0.6)]
 s_, g_ = X.face_gate("face_gate_0", 950)
-groups["statue"].append(s_)
+groups["temple"].append(s_)
 groups["gold"].append(g_)
 s_, g_ = X.idol("idol_0", 940)
-groups["statue"].append(s_)
+groups["temple"].append(s_)
 groups["gold"].append(g_)
 for i in range(2):
     t, c = J.tree_big(f"tree_big_{i}", 920 + i, height=13 + 3 * i)
@@ -201,12 +204,14 @@ mats = {
     "flora": (M.flora("flora"), 1024),
     "cliff": (M.cliff("cliff"), 2048),
     "gold": (M.gold("gold"), 1024),
+    "temple": (M.stone("temple", moss=0.5, glyphs=False), 512),  # far pieces; keeps the High set under budget
 }
 # The gate and stelae carry carved glyphs: give them their own small atlas.
 glyph_objs = [o for o in groups["stoneB"] if o.name.startswith(("gate_", "stele_"))]
 groups["stoneB"] = [o for o in groups["stoneB"] if o not in glyph_objs]
 groups["glyph"] = glyph_objs + groups.pop("relief")
-mats["glyph"] = (M.stone("glyph", moss=0.35, glyphs=True), 2048)
+# Round 10: no procedural glyph strokes (they read as smeared letters): the carving is geometry now.
+mats["glyph"] = (M.stone("glyph", moss=0.35, glyphs=False), 2048)
 
 # KIT_REUSE=<dir> (with KIT_REUSE_GROUPS=a,b,…): for groups whose pieces and materials did not change,
 # lay out the UVs exactly as a full bake does (packing is deterministic) and take the atlases from a
@@ -241,7 +246,9 @@ SRC_HASH = hashlib.sha256(b"".join(open(os.path.join(os.path.dirname(__file__), 
 
 def group_hash(objs, key, size):
     import numpy as np
-    h = hashlib.sha256(f"{SRC_HASH}|{key}|{size}|{FAST}".encode())
+    # MAT_TAG: bump when a group's material arguments change in this file (not covered by SRC_HASH).
+    MAT_TAG = {"glyph": "geom-glyphs-r10"}
+    h = hashlib.sha256(f"{SRC_HASH}|{key}|{size}|{FAST}|{MAT_TAG.get(key, '')}".encode())
     for o in objs:
         me = o.data
         h.update(o.name.encode())

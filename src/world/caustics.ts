@@ -51,11 +51,15 @@ float causticAt(vec2 w, float t) {
   for (int n = 0; n < 3; n++) {
     float tt = t * (1.0 - (3.5 / float(n + 1)));
     i = p + vec2(cos(tt - i.x) + sin(tt + i.y), sin(tt - i.y) + cos(tt + i.x));
-    c += 1.0 / length(vec2(p.x / (sin(i.x + tt) / 0.005), p.y / (cos(i.y + tt) / 0.005)));
+    // (Guarded: a sine of exactly 0 divided by zero; keep every term finite.)
+    float sx = sin(i.x + tt), sy = cos(i.y + tt);
+    sx = (sx < 0.0 ? -1.0 : 1.0) * max(abs(sx), 1e-3);
+    sy = (sy < 0.0 ? -1.0 : 1.0) * max(abs(sy), 1e-3);
+    c += 1.0 / max(length(vec2(p.x * 0.005 / sx, p.y * 0.005 / sy)), 1e-3);
   }
-  c /= 3.0;
+  c = clamp(c / 3.0, 0.0, 8.0);
   c = 1.17 - pow(c, 1.4);
-  return pow(abs(c), 8.0);
+  return min(pow(abs(c), 8.0), 8.0);
 }
 float wetAt(vec3 p) {
   float h = p.y - (${WATER_Y.toFixed(3)});
@@ -102,7 +106,11 @@ if (uDetail > 0.0) {
   vec3 r1 = cross(sy, normal), r2 = cross(normal, sx);
   float det = dot(sx, r1) * faceDirection;
   vec3 g = sign(det) * (dFdx(h) * r1 + dFdy(h) * r2);
-  normal = normalize(abs(det) * normal - g);
+  // NaN guard: on a face seen exactly edge-on (or a zero-area triangle) det is 0 and the bumped
+  // normal is the zero vector; normalize(0) is NaN, which bloom then smeared over the whole frame.
+  vec3 bn = abs(det) * normal - g;
+  float bl = length(bn);
+  if (k > 0.0 && bl > 1e-12 && abs(det) > 1e-14) normal = bn / bl;
   // The chisel pits and cracks hold a little dirt.
   diffuseColor.rgb *= 1.0 + clamp(h * 140.0, -0.22, 0.08);
 }`;

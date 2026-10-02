@@ -12,7 +12,7 @@ import materials as M
 import kit_geo as K
 import meso as X
 
-which = sys.argv[-1] if len(sys.argv) > 1 and sys.argv[-1] in ("gate", "pyramid", "mask", "wall") else "gate"
+which = sys.argv[-1] if len(sys.argv) > 1 and sys.argv[-1] in ("gate", "pyramid", "mask", "wall", "door") else "gate"
 reset()
 st, gd, sa, fl = M.stone("statue", moss=0.5, glyphs=False), M.gold(), M.stone("stoneB", moss=0.45, glyphs=False), M.floor()
 
@@ -37,6 +37,18 @@ elif which == "pyramid":
     s, g = X.idol("idol_0", 940)
     put(s, st, (0, 24, 0)); put(g, gd, (0, 24, 0))
     preview(f"{CACHE}/look_meso_pyramid.png", (0, -6, 4), (0, 30, 6), lens=24, sun=(32, 0, 160), samples=12)
+elif which == "door":
+    s, g = X.face_gate("face_gate_0", 950)
+    door = put(X.door_slab("gate_0", 230), st, (0, 12, 0))
+    g.scale = (0.36, 0.2, 0.36)
+    put(g, gd, (0, 12 - 0.4 + 1.1 * 0.2 - 0.0, 3.3 - 11.51 * 0.36))
+    bpy.data.objects.remove(s)
+    put(X.relief_wall("relief_wall_0", 740), st, (4.6, 6, 0))
+    put(X.square_pier("pillar_0", 200, height=5.0), sa, (-3.6, 6, 0))
+    put(X.pillar_cap("pillar_cap_0", 1320), sa, (-3.6, 6, 5.0))
+    put(X.square_pier("pillar_1", 201, height=5.0, broken=True), sa, (-3.6, 9, 0))
+    put(X.stele_glyph("stele_0", 240), sa, (2.2, 3, 0), 0.3)
+    preview(f"{CACHE}/look_meso_door.png", (0.3, -3.0, 2.0), (0, 12, 3.0), lens=24, sun=(32, 0, 200), samples=12)
 elif which == "wall":
     gl = M.stone("glyph", moss=0.35, glyphs=True)
     for i in range(4):

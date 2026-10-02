@@ -176,9 +176,14 @@ def canopy(name, seed, reach=7.0, height=8.5):
             p = crown.lerp(tip, u) + UP * math.sin(u * math.pi) * 0.6
         pts.append(p)
     tb = bmesh.new()
-    F._trunk(tb, pts, [0.62 * (1 - 0.75 * i / 12) + 0.25 * (1 - i / 12) ** 6 for i in range(13)], 9)
+    # Round 10: a gnarled limb, not a smooth bent pole: thicker, knotted, more side branches.
+    F._trunk(tb, pts, [0.8 * (1 - 0.65 * i / 12) + 0.3 * (1 - i / 12) ** 6 + (0.06 if i % 3 == 1 else 0.0) for i in range(13)], 10)
+    for i in (3, 5):
+        a = pts[i]
+        b = a + Vector((rng.uniform(-1.2, 0.2), rng.choice((-1, 1)) * rng.uniform(1.2, 2.2), rng.uniform(1.0, 2.0)))
+        F._trunk(tb, [a, a.lerp(b, 0.5) + UP * 0.3, b], [0.24, 0.16, 0.07], 6)
     # Side branches.
-    for i in (7, 9, 11):
+    for i in (6, 7, 9, 10, 11):
         a = pts[i]
         b = a + Vector((rng.uniform(-1.5, 0.5), rng.choice((-1, 1)) * rng.uniform(1.5, 2.8), rng.uniform(0.6, 1.6)))
         F._trunk(tb, [a, a.lerp(b, 0.5) + UP * 0.3, b], [0.16, 0.11, 0.05], 6)
@@ -188,7 +193,10 @@ def canopy(name, seed, reach=7.0, height=8.5):
     # The root's crown, a big mass on the bank.
     for k in range(3):
         f.clump(rng, (rng.uniform(5.5, 8.0), rng.uniform(-2.5, 2.5), rng.uniform(4.5, 7.5)), rng.uniform(2.0, 2.8), "cluster")
-    # Masses along the arch, thinning to the tip.
+    # Masses along the arch, thinning to the tip (from low on the limb: no bare pole showing).
+    for i in range(3, 6):
+        p = pts[i] + Vector((rng.uniform(-0.4, 0.4), rng.uniform(-1.0, 1.0), rng.uniform(0.4, 1.2)))
+        f.clump(rng, p, rng.uniform(1.2, 1.7), rng.choice(("broad", "cluster")), squash=0.8)
     for i in range(6, 13):
         p = pts[i] + Vector((rng.uniform(-0.6, 0.6), rng.uniform(-1.6, 1.6), rng.uniform(0.3, 1.2)))
         r = rng.uniform(1.4, 2.2) * (1.15 - 0.35 * (i - 6) / 6)
@@ -200,8 +208,8 @@ def canopy(name, seed, reach=7.0, height=8.5):
         hh = w * 0.5 * rng.uniform(1.0, 1.4)
         f.card("drape", p + Vector((0, rng.uniform(-0.8, 0.8), 0.6)), (0, 0, -hh), w, normal=(0, -1, 0), up_bias=0.25,
                up=Vector((0, -1, 0)), seg=1, flip_v=True)
-    for k in range(5):
-        p = pts[rng.randint(6, 12)] + Vector((rng.uniform(-0.5, 0.5), rng.uniform(-1, 1), 0))
+    for k in range(8):
+        p = pts[rng.randint(3, 12)] + Vector((rng.uniform(-0.5, 0.5), rng.uniform(-1, 1), 0))
         ln = rng.uniform(2.0, 3.6)
         f.card("vine", p, (rng.uniform(-0.1, 0.1), 0, -ln), ln * 0.45, normal=(0, -1, 0), up_bias=0.2, up=Vector((0, -1, 0)), seg=3,
                flip_v=True)
