@@ -5,9 +5,9 @@
     "high": {
       "kit": {
         "file": "kit.high.glb",
-        "bytes": 11053824,
-        "v": "f55c3dadbe",
-        "src": "f040f0e118"
+        "bytes": 11377416,
+        "v": "c092a2bbca",
+        "src": "b5c2e65afe"
       },
       "runner": {
         "file": "runner.high.glb",
@@ -19,9 +19,9 @@
     "mobile": {
       "kit": {
         "file": "kit.mobile.glb",
-        "bytes": 4999700,
-        "v": "fb30ed1e31",
-        "src": "65d5f6fcaf"
+        "bytes": 5290664,
+        "v": "36f1c0dd4a",
+        "src": "7720fed2ae"
       },
       "runner": {
         "file": "runner.mobile.glb",
@@ -34,18 +34,18 @@
   "shared": {
     "backdrop": {
       "file": "backdrop.webp",
-      "bytes": 289056,
-      "v": "c628b6a38f"
+      "bytes": 287818,
+      "v": "6090c94c18"
     },
     "env": {
       "file": "env.half.hdr",
-      "bytes": 256610,
-      "v": "cf1fac80b3"
+      "bytes": 251126,
+      "v": "cd834ed47a"
     },
     "backdropMeta": {
       "file": "backdrop.json",
       "bytes": 253,
-      "v": "995f9bb7d0"
+      "v": "8e120e5e66"
     }
   }
 }
