@@ -89,6 +89,12 @@ export class CameraRig {
   private epic = 0;
   /** 0..1, set by the game: the runner has dropped into a chasm and the lens tilts down after them. */
   gap = 0;
+  private rollKick = 0;
+  /**
+   * Metres from the runner to a second subject the settled shot keeps in view (the fallen door, its
+   * mask 3.3 m up); 0 for none. Set by the game per staging.
+   */
+  subjectAhead = 0;
   /** Metres from the runner to the escape's gate of light (set by the game), for the push. */
   gateAhead = 12;
   /**
@@ -144,6 +150,7 @@ export class CameraRig {
     if (m === this.mode) return;
     this.gap = 0;
     this.revealed = false;
+    this.subjectAhead = 0;
     this.mode = m;
     this.modeT = 0;
     this.swingTarget = 0;
@@ -187,6 +194,8 @@ export class CameraRig {
     this.bobV -= strength * 1.4 * this.motionScale;
     this.swayV += (Math.random() - 0.5) * strength * 0.8 * this.motionScale;
     this.fovKick -= deg * this.motionScale;
+    // The frame tips on the blow, then rights itself.
+    this.rollKick += (Math.random() < 0.5 ? -1 : 1) * Math.min(0.09, 0.04 * strength) * this.motionScale;
   }
 
   /** A lens punch (the start burst). */
@@ -225,7 +234,16 @@ export class CameraRig {
     const band = Math.max(0.25, 1 - this.insetTop - this.insetBottom);
     const a = this.camera.aspect;
     const lens = Math.min(96, f.fov * (a < 1 ? Math.min(1.55, 1 + (1 - a) * 0.95) : 1));
-    const need = 1.95 / (0.75 * band * 2 * Math.tan((lens * Math.PI) / 360));
+    const tanH = Math.tan((lens * Math.PI) / 360);
+    // The fallen door: keep its mask in the band too — stand back and low enough that runner
+    // (feet) and mask (crown, ~4.7 m up, `subjectAhead` beyond him) share it, aiming between them.
+    if (this.crashShot === 'gate' && this.subjectAhead > 0 && this.mode === 'crash') {
+      const A = this.subjectAhead;
+      const D = Math.min(10, Math.max(4, 4.4 / (0.9 * band * 2 * tanH) - A * 0.5));
+      const g: Frame = { along: -D, lat: 0.45 * D * Math.sign(f.lat || 1), up: 1.4, lAlong: A * 0.5, lLat: 0, lUp: 1.9, fov: f.fov, focus: 0 };
+      return mixFrame(f, g, k);
+    }
+    const need = 1.95 / (0.75 * band * 2 * tanH);
     const dy = f.up - 1.0;
     const d0 = Math.max(0.3, Math.hypot(f.along, f.lat, dy));
     const m = d0 < need ? need / d0 : 1;
@@ -623,7 +641,8 @@ export class CameraRig {
     this.camera.position.y += sy + this.bob + breathe + hy;
     this.camera.lookAt(this.look);
     if (this.mode === 'run' || this.mode === 'lead') this.holdInBand(runnerPos);
-    this.camera.rotateZ((Math.sin(t * 13.1) * 0.5 + Math.sin(t * 7.7)) * amp * 0.25 + this.dutch + hr);
+    this.rollKick *= Math.exp(-dt * 2.6);
+    this.camera.rotateZ((Math.sin(t * 13.1) * 0.5 + Math.sin(t * 7.7)) * amp * 0.25 + this.dutch + hr + this.rollKick);
     this.camera.fov = this.fov;
     this.revealK += ((this.revealed && (this.mode === 'crash' || this.mode === 'cashout') ? 1 : 0) - this.revealK) * (1 - Math.exp(-dt * 2.5));
     // The title fly-over rides high over the causeway, level with the arch crowns: their stones
