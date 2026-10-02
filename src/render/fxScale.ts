@@ -101,13 +101,15 @@ export interface FxBudget {
   birds: number;
   /** Light shafts at once. */
   beams: number;
+  /** Gold and jade escape glints alive at once. */
+  sparks: number;
 }
 
 const BUDGETS: Record<QualityLevel, FxBudget> = {
-  low: { billows: 70, bodies: 22, shards: 2, rings: 4, birds: 10, beams: 2 },
-  medium: { billows: 150, bodies: 40, shards: 3, rings: 8, birds: 18, beams: 4 },
-  high: { billows: 230, bodies: 60, shards: 4, rings: 10, birds: 26, beams: 6 },
-  ultra: { billows: 320, bodies: 80, shards: 5, rings: 12, birds: 32, beams: 6 },
+  low: { billows: 70, bodies: 22, shards: 2, rings: 4, birds: 10, beams: 2, sparks: 90 },
+  medium: { billows: 150, bodies: 40, shards: 3, rings: 8, birds: 18, beams: 4, sparks: 160 },
+  high: { billows: 230, bodies: 60, shards: 4, rings: 10, birds: 26, beams: 6, sparks: 240 },
+  ultra: { billows: 320, bodies: 80, shards: 5, rings: 12, birds: 32, beams: 6, sparks: 300 },
 };
 
 /** Effect budgets per quality tier; reduced motion trims the busiest ones. */
@@ -117,6 +119,7 @@ export function fxBudget(level: QualityLevel, motion: Motion = 'full'): FxBudget
     b.billows = Math.round(b.billows * 0.6);
     b.birds = Math.round(b.birds * 0.5);
     b.shards = Math.max(1, b.shards - 1);
+    b.sparks = Math.round(b.sparks * 0.6);
   }
   return b;
 }
@@ -150,4 +153,16 @@ export function nextDangerCue(rng: Rng, mult: number): { cue: DangerCue; wait: n
   const wait = row.wait * rng.range(0.6, 1.4);
   const strength = Math.min(1, 0.25 + 0.2 * tier + rng.range(0, 0.15));
   return { cue, wait, strength };
+}
+
+/**
+ * How long the result card waits (presentation only): `after` real seconds past the impact (the
+ * slam, the floor giving, the first block; for an escape, the cash-out itself), and never longer
+ * than `cap` real seconds after the event. Money and state are settled before any of this.
+ */
+export function revealHold(outcome: 'fall' | 'escape', mult: number, motion: Motion = 'full'): { after: number; cap: number } {
+  const g = grandOf(mult);
+  const reduced = motion === 'reduced';
+  if (outcome === 'escape') return { after: reduced ? 0.8 : 1.0 + 0.2 * g, cap: 2.0 };
+  return { after: reduced ? 0.7 : 0.85 + 0.35 * g, cap: 3.4 };
 }

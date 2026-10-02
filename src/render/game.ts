@@ -11,13 +11,13 @@ import { forward } from '../world/path';
 import { CRASH_CLIPS, crashStaging, escapeStaging, nextBeat, runDrive, runTier, type CrashKind, type CrashStaging, type EscapeStaging } from '../world/choreo';
 import { Runner, type RunnerAnim } from '../world/runner';
 import { PATH_HALF } from '../world/sections';
-import { Track } from '../world/track';
+import { Track, type TileSlot } from '../world/track';
 import { WATER_Y, Water } from '../world/water';
 import { Ambient } from './ambient';
 import { CameraRig } from './cameraRig';
 import { Motes, Particles } from './particles';
 import { Fx } from './fx';
-import { escapeScale, fallScale, nextDangerCue, type DangerCue, type EscapeScale } from './fxScale';
+import { escapeScale, fallScale, nextDangerCue, revealHold, type DangerCue, type EscapeScale } from './fxScale';
 import { Post } from './post';
 
 export type Stage = 'title' | 'setup' | 'lead' | 'run' | 'crash' | 'cashout';
@@ -309,6 +309,10 @@ export class Game {
     this.debris.clear();
     this.particles.clear();
     this.cine.clear();
+    this.releaseReveal();
+    this.gapAt = null;
+    this.runner.root.visible = true;
+    this.rig.gap = 0;
     this.queue.length = 0;
     this.escape = null;
     this.dangerIn = 3;
@@ -378,6 +382,7 @@ export class Game {
       if (pending) pending();
       else if (this.stage === 'crash' || this.stage === 'cashout') this.newWorld('setup');
     }
+    this.releaseReveal();
     this.frozenMult = null;
     this.live.mult = 1;
     this.setStage('lead');
@@ -392,7 +397,10 @@ export class Game {
    * waits on any of this: it returns at once and the presentation follows.
    */
   crash(mult: number, roundId: string, forceKind?: CrashKind, forceVariant?: number): void {
-    if (this.stage === 'crash' || this.stage === 'cashout') return;
+    if (this.stage === 'crash' || this.stage === 'cashout') {
+      queueMicrotask(() => this.onReveal());
+      return;
+    }
     this.frozenMult = mult;
     this.live.mult = mult / 100;
     const sec = this.track.sectionAt(this.s);
@@ -409,11 +417,80 @@ export class Game {
     this.crashKind = st.kind;
     this.staging = st;
     this.epic = st.epic;
+    this.cine.bars.target = 0.06;
     this.stageCrash(st, new Rng(`${roundId}/staging`), mult / 100);
+    if (!this.rev) this.holdReveal(0.3);
     this.sounds.crash(st.kind);
   }
 
   private crashKind = 'gate';
+  /** Presentation time at which the camera starts tilting down into a chasm after the runner. */
+  private gapAt: number | null = null;
+
+  // ------------------------------------------------------------------ result reveal (presentation)
+  /**
+   * Fires once the fall or the escape has played its beat, so the interface can hold the result card
+   * until then. Money, balance and phase never wait on it: crash() and cashout() return at once, and
+   * a new round, a reset, or a hidden tab (real-time fallback) always releases it.
+   */
+  onReveal: () => void = () => {};
+  private rev: { impactAt: number; after: number; t: number; cap: number; timer: number } | null = null;
+
+  /** Hold the reveal until `after` real seconds past the impact `impactIn` presentation-seconds away. */
+  private holdReveal(impactIn: number, outcome: 'fall' | 'escape' = 'fall'): void {
+    const H = revealHold(outcome, this.live.mult, this.motion);
+    if (this.rev) clearTimeout(this.rev.timer);
+    const timer = window.setTimeout(() => this.reveal(), (H.cap + 0.6) * 1000);
+    this.rev = { impactAt: this.worldT + impactIn, after: H.after, t: 0, cap: H.cap, timer };
+  }
+
+  private reveal(): void {
+    if (this.rev) clearTimeout(this.rev.timer);
+    this.rev = null;
+    this.cine.bars.target = 0;
+    this.onReveal();
+  }
+
+  /** Release a pending reveal now (or tell the interface there is nothing to wait for). */
+  private releaseReveal(): void {
+    if (this.rev) this.reveal();
+  }
+
+  /** The collapsible floor tile under route distance `s`, if any. */
+  private tileUnder(s: number): TileSlot | null {
+    for (const sec of this.track.sections) {
+      for (const t of sec.tiles) {
+        if (!this.collapsible(t)) continue;
+        const [a, b] = this.tileSpan(t);
+        if (s >= a && s < b) return t;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Dress the falling slab as a massive carved door: a gold mask set in its medallion and a carved
+   * relief band across its foot (kit pieces, children of the debris body so they fall with it).
+   */
+  private dressDoor(door: THREE.Mesh): void {
+    const add = (piece: string, pos: [number, number, number], scale: [number, number, number], rotY = 0) => {
+      const geo = this.kit.geo.get(piece);
+      const mat = this.kit.mat.get(this.kit.matOf.get(piece) ?? '');
+      if (!geo || !mat) return;
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(...pos);
+      m.scale.set(...scale);
+      m.rotation.y = rotY;
+      m.castShadow = true;
+      m.receiveShadow = true;
+      door.add(m);
+    };
+    // The medallion faces the runner (+z, centre 3.3 m up, r 1.35 m): a gold mask fills it.
+    add('face_gate_0_gold', [0, 3.3 - 11.51 * 0.29, 0.62], [0.29, 0.29, 0.1]);
+    // A carved relief band across the lower door, both faces.
+    for (const side of [1, -1]) add(`relief_wall_${side > 0 ? 0 : 1}`, [side * 2.6, 0.55, side * 0.5], [0.22, 0.5, 1.25], side * Math.PI / 2);
+  }
+
   private staging: CrashStaging | EscapeStaging | null = null;
   private epic = 0;
   private worldSeed = '';
@@ -424,7 +501,10 @@ export class Game {
    * only: it never knows where the round would have fallen, and the way ahead stays intact and calm.
    */
   cashout(roundId?: string): void {
-    if (this.stage === 'crash' || this.stage === 'cashout') return;
+    if (this.stage === 'crash' || this.stage === 'cashout') {
+      queueMicrotask(() => this.onReveal());
+      return;
+    }
     const v = this.speed;
     const st = escapeStaging(roundId ?? this.worldSeed, this.live.mult, v < 2.5);
     const E = escapeScale(this.live.mult, this.motion);
@@ -437,7 +517,7 @@ export class Game {
     const T = { lookback: 0.72, cheer: 0.5, salute: 1.0, leap: 1.15 }[st.variant];
     this.setStop(this.s + (v * T) / 2);
     this.sounds.escape();
-    this.fx.flash = 0.16 + 0.22 * st.epic;
+    this.fx.flash = 0.24 + 0.24 * E.g;
     this.rig.setMode('cashout', { side: this.cosmetic.chance(0.5) ? 1 : -1, escape: st.variant, epic: st.epic, reveal: E.reveal });
     // A held breath on the moment of escape, longer and deeper for a big one (the leap holds at its apex).
     if (v > 3) this.slowmo = { t: st.variant === 'leap' ? -0.3 : 0, dur: E.slowDur, min: E.slowMin };
@@ -464,6 +544,21 @@ export class Game {
     }
     this.cine.beams.level = E.shafts;
     this.cine.rimLevelTarget = E.rim;
+    // The burst into light: a glory of sun on the way ahead, behind the runner's silhouette, at every
+    // multiplier (bigger and longer for a big one).
+    const g = E.g;
+    const f0 = this.track.path.sample(s0);
+    const fw = forward(f0.yaw);
+    const glory = f0.pos.clone().addScaledVector(fw, 7 + 3 * g).addScaledVector(this.sunDir, 2).setY(f0.pos.y + 2.4 + 1.2 * g);
+    this.cine.glory.flare(glory, 9 + 8 * g, 0.75 + 0.5 * g, 0.9 + 1.4 * g);
+    // Gold and jade glints burst up from the runner's feet, then keep rising around them.
+    const feet = () => this.runner.root.position;
+    this.later(0.1, () => this.cine.sparkles.burst(feet(), Math.round(36 + 110 * g), 4 + 2.5 * g, 0.5));
+    for (let k = 1; k <= 11; k++) this.later(0.1 + k * 0.3, () => this.cine.sparkles.burst(feet(), Math.round(5 + 12 * g), 2.4 + g, 0.9, 0.4, 0.06, 2.0));
+    // Safe ground: a warm pool of light at their feet, and the frame closes in like a film.
+    this.cine.pool.target = 0.42 + 0.3 * g;
+    this.cine.bars.target = 0.045;
+    this.holdReveal(0, 'escape');
     this.later(0.35, () => {
       const f = this.track.path.sample(s0 + c.range(14, 22));
       const rv = new THREE.Vector3(Math.cos(f.yaw), 0, -Math.sin(f.yaw));
@@ -753,6 +848,35 @@ export class Game {
         });
         if (walls !== 'none') blocks(n(3), 4, 10, F.pre + 1.9, true);
       }
+      // He goes with it (fall_chasm): after the teeter the slab under him gives and the clip tips him
+      // over the lip and down (its root leaves the floor at ~1.1 s), to the water below — a splash,
+      // never anything worse. The camera stays at the lip and tilts down after him. Where there is
+      // no slab to give, or for the other variant, he kneels at the edge instead (fall_chasm_b).
+      const dropT = 1.0;
+      const under = st.variant % 2 === 0 ? this.tileUnder(this.stopAt) : null;
+      if (st.variant % 2 === 0 && !under) this.runner.play('fall_chasm_b', 0.12);
+      if (under) {
+        this.later(dropT - 0.06, () => {
+          this.track.hideTile(under);
+          this.debris.spawn(under.piece, under.world, new THREE.Vector3(0, -0.6, 0), new THREE.Vector3(r.range(-0.8, 0.8), 0, r.range(-0.8, 0.8)), () => null, { breakInto: 3, breakAfter: 0.3 });
+          const p = this.runner.root.position.clone();
+          this.particles.burst(p, 10, { spread: 2.2, up: 1.2, speed: 2, size: 0.5, life: 1.4, color: DUST, alpha: 0.3 });
+          B.puff(p, { count: 2 + Math.round(2 * F.dust), spread: 2.4, jitter: 0.8, vel: new THREE.Vector3(0, 1.4, 0), size: [0.9, 2.8 + 1.5 * e], life: 2.4, alpha: 0.36, tint: DUST_T, rise: 0.3 });
+          kick(0.7);
+          this.sounds.impact(0.6 + 0.3 * e, false);
+        });
+        this.gapAt = this.worldT + dropT + 0.1;
+        this.later(1.75, () => {
+          const p = this.runner.root.position.clone().addScaledVector(h.fwd, 0.4).setY(WATER_Y);
+          this.particles.burst(p, 40, { spread: 1.2, up: 7, speed: 3, size: 0.32, life: 1.2, color: SPRAY, alpha: 0.8, gravity: 9.5, drag: 0.5, grow: 0.6 });
+          B.puff(p, { count: 3, spread: 1.4, jitter: 0.8, vel: new THREE.Vector3(0, 2.4, 0), size: [0.8, 3], life: 1.8, alpha: 0.4, tint: MIST_T, rise: 0.2, floor: WATER_Y });
+          this.cine.rings.spawn(p, 4.5, 1);
+          this.sounds.impact(0.9, true);
+        });
+        // Gone under: the clip ends deep below the floor.
+        this.later(2.6, () => (this.runner.root.visible = false));
+        this.holdReveal(dropT + 0.2);
+      } else this.holdReveal(F.pre);
       // Slow motion lands as the floor gives.
       slow(-Math.max(0, F.pre - 0.1));
     } else if (kind === 'gate') {
@@ -760,15 +884,25 @@ export class Game {
       // recoils back (the clip). At the push-off it drops right in front of the crouch.
       const T = 0.5;
       const stop = this.s + (v * T) / 2;
-      const gateS = st.atStart ? this.s + 3.0 : stop + 2.4;
+      const gateS = st.atStart ? this.s + 3.2 : stop + 2.8;
       this.setStop(stop);
       const h = frameAt(gateS);
       this.rig.focus.copy(h.pos).setY(h.pos.y + 1.6);
-      const land = st.atStart ? 0.3 : 0.22;
+      // Long enough in the air to read as a door coming down, not a flicker across the lens.
+      const land = st.atStart ? 0.42 : 0.38;
       const h0 = 7.5;
       const v0 = (h0 - 9.5 * land * land) / land;
       const m = new THREE.Matrix4().compose(h.pos.clone().setY(h.pos.y + h0), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), h.yaw), new THREE.Vector3(1, 1, 1));
-      this.debris.spawn('gate_0', m, new THREE.Vector3(0, -v0, 0), new THREE.Vector3(), (x, z) => onPath(h)(x, z) ?? h.pos.y, { settle: true, heavy: true });
+      const door = this.debris.spawn('gate_0', m, new THREE.Vector3(0, -v0, 0), new THREE.Vector3(), (x, z) => onPath(h)(x, z) ?? h.pos.y, { settle: true, heavy: true });
+      if (door) this.dressDoor(door);
+      // Dust streams off the door's foot as it drops (a trail that reads at a glance).
+      for (let k = 0; k < 4; k++) {
+        this.later(k * (land / 4), () => {
+          const y = h.pos.y + h0 - 9.5 * ((k * land) / 4) ** 2 - v0 * ((k * land) / 4) + 0.2;
+          B.puff(h.pos.clone().setY(Math.max(h.pos.y + 0.5, y)).addScaledVector(h.fwd, 0.6), { count: 2, spread: 4.5, jitter: 0.3, vel: new THREE.Vector3(0, 1.5, 0), size: [0.5, 1.8], life: 1.4, alpha: 0.32, tint: DUST_T, rise: 0.1 });
+        });
+      }
+      this.holdReveal(land);
       this.gateLand = { at: h.pos.clone(), done: false };
       this.fx.flash = 0.06;
       // Pre-impact: dust and grit shaken from the lintel as it starts to move.
@@ -794,6 +928,8 @@ export class Game {
           const sc = r.range(0.08, 0.16);
           this.debris.spawn(`shard_${k + 2}`, new THREE.Matrix4().compose(p, new THREE.Quaternion(), new THREE.Vector3(sc, sc, sc)), h.fwd.clone().multiplyScalar(-r.range(1.5, 3)).addScaledVector(h.right, r.range(-1, 1)).setY(2), new THREE.Vector3(), onPath(h));
         }
+        // The floor at its foot splits toward the runner.
+        this.cine.cracks.spawn(h.pos.clone().setY(h.pos.y + 0.05).addScaledVector(h.fwd, -0.55), h.yaw + Math.PI, PATH_HALF * 2 + 0.2, 1.6 + 1.6 * e, 0.3, 30);
         kick();
         this.fx.flash = 0.12 + 0.08 * e;
         this.sounds.slam?.(0.7 + 0.3 * e);
@@ -855,6 +991,7 @@ export class Game {
         this.sounds.slam?.(0.5 + 0.3 * e);
         kick();
       });
+      this.holdReveal(0.32);
       for (let k = 0; k < n(8); k++) {
         const along = r.range(-1.5, 9 + 6 * e);
         // Never on the runner: anything near their mark lands well to the side.
@@ -1178,6 +1315,10 @@ export class Game {
     // The fall's grade: cold, but capped so the runner and the hazard stay readable.
     const coldTarget = this.stage === 'crash' ? Math.min(0.55, this.stageT * 0.6) : 0;
     this.fx.cold += (coldTarget - this.fx.cold) * (1 - Math.exp(-rawDt * 3));
+    if (this.rev) {
+      if (this.worldT >= this.rev.impactAt) this.rev.t += rawDt;
+      if (this.rev.t >= this.rev.after || this.stageT >= this.rev.cap) this.reveal();
+    }
     const goldTarget = this.stage === 'cashout' ? (this.stageT < 1 + this.epic ? 0.5 + 0.2 * this.epic : 0.3) : 0;
     this.fx.gold += (goldTarget - this.fx.gold) * (1 - Math.exp(-rawDt * 3));
     this.fx.flash *= Math.exp(-rawDt * 6);
@@ -1203,6 +1344,10 @@ export class Game {
     const rp = this.runner.root.position;
     this.rig.shakeEnabled = this.motion === 'full';
     this.rig.motionScale = this.motion === 'full' ? 1 : 0.25;
+    if (this.gapAt !== null && this.worldT >= this.gapAt) {
+      this.rig.gap = Math.min(1, this.rig.gap + rawDt * 1.4);
+      this.rig.focus.copy(rp);
+    }
     this.rig.update(rawDt * (this.stage === 'crash' || this.stage === 'cashout' ? Math.max(this.timeScale, 0.55) : 1), rp, this.runner.root.rotation.y, this.stage === 'run' ? I : 0);
     const cam = this.rig.camera;
     if (this.debugPin) {
@@ -1260,7 +1405,8 @@ export class Game {
     }
     this.debris.update(dt);
     this.particles.update(dt);
-    this.cine.update(dt, rawDt, cam, this.sunDir, this.worldT);
+    if (this.stage === 'cashout') this.cine.pool.place(rp, 1.5 + (this.escape?.g ?? 0));
+    this.cine.update(dt, rawDt, cam, this.sunDir, this.worldT, this.renderer.domElement.height / (2 * Math.tan((cam.fov * Math.PI) / 360)));
     this.motes.update(this.worldT, cam, this.renderer.domElement.height / (2 * Math.tan((cam.fov * Math.PI) / 360)), 1, this.sunDir);
     this.ambient.update(this.worldT, cam);
 
