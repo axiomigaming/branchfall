@@ -152,14 +152,14 @@ def glyph_panel(bm, rng, cx, y, cz, w, h, axis="x"):
         ch = h / rows
         for j in range(rows):
             z = cz - h / 2 + ch * (j + 0.5)
-            box(bm, rng, (cell * 0.88, 0.1, ch * 0.88), (x, y - 0.02, z), jitter_color(rng.choice(LIME_DARK), rng, 0.05, 0.02), chip=0.0, bevel=0.02)
+            box(bm, rng, (cell * 0.88, 0.1, ch * 0.88), (x, y - 0.02, z), jitter_color(rng.choice(LIME_DARK), rng, 0.05, 0.02), chip=0.0, bevel=0.0)
             # A day-sign: a ring of 2–4 raised bars and a dot.
             k = rng.randint(2, 4)
             for b in range(k):
                 bz = z - ch * 0.25 + ch * 0.5 * b / max(1, k - 1)
                 bw = cell * rng.uniform(0.35, 0.62)
-                box(bm, rng, (bw, 0.1, ch * 0.09), (x + rng.uniform(-0.08, 0.08) * cell, y - 0.07, bz), lime(rng, 0), chip=0.0, bevel=0.015)
-            box(bm, rng, (cell * 0.14, 0.1, cell * 0.14), (x + cell * 0.27, y - 0.08, z + ch * 0.27), lime(rng, 0), chip=0.0, bevel=0.015)
+                box(bm, rng, (bw, 0.1, ch * 0.09), (x + rng.uniform(-0.08, 0.08) * cell, y - 0.07, bz), lime(rng, 0), chip=0.0, bevel=0.0)
+            box(bm, rng, (cell * 0.14, 0.1, cell * 0.14), (x + cell * 0.27, y - 0.08, z + ch * 0.27), lime(rng, 0), chip=0.0, bevel=0.0)
 
 
 def fret_frieze(bm, rng, x0, x1, y, z, h):
@@ -169,9 +169,9 @@ def fret_frieze(bm, rng, x0, x1, y, z, h):
     k = 0
     while x < x1 - w * 0.5:
         c = lime(rng, 0.04)
-        box(bm, rng, (w * 0.45, 0.22, h * 0.32), (x + w * 0.22, y - 0.1, z - h * 0.3), c, chip=0.05)
-        box(bm, rng, (w * 0.22, 0.22, h * 0.6), (x + w * 0.5, y - 0.1, z - h * 0.05), c, chip=0.05)
-        box(bm, rng, (w * 0.45, 0.22, h * 0.3), (x + w * 0.72, y - 0.1, z + h * 0.3), c, chip=0.05)
+        box(bm, rng, (w * 0.45, 0.22, h * 0.32), (x + w * 0.22, y - 0.1, z - h * 0.3), c, chip=0.0, bevel=0.0)
+        box(bm, rng, (w * 0.22, 0.22, h * 0.6), (x + w * 0.5, y - 0.1, z - h * 0.05), c, chip=0.0, bevel=0.0)
+        box(bm, rng, (w * 0.45, 0.22, h * 0.3), (x + w * 0.72, y - 0.1, z + h * 0.3), c, chip=0.0, bevel=0.0)
         x += w
         k += 1
 
@@ -458,14 +458,14 @@ def cartouche(bm, rng, x, y, z, s, motif=None):
     frame and a simple, chunky sign (legible at phone size, unlike fine strokes). Motifs: 0 a face
     (ahau: two eyes and a mouth), 1 a kan cross, 2 a bar-and-dot numeral, 3 a stepped spiral, 4 three bars."""
     motif = rng.randint(0, 4) if motif is None else motif
-    box(bm, rng, (s, 0.12, s), (x, y + 0.06, z), GLYPH_GROUND, bevel=0.02, chip=0.0)
+    box(bm, rng, (s, 0.12, s), (x, y + 0.06, z), GLYPH_GROUND, bevel=0.0, chip=0.0)
     t = s * 0.13
     for dx, dz, w, h in ((0, s / 2 - t / 2, s, t), (0, -s / 2 + t / 2, s, t), (-s / 2 + t / 2, 0, t, s - 2 * t), (s / 2 - t / 2, 0, t, s - 2 * t)):
-        box(bm, rng, (w, 0.16, h), (x + dx, y - 0.02, z + dz), GLYPH_RAISED, bevel=0.025, chip=0.0)
+        box(bm, rng, (w, 0.16, h), (x + dx, y - 0.02, z + dz), GLYPH_RAISED, bevel=0.0, chip=0.0)
     u = s * 0.12
 
     def R(dx, dz, w, h):
-        box(bm, rng, (w * s, 0.16, h * s), (x + dx * s, y - 0.02, z + dz * s), GLYPH_RAISED, bevel=0.02, chip=0.0)
+        box(bm, rng, (w * s, 0.16, h * s), (x + dx * s, y - 0.02, z + dz * s), GLYPH_RAISED, bevel=0.0, chip=0.0)
 
     if motif == 0:
         R(-0.17, 0.12, 0.18, 0.18); R(0.17, 0.12, 0.18, 0.18); R(0, -0.18, 0.42, 0.1); R(0, -0.06, 0.1, 0.12)
@@ -551,7 +551,7 @@ def door_slab(name, seed, w=6.2, h=6.0, d=0.8):
     for sx in (-1, 1):
         glyph_grid(bm, rng, sx * 2.2, -d / 2 - 0.02, h * 0.5, 1, 4, s, 0.12)
     t = bmesh.new()
-    glyph_grid(t, rng, 0, -d / 2 - 0.02, h * 0.5, 5, 4, s, 0.14)
+    glyph_grid(t, rng, 0, -d / 2 - 0.02, h * 0.5, 3, 3, 0.95, 0.2)
     bmesh.ops.transform(t, matrix=Matrix.Rotation(math.pi, 4, "Z"), verts=t.verts)
     _merge_bm(bm, t)
     return finish_obj(name, bm, 40)
@@ -575,7 +575,7 @@ def relief_wall(name, seed, length=4.0, depth=0.9):
             z += ch
         band = 1.5
         box(bm, rng, (length - 0.02, depth / 2, band), (length / 2, -depth / 4, z + band / 2), lime(rng, 0.05), chip=0.05)
-        glyph_grid(bm, rng, length / 2, -depth / 2 - 0.02, z + band / 2, 5, 2, 0.62, 0.12)
+        glyph_grid(bm, rng, length / 2, -depth / 2 - 0.02, z + band / 2, 4, 2, 0.66, 0.16)
         z += band
         box(bm, rng, (length - 0.02, depth / 2, hgt - z - 0.25), (length / 2, -depth / 4, (z + hgt - 0.25) / 2), lime(rng, 0.15), chip=0.2)
         box(bm, rng, (length, depth / 2 + 0.15, 0.25), (length / 2, -depth / 4 - 0.07, hgt - 0.12), lime(rng, 0.2), chip=0.3)
