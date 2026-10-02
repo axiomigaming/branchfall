@@ -6,7 +6,7 @@ import { Path, frameMatrix, type Frame, type Segment } from './path';
 import { buildLayout, isWaterPiece, nextType, type Layout, type SectionType } from './sections';
 import { foamTime, makeFoamMaterial, makeFoamRing, makeFoamStrip } from './water';
 import { fallFeet, makeFallsGeometry, makeWaterfallMaterial } from './waterfall';
-import { patchWetStone, updateCaustics } from './caustics';
+import { causticUniforms, patchWetStone, updateCaustics } from './caustics';
 import { upgradeLeafMaterial } from './foliage';
 import { atmosphereUniforms } from './atmosphere';
 
@@ -177,6 +177,8 @@ export class Track {
   /** Build every section variant. Yields between variants so a loading screen can animate. */
   async prepare(density: { foliage: number; scenery: number }, onStep?: (i: number, n: number) => void): Promise<void> {
     this.density = density;
+    // The lightest tier (phones) skips the detail normals: a few dozen ALU per stone pixel.
+    causticUniforms.uDetail.value = density.scenery >= 0.5 ? 1 : 0;
     // Build into a fresh map and swap at the end: the route keeps spawning from the old
     // variants meanwhile, and their geometry is retired only when the world next resets.
     const next = new Map<SectionType, Variant[]>();
@@ -457,7 +459,9 @@ function stageKit(kit: Kit): void {
   if (leaf) upgradeLeafMaterial(leaf);
   for (const key of ['stoneA', 'stoneB', 'floor', 'rock', 'cliff', 'statue', 'glyph', 'wood']) {
     const m = kit.mat.get(key);
-    if (m) patchWetStone(m, key !== 'floor', key === 'rock' || key === 'cliff');
+    // Detail normals strongest underfoot, where the camera is closest.
+    const detail = key === 'floor' ? 1 : key === 'stoneA' || key === 'stoneB' ? 0.8 : key === 'wood' ? 0.4 : 0.6;
+    if (m) patchWetStone(m, key !== 'floor', key === 'rock' || key === 'cliff', detail);
   }
   const gold = kit.mat.get('gold') as THREE.MeshStandardMaterial | undefined;
   if (gold && !gold.userData.staged) {

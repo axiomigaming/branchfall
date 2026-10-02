@@ -43,14 +43,14 @@ sky.sun_size = math.radians(1.2)
 sky.sun_intensity = 0.4
 sky.altitude = 200
 sky.air_density = 1.15
-sky.dust_density = 1.4
+sky.dust_density = 0.8  # round 8: less white veil around the sun
 sky.ozone_density = 2.2
 _tc = nt.nodes.new("ShaderNodeTexCoord")
 _sep = nt.nodes.new("ShaderNodeSeparateXYZ")
 nt.links.new(_tc.outputs["Generated"], _sep.inputs[0])
 _hz = maprange(nt, _sep.outputs[2], 0.0, 0.45, 0.0, 1.0)
 # A warm band of haze on the horizon under a clear blue zenith.
-_warm = ramp(nt, _hz, [(0.0, (1.22, 1.02, 0.8, 1)), (0.3, (1.0, 1.0, 1.0, 1)), (1.0, (0.88, 0.96, 1.08, 1))])
+_warm = ramp(nt, _hz, [(0.0, (1.12, 1.0, 0.84, 1)), (0.3, (1.0, 1.0, 1.0, 1)), (1.0, (0.88, 0.96, 1.08, 1))])
 nt.links.new(mix(nt, 1.0, sky.outputs[0], _warm, "MULTIPLY"), bg.inputs[0])
 bg.inputs[1].default_value = 0.22
 
@@ -59,7 +59,7 @@ HAZE = hexcol("#93aeb4")  # cool, a little green: the jungle breathes it
 HAZE_FAR = hexcol("#c9d4d8")
 
 
-def aerial(ntm, col, near=150.0, far=2600.0, strength=0.72):
+def aerial(ntm, col, near=150.0, far=2600.0, strength=0.6):
     cam = N(ntm, "ShaderNodeCameraData")
     fac = maprange(ntm, cam.outputs["View Distance"], near, far, 0.0, strength, smooth=False)
     fac = math_node(ntm, "POWER", fac, 1.1)
@@ -119,10 +119,11 @@ def ridge(name, r0, r1, hmax, seed, mat, steps_a=720, steps_r=40, cliff=0.0, gap
             a = 2 * math.pi * j / steps_a
             p = Vector((math.cos(a) * r, math.sin(a) * r, 0))
             q = p * 0.0022 + off
-            n = noise.fractal(q, 0.55, 2.1, 7)
-            n2 = noise.ridged_multi_fractal(q * 1.7, 0.9, 2.0, 5, 1.0, 2.0)
+            n = noise.fractal(q, 0.55, 2.1, 5)
+            # Round 8: three octaves, not five — single-vertex needles on the far ridges read as spires.
+            n2 = noise.ridged_multi_fractal(q * 1.7, 0.9, 2.0, 3, 1.0, 2.0)
             env = math.sin(math.pi * i / steps_r) ** 0.6
-            h = hmax * max(0.0, 0.45 + 0.55 * n + 0.25 * (n2 - 1.0)) * env
+            h = hmax * max(0.0, 0.45 + 0.55 * n + 0.05 * (n2 - 1.0)) * env
             if cliff:
                 # Terraced mesas: quantise heights, keep the walls steep.
                 step = hmax * 0.18
@@ -204,22 +205,47 @@ L(t, aerial(t, col, 150, 2200), bsdf.inputs["Base Color"])
 bsdf.inputs["Roughness"].default_value = 0.9
 
 
-def blocks_temple(name, loc, scale, tiers=6, spire=False):
+def _frustum(bm, w0, w1, z0, h, cx=0.0, cy=0.0, d0=None, d1=None):
+    import mathutils
+    t = bmesh.new()
+    bmesh.ops.create_cube(t, size=1.0)
+    d0, d1 = d0 or w0, d1 or w1
+    for v in t.verts:
+        top = v.co.z > 0
+        v.co = mathutils.Vector((cx + v.co.x * (w1 if top else w0), cy + v.co.y * (d1 if top else d0), z0 + (h if top else 0.0)))
+    me = bpy.data.meshes.new("_f")
+    t.to_mesh(me)
+    t.free()
+    bm.from_mesh(me)
+    bpy.data.meshes.remove(me)
+
+
+def step_pyramid(name, loc, scale, tiers=6, comb=True):
+    """Round 8: a Mesoamerican step pyramid (talud tiers, a stair on the face toward the causeway, a shrine
+    and roof comb on top) instead of the old stacked blocks with a spire, which read as Gothic."""
     bm = bmesh.new()
     w = 60 * scale
-    z = 0
+    z = 0.0
+    h = 8 * scale
     for i in range(tiers):
-        h = 9 * scale
-        bmesh.ops.create_cube(bm, size=1.0, matrix=__import__("mathutils").Matrix.Translation((0, 0, z + h / 2)) @
-                              __import__("mathutils").Matrix.Diagonal((w, w, h, 1)))
+        _frustum(bm, w, w - 4 * scale, z, h * 0.7)
+        _frustum(bm, w - 4 * scale, w - 4 * scale, z + h * 0.7, h * 0.3)
         z += h
-        w *= 0.8
-    if spire:
-        bmesh.ops.create_cube(bm, size=1.0, matrix=__import__("mathutils").Matrix.Translation((0, 0, z + 20 * scale)) @
-                              __import__("mathutils").Matrix.Diagonal((w * 0.5, w * 0.5, 40 * scale, 1)))
+        w -= 9 * scale
+    # Stair toward the origin (the causeway), as a ramp up the face.
+    run = 9 * scale * tiers / 2
+    sw = 12 * scale
+    _frustum(bm, sw, sw, 0, z, cy=0, d0=60 * scale + 6 * scale, d1=w + 2 * scale)
+    # Shrine and roof comb.
+    _frustum(bm, w * 0.8, w * 0.75, z, 9 * scale)
+    if comb:
+        _frustum(bm, w * 0.6, w * 0.5, z + 9 * scale, 7 * scale, d0=3 * scale, d1=2 * scale)
     ob = new_mesh_obj(name, bm)
     ob.location = loc
+    # Turn the stair face toward the causeway (the camera at the origin).
+    ob.rotation_euler.z = math.atan2(loc.y, loc.x) - math.pi / 2
     ob.data.materials.append(stone_far)
+    del run
     return ob
 
 
@@ -228,24 +254,15 @@ def at(az_deg, dist, z=0.0):
     return Vector((math.cos(a) * dist, math.sin(a) * dist, z))
 
 
-# Toward the run direction (+Y is 90°) the eye expects a destination.
-blocks_temple("temple_a", at(97, 700, -2), 2.0, tiers=7, spire=True)
-blocks_temple("temple_b", at(80, 520, -2), 0.9, tiers=5)
-blocks_temple("temple_c", at(128, 1150, 30), 0.9, tiers=6)
-blocks_temple("temple_d", at(250, 800, -2), 0.8, tiers=5, spire=True)
-blocks_temple("temple_e", at(70, 460, -2), 0.7, tiers=6, spire=True)
-blocks_temple("temple_f", at(112, 540, -2), 0.8, tiers=5, spire=True)
-blocks_temple("temple_g", at(160, 620, -2), 1.1, tiers=6)
-for k in range(9):
-    az = rng.uniform(0, 360)
-    d = rng.uniform(380, 900)
-    s = rng.uniform(0.6, 1.4)
-    bm = bmesh.new()
-    import mathutils
-    bmesh.ops.create_cube(bm, size=1.0, matrix=mathutils.Matrix.Translation((0, 0, 25 * s)) @ mathutils.Matrix.Diagonal((9 * s, 9 * s, 50 * s, 1)))
-    ob = new_mesh_obj(f"spire{k}", bm)
-    ob.location = at(az, d, -2)
-    ob.data.materials.append(stone_far)
+# Toward the run direction (+Y is 90°) the eye expects a destination: a great pyramid, lesser ones about.
+step_pyramid("temple_a", at(97, 700, -2), 1.9, tiers=7)
+step_pyramid("temple_b", at(80, 520, -2), 0.9, tiers=5)
+step_pyramid("temple_c", at(128, 1150, 30), 0.9, tiers=6)
+step_pyramid("temple_d", at(250, 800, -2), 0.8, tiers=5, comb=False)
+step_pyramid("temple_e", at(70, 460, -2), 0.7, tiers=6)
+step_pyramid("temple_f", at(112, 540, -2), 0.8, tiers=5, comb=False)
+step_pyramid("temple_g", at(160, 620, -2), 1.1, tiers=6)
+# (Round 8: the needle spires that stood about the lagoon are gone: they read as church spires.)
 
 # Canopy scatter on the near hills.
 ico = bpy.data.meshes.new("ico")

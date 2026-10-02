@@ -271,7 +271,8 @@ function vista(b: Builder, len: number, kinds: Vista[], p = 0.7) {
       break;
     case 'temple': {
       const x = side * b.rng.range(10, 13);
-      b.place('temple_0', x, WL + 0.2, -len - 3, b.rng.range(0, 6.28), b.rng.range(0.9, 1.1));
+      // A talud-tablero pyramid (16 m across at scale 1), its stair turned toward the way.
+      b.place(b.rng.chance(0.7) ? 'temple_0' : 'temple_1', x + side * 3, WL + 0.2, -len - 3, faceIn(side, 1.5), b.rng.range(0.75, 0.9));
       b.foamRing(x, -len - 3, 5.5);
       if (b.foliage(0.8)) {
         const t = b.rng.int(0, 1);
@@ -423,13 +424,13 @@ function scenery(b: Builder, len: number, opts: { minX?: number; sides?: number[
       const r = b.rng.next();
       if (r < 0.72) cliffWall(b, side, x, -len / 2 + b.rng.range(-3, 3), undefined, b.rng.range(0.9, 1.25));
       else {
-        b.place('temple_0', side * x, WL + 0.2, -b.rng.range(0, len), b.rng.range(0, 6.28), b.rng.range(0.9, 1.2));
+        b.place(r < 0.84 ? 'temple_0' : 'temple_1', side * x, WL + 0.2, -b.rng.range(0, len), faceIn(side, b.rng.range(0.7, 1.6)), b.rng.range(0.8, 1.05));
         b.foamRing(side * x, -len / 2, 5.5);
       }
     }
     if (opts.big !== false && b.rng.chance(0.4 * d + 0.1)) {
       const x = side * b.rng.range(28, 55);
-      const t = b.rng.pick(['tower_0', 'tower_1', 'temple_0', 'rock_big_0', 'rock_big_0', 'arch_1']);
+      const t = b.rng.pick(['tower_0', 'tower_1', 'temple_0', 'temple_1', 'rock_big_0', 'arch_1']);
       const s = t.startsWith('rock') ? b.rng.range(1.2, 2.2) : t.startsWith('temple') ? b.rng.range(0.9, 1.3) : b.rng.range(1.1, 1.6);
       b.place(t, x, -2.6, -b.rng.range(0, len), b.rng.range(0, 6.28), s);
       if (t.startsWith('tower') || t === 'arch_1') {
@@ -797,8 +798,8 @@ const BUILDERS: Record<SectionType, { lengths: number[]; build: Build }> = {
         if (b.foliage(0.9)) b.place('vines_2', 0, 15.5, -len + 8.6, 0, [1.8, 1.4, 1]);
       } else {
         // A temple tower stands in the widened side of the valley, a golden idol at its far end.
-        b.place('temple_0', templeSide * 10, WL + 0.2, -len * 0.45, b.rng.range(0, 6.28), b.rng.range(0.85, 1.0));
-        b.foamRing(templeSide * 10, -len * 0.45, 5.5);
+        b.place(b.rng.chance(0.6) ? 'temple_0' : 'temple_1', templeSide * 11.5, WL + 0.2, -len * 0.45, faceIn(templeSide, 0.9), b.rng.range(0.62, 0.7));
+        b.foamRing(templeSide * 11.5, -len * 0.45, 5.5);
         b.place('idol_0', -templeSide * 7.8, WL, -len + 2, faceIn(-templeSide, 2.2), 0.95);
         b.foamRing(-templeSide * 7.8, -len + 2, 5.2);
       }
