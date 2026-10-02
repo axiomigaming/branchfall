@@ -89,6 +89,14 @@ export class CameraRig {
   private epic = 0;
   /** 0..1, set by the game: the runner has dropped into a chasm and the lens tilts down after them. */
   gap = 0;
+  /** Metres from the runner to the escape's gate of light (set by the game), for the push. */
+  gateAhead = 12;
+  /**
+   * Set by the game when the result card appears: the settled shot then keeps the whole runner in
+   * the band between the card (reported as the top inset) and the dock.
+   */
+  revealed = false;
+  private revealK = 0;
   /** 0..1: how far a settled escape ends on a vista over the runner's shoulder. */
   private reveal = 0;
   /** Continuous run tier (see world/choreo): camera energy rises with it. */
@@ -135,6 +143,7 @@ export class CameraRig {
     if (opts.epic !== undefined) this.epic = opts.epic;
     if (m === this.mode) return;
     this.gap = 0;
+    this.revealed = false;
     this.mode = m;
     this.modeT = 0;
     this.swingTarget = 0;
@@ -201,6 +210,25 @@ export class CameraRig {
   private get compact(): number {
     const pf = Math.min(1, Math.max(0, (1 - this.camera.aspect) / 0.5));
     return Math.min(1, Math.max(pf, this.shiftTarget / 0.2));
+  }
+
+  /**
+   * After the result card appears: stand back far enough that the whole runner fits ~75 % of the
+   * band between the card and the dock, and aim at the hips, so the view offset (applyShift) sets
+   * him in the middle of that band, under the card. Not while the lens looks down into a chasm.
+   */
+  private resultFrame(f: Frame): Frame {
+    const k = this.revealK;
+    if (k <= 0.001 || this.gap > 0.5) return f;
+    const band = Math.max(0.25, 1 - this.insetTop - this.insetBottom);
+    const a = this.camera.aspect;
+    const lens = Math.min(96, f.fov * (a < 1 ? Math.min(1.55, 1 + (1 - a) * 0.95) : 1));
+    const need = 1.95 / (0.75 * band * 2 * Math.tan((lens * Math.PI) / 360));
+    const dy = f.up - 1.0;
+    const d0 = Math.max(0.3, Math.hypot(f.along, f.lat, dy));
+    const m = d0 < need ? need / d0 : 1;
+    const out: Frame = { ...f, along: f.along * m, lat: f.lat * m, up: 1.0 + dy * m, lAlong: lerp(f.lAlong, 0.3, 0.85), lLat: lerp(f.lLat, 0, 0.85), lUp: lerp(f.lUp, 0.95, 0.85), focus: f.focus * 0.15 };
+    return mixFrame(f, out, k);
   }
 
   private settled(f: Frame): Frame {
@@ -282,11 +310,11 @@ export class CameraRig {
         break;
       }
       case 'crash': {
-        fov = this.shot(runnerPos, this.settled(this.crashFrame(T / (1 + 0.5 * this.epic), s)));
+        fov = this.shot(runnerPos, this.resultFrame(this.settled(this.crashFrame(T / (1 + 0.5 * this.epic), s))));
         break;
       }
       case 'cashout': {
-        fov = this.shot(runnerPos, this.settled(this.escapeFrame(T, s)));
+        fov = this.shot(runnerPos, this.resultFrame(this.settled(this.escapeFrame(T, s))));
         break;
       }
     }
@@ -430,16 +458,18 @@ export class CameraRig {
     up += 1.1 * crane;
     fov += 3 * e;
     lUp += 0.2 * crane;
-    // The vista: a big escape swings on round behind and above the runner's shoulder and lifts its
-    // eyes down the way ahead (the route stays whole and calm), the runner small in the lower third.
-    const v = this.reveal * ease((T - 2.0) / 2.4);
+    // The threshold: after the first beat the lens swings round behind the runner's shoulder and
+    // pushes slowly toward the gate of light ahead (the way stays whole and calm), the runner a
+    // silhouette against the daylight.
+    const v = this.reveal * ease((T - 1.4) / 1.8);
     if (v > 0) {
-      a = lerp(a, 0.42, v);
-      r = lerp(r, 4.4 + 0.8 * e, v);
-      up = lerp(up, 2.5 + 0.9 * e, v);
-      lAlong = lerp(lAlong, 15 + 8 * e, v);
-      lUp = lerp(lUp, 2.0 + 0.6 * e, v);
-      fov = lerp(fov, 58 + 4 * e, v);
+      const push = ease((T - 2.6) / 4);
+      a = lerp(a, 0.32, v);
+      r = lerp(r, 5.0 + 0.6 * e - 1.3 * push, v);
+      up = lerp(up, 1.9 + 0.5 * e, v);
+      lAlong = lerp(lAlong, this.gateAhead, v);
+      lUp = lerp(lUp, 2.4, v);
+      fov = lerp(fov, 56 + 3 * e, v);
     }
     // Portrait: the lens is already opened up for width; come in so the figure keeps its size.
     if (this.camera.aspect < 1) r *= 0.66;
@@ -465,13 +495,15 @@ export class CameraRig {
     switch (this.crashShot) {
       case 'gate':
         // Pull back and rise at once, eyes up on the door coming down, then settle off-axis and
-        // well back: the runner and the whole carved door together, never the door alone.
+        // high: the runner, the broken slabs and the carved door together, never the door alone.
         return track(
           [
             [0, F(-3.2, 0.3 * s, 1.9, 4, 0, 2.8, 60, 0)],
             [0.4, F(-5.6, 1.1 * s, 2.6, 3, 0, 3.4, 62, 0.25)],
-            [1.2, F(-7.8, 1.7 * s, 2.9, 2.8, 0, 2.1, 60, 0)],
-            [7, F(-7.3, 1.9 * s, 2.7, 2.8, 0.3 * s, 1.9, 58, 0)],
+            [1.2, F(-6.8, 1.8 * s, 3.4, 2.4, 0, 1.6, 58, 0)],
+            // Settle high and aside, looking down the broken way: the runner, the gap, the door.
+            [3.0, F(-5.6, 1.9 * s, 3.7, 1.8, 0, 0.9, 57, 0)],
+            [7, F(-5.3, 1.9 * s, 3.5, 1.8, 0.2 * s, 0.9, 56, 0)],
           ],
           T,
         );
@@ -584,6 +616,7 @@ export class CameraRig {
     if (this.mode === 'run' || this.mode === 'lead') this.holdInBand(runnerPos);
     this.camera.rotateZ((Math.sin(t * 13.1) * 0.5 + Math.sin(t * 7.7)) * amp * 0.25 + this.dutch + hr);
     this.camera.fov = this.fov;
+    this.revealK += ((this.revealed && (this.mode === 'crash' || this.mode === 'cashout') ? 1 : 0) - this.revealK) * (1 - Math.exp(-dt * 2.5));
     this.applyShift(dt);
     this.camera.updateProjectionMatrix();
   }
@@ -664,7 +697,11 @@ export class CameraRig {
   }
 
   private applyShift(dt: number) {
-    this.shift += (this.shiftTarget - this.shift) * (1 - Math.exp(-dt * 3));
+    // A settled shot under the result card centres the band between the card and the dock, which
+    // can sit higher than the run's own limits allow.
+    const cine = this.revealK > 0.001 ? Math.min(0.32, Math.max(-0.3, (this.insetBottom - this.insetTop) / 2)) : this.shiftTarget;
+    const target = lerp(this.shiftTarget, cine, this.revealK);
+    this.shift += (target - this.shift) * (1 - Math.exp(-dt * 3));
     const c = this.camera;
     if (Math.abs(this.shift) < 0.001) {
       if (c.view) c.clearViewOffset();

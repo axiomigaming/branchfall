@@ -106,7 +106,8 @@ export class Flock {
     free = [];
   }
 
-  update(dt: number): void {
+  /** `eye`: the camera position; a bird never comes close enough to the lens to fill it. */
+  update(dt: number, eye?: THREE.Vector3): void {
     let top = 0;
     const flap = this.aFlap.array as Float32Array;
     for (let i = 0; i < this.cap; i++) {
@@ -135,7 +136,10 @@ export class Flock {
       flap[i] = beating ? b.phase : 0.25 + 0.1 * Math.sin(b.phase);
       this.look.lookAt(this.tmp.set(0, 0, 0), b.vel, THREE.Object3D.DEFAULT_UP);
       this.q.setFromRotationMatrix(this.look);
-      const sc = Math.min(1, b.age * 6) * 1.15;
+      // Fade out (shrink) within a few metres of the lens: a bird across the lens reads as a flat
+      // grey star, not a bird.
+      const near = eye ? Math.min(1, Math.max(0, (b.pos.distanceTo(eye) - 4) / 4)) : 1;
+      const sc = Math.min(1, b.age * 6) * 1.15 * near;
       this.m.compose(b.pos, this.q, this.s.set(sc, sc, sc));
       this.mesh.setMatrixAt(i, this.m);
       top = i + 1;
