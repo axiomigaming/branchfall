@@ -125,6 +125,8 @@ class SunShaftsEffect extends Effect {
       uniform float strength;
       uniform float aspectRatio;
       uniform vec3 tint;
+      uniform float span;
+      uniform float calm;
       void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
         if (strength < 0.001) { outputColor = inputColor; return; }
         vec2 delta = sunPos - uv;
@@ -146,11 +148,18 @@ class SunShaftsEffect extends Effect {
         }
         acc /= float(${samples});
         open /= float(${samples});
-        float r = length(vec2((uv.x - sunPos.x) * aspectRatio, uv.y - sunPos.y));
-        float fall = exp(-r * 2.4);
+        // Distance in units of the frame's short side (span = 1 / aspect in portrait): on a tall
+        // screen the beams used to reach as far down as on a wide one, i.e. across the whole width
+        // and down a third of the height, and veiled the top of the frame.
+        float r = length(vec2((uv.x - sunPos.x) * aspectRatio, uv.y - sunPos.y)) * span;
+        float fall = exp(-r * (2.4 + 1.2 * calm));
         // In-scatter: warm haze in the light's path, gated by how much sky the pixel can see.
-        vec3 veil = tint * open * exp(-r * 4.0) * 0.02;
-        outputColor = vec4(inputColor.rgb + (acc * tint * fall + veil) * strength, inputColor.a);
+        vec3 veil = tint * open * exp(-r * 4.0) * 0.02 * (1.0 - 0.6 * calm);
+        // Light in the air does not lift what is dark behind it (foliage, shade) as much as the sky:
+        // keep the blacks.
+        float lum = dot(inputColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+        float keep = mix(0.35, 1.0, smoothstep(0.04, 0.4, lum));
+        outputColor = vec4(inputColor.rgb + (acc * tint * fall + veil) * strength * keep * (1.0 - 0.35 * calm), inputColor.a);
       }`,
       {
         attributes: EffectAttribute.CONVOLUTION | EffectAttribute.DEPTH,
@@ -159,6 +168,8 @@ class SunShaftsEffect extends Effect {
           ['strength', new THREE.Uniform(0)],
           ['aspectRatio', new THREE.Uniform(1.6)],
           ['tint', new THREE.Uniform(new THREE.Vector3(1.0, 0.8, 0.55))],
+          ['span', new THREE.Uniform(1)],
+          ['calm', new THREE.Uniform(0)],
         ]),
       },
     );
@@ -183,6 +194,8 @@ class LensEffect extends Effect {
       uniform float flare;
       uniform float glowOnly;
       uniform vec3 sunTint;
+      uniform float span;
+      uniform float calm;
       float sunVis() {
         ${
           occlusion
@@ -208,21 +221,30 @@ class LensEffect extends Effect {
           if (vis > 0.002) {
             vec2 d = uv - sunPos;
             d.x *= aspectRatio;
-            float r = length(d);
-            vec3 add = sunTint * (exp(-r * 3.5) * 0.03 + exp(-r * 10.0) * 0.26 + exp(-r * 34.0) * 2.0);
+            float r0 = length(d);
+            // The glare and the starburst in units of the frame's short side (span = 1 / aspect in
+            // portrait), and gentler there (calm): on a phone they washed out the top 40 % of the
+            // frame. The core keeps its size, so the disc stays crisp.
+            float r = r0 * span;
+            // Glare does not lift the blacks: dark foliage and shade under it keep most of their depth.
+            float lum = dot(inputColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+            float keep = mix(0.3, 1.0, smoothstep(0.04, 0.4, lum));
+            vec3 add = sunTint * ((exp(-r * 3.5) * 0.03 + exp(-r * 10.0) * 0.26) * (1.0 - 0.55 * calm) * keep + exp(-r0 * 34.0) * 2.0);
             // Low tier (no bloom, no shafts, no flare): the glare alone, a touch wider, stands in for
             // the light those passes add, or the frame reads dull and dark at speed.
             if (glowOnly > 0.5) {
-              add = sunTint * (exp(-r * 2.6) * 0.09 + exp(-r * 8.0) * 0.32 + exp(-r * 30.0) * 1.6);
+              add = sunTint * ((exp(-r * 2.6) * 0.09 + exp(-r * 8.0) * 0.32) * (1.0 - 0.45 * calm) * keep + exp(-r0 * 30.0) * 1.6);
               c += add * vis;
               outputColor = vec4(c, inputColor.a);
               return;
             }
             float ang = atan(d.y, d.x);
             float rays = pow(abs(cos(ang * 3.0 + 0.4)), 90.0) + 0.6 * pow(abs(cos(ang * 5.0 + 1.3)), 160.0);
-            add += sunTint * rays * exp(-r * 7.0) * 0.7;
+            // A few crisp rays for drama: shorter and dimmer on a tall screen.
+            // (Measured halfway between the two scales, so on a phone they still reach past the disc.)
+            add += sunTint * rays * exp(-r0 * mix(1.0, span, 0.45) * 7.0) * 0.7 * (1.0 - 0.15 * calm) * mix(0.6, 1.0, keep);
             // Anamorphic streak.
-            add += vec3(1.0, 0.82, 0.62) * exp(-abs(d.y) * 140.0) * exp(-abs(d.x) * 2.2) * 0.5;
+            add += vec3(1.0, 0.82, 0.62) * exp(-abs(d.y) * 140.0) * exp(-abs(d.x) * span * 2.2) * 0.5 * (1.0 - 0.5 * calm);
             // Ghosts on the line through the centre.
             vec2 axis = vec2(0.5) - sunPos;
             const int G = 5;
@@ -256,6 +278,8 @@ class LensEffect extends Effect {
           ['exposure', new THREE.Uniform(1)],
           ['flare', new THREE.Uniform(1)],
           ['glowOnly', new THREE.Uniform(occlusion ? 0 : 1)],
+          ['span', new THREE.Uniform(1)],
+          ['calm', new THREE.Uniform(0)],
           ['sunTint', new THREE.Uniform(new THREE.Vector3(1.0, 0.86, 0.64))],
         ]),
       },
@@ -602,6 +626,13 @@ export class Post {
     const up = (globalThis.devicePixelRatio || 1) / Math.max(0.25, this.renderer.getPixelRatio());
     this.sharpen.uniforms.get('sharpness')!.value = Math.min(1, this.sharpenBase + 0.35 * Math.min(1.5, Math.max(0, up - 1)));
     for (const e of [this.blur, this.shafts, this.lens]) if (e) e.uniforms.get('aspectRatio')!.value = w / h;
+    // Portrait: sun glare and shafts are sized by the short side and toned down (see the shaders).
+    const a = w / h;
+    for (const e of [this.shafts, this.lens]) {
+      if (!e) continue;
+      e.uniforms.get('span')!.value = Math.max(1, 1 / a);
+      e.uniforms.get('calm')!.value = Math.min(1, Math.max(0, (1 - a) / 0.45));
+    }
   }
 
   apply(p: PostParams): void {
