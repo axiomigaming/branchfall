@@ -109,10 +109,16 @@ export class Water {
             body += vec3(0.55, 0.85, 0.7) * ca * 0.22 * depthLook * smoothstep(45.0, 6.0, dist);
           }
           // Glossy: the sky and the far world mirror strongly toward grazing angles.
+          // The panorama near the sun is several times brighter than paper white: mirrored at a
+          // grazing angle it turned whole sheets of water pure white (a hole in the world). Roll the
+          // reflection off softly above ~1 so it stays bright sky, never clipped.
+          float rl = max(max(refl.r, refl.g), refl.b);
+          refl *= rl > 0.9 ? (0.9 + 0.6 * (1.0 - exp(-(rl - 0.9) / 0.6))) / rl : 1.0;
           vec3 col = mix(body, refl * vec3(0.9, 0.97, 0.95), clamp(fres * 1.05, 0.0, 0.95));
           vec3 H = normalize(uSunDir + V);
           float spec = pow(max(dot(N, H), 0.0), 420.0) * 22.0 + pow(max(dot(N, H), 0.0), 60.0) * 0.35;
-          col += uSunColor * spec;
+          // The glint itself stays hot (it blooms), but only the narrow core: the broad lobe is capped.
+          col += uSunColor * min(spec, 6.0);
           // Alpha marks water for the screen-space reflections (the canvas itself is opaque).
           gl_FragColor = vec4(col, uMark);
           #include <tonemapping_fragment>
