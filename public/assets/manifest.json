@@ -34,13 +34,13 @@
   "shared": {
     "backdrop": {
       "file": "backdrop.webp",
-      "bytes": 302018,
-      "v": "f39ed84627"
+      "bytes": 300888,
+      "v": "5a49af8a78"
     },
     "env": {
       "file": "env.half.hdr",
-      "bytes": 264297,
-      "v": "2e7dcde4b0"
+      "bytes": 258073,
+      "v": "c77fbd40c0"
     },
     "backdropMeta": {
       "file": "backdrop.json",
