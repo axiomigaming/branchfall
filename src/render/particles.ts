@@ -50,7 +50,7 @@ export class Particles {
       transparent: true,
       depthWrite: false,
       fog: true,
-      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uScale: { value: 600 } }]),
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uScale: { value: 600 }, uLight: { value: 1.4 } }]),
       vertexShader: /* glsl */ `
         #include <fog_pars_vertex>
         attribute float aSize; attribute float aAlpha; attribute vec3 color;
@@ -60,21 +60,31 @@ export class Particles {
           vCol = color; vA = aAlpha;
           vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
           gl_PointSize = aSize * uScale / max(-mvPosition.z, 0.1);
+          // A sprite is a flat square facing the lens. Born at a footfall its centre sits on the
+          // floor, so the floor's depth cut off its lower half along the slab edges: a hard-edged
+          // grey patch beside the runner. Draw it half a size nearer the lens (never past halfway
+          // to it) so the whole disc stays in front of the surface it rose from.
+          float pull = min(aSize * 0.5, -mvPosition.z * 0.5);
+          mvPosition.xyz += normalize(-mvPosition.xyz) * pull;
           gl_Position = projectionMatrix * mvPosition;
           #include <fog_vertex>
         }`,
       fragmentShader: /* glsl */ `
         #include <fog_pars_fragment>
         varying vec3 vCol; varying float vA;
+        uniform float uLight;
         void main() {
           vec2 c = gl_PointCoord - 0.5;
           float d = length(c) * 2.0;
           float a = smoothstep(1.0, 0.0, d);
           a *= a;
-          // A little internal texture so clouds do not look like discs.
-          float n = fract(sin(dot(floor(gl_PointCoord * 6.0), vec2(12.9, 78.2))) * 43758.5);
-          a *= 0.85 + 0.15 * n;
-          gl_FragColor = vec4(vCol, a * vA);
+          // A little smooth internal variation so clouds do not look like discs (a 6×6 cell hash
+          // here printed visible blocks on big puffs).
+          vec2 q = gl_PointCoord * 6.2831853;
+          a *= 0.88 + 0.12 * sin(q.x * 1.3 + vCol.r * 9.0) * cos(q.y * 1.1 + vA * 23.0);
+          // Dust in the air catches the sun: unlit albedo read darker than the sunlit floor
+          // behind it, so every puff was a grey smudge. Lift it to roughly the floor's level.
+          gl_FragColor = vec4(vCol * uLight, a * vA);
           #include <fog_fragment>
         }`,
     });

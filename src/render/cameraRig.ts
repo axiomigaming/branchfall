@@ -266,18 +266,19 @@ export class CameraRig {
       case 'lead': {
         // Low beside the coiled runner, easing in: the held breath before the go.
         const p = ease(T / 1.2);
-        fov = this.shot(runnerPos, F(lerp(-2.45, -1.95, p), lerp(0.62, 0.78, p), lerp(1.2, 1.02, p), 7, 0.1, 1.05, lerp(52, 47, p)));
+        fov = this.shot(runnerPos, this.fitInBand(F(lerp(-2.45, -1.95, p), lerp(0.62, 0.78, p), lerp(1.2, 1.02, p), 7, 0.1, 1.05, lerp(52, 47, p))));
         break;
       }
       case 'run': {
         // Low and close on a wide lens (the references): shoulder height, the runner big and left
-        // of centre, cropped around the shins, the way ahead open to the right. Energy rises with
-        // the run tier: closer and lower at the top tiers, a wider lens, a drift.
+        // of centre, the way ahead open to the right. Energy rises with the run tier: closer and
+        // lower at the top tiers, a wider lens, a drift. fitInBand keeps him whole, boots
+        // included, above the cash-out plate.
         const d = this.drive;
         const hi = Math.max(0, d - 2.5);
         const dist = 2.2 + 0.3 * I - 0.1 * hi;
         const drift = 0.22 * I * Math.sin(this.t * 0.37) * this.motionScale;
-        fov = this.shot(runnerPos, F(-dist, 0.3 + drift, 1.55 - 0.06 * I - 0.05 * hi, 9, 0.35 + drift * 0.4, 1.1, 60 + 16 * I + 2 * hi));
+        fov = this.shot(runnerPos, this.fitInBand(F(-dist, 0.3 + drift, 1.55 - 0.06 * I - 0.05 * hi, 9, 0.35 + drift * 0.4, 1.1, 60 + 16 * I + 2 * hi)));
         break;
       }
       case 'crash': {
@@ -580,6 +581,7 @@ export class CameraRig {
     this.camera.position.addScaledVector(this.right, sx + this.sway + hx);
     this.camera.position.y += sy + this.bob + breathe + hy;
     this.camera.lookAt(this.look);
+    if (this.mode === 'run' || this.mode === 'lead') this.holdInBand(runnerPos);
     this.camera.rotateZ((Math.sin(t * 13.1) * 0.5 + Math.sin(t * 7.7)) * amp * 0.25 + this.dutch + hr);
     this.camera.fov = this.fov;
     this.applyShift(dt);
@@ -592,9 +594,74 @@ export class CameraRig {
   setInsets(top: number, bottom: number, heightPx: number): void {
     this.shiftTarget = Math.min(0.32, Math.max(-0.1, (bottom - top) / 2 / Math.max(1, heightPx)));
     this.free = Math.min(1, Math.max(0.3, 1 - (Math.max(0, top) + Math.max(0, bottom)) / Math.max(1, heightPx)));
+    this.insetTop = Math.min(0.45, Math.max(0, top / Math.max(1, heightPx)));
+    this.insetBottom = Math.min(0.6, Math.max(0, bottom / Math.max(1, heightPx)));
   }
   /** Fraction of the screen height the interface leaves free (1 with no insets). */
   private free = 1;
+  private insetTop = 0;
+  private insetBottom = 0;
+
+  /**
+   * Keep the whole runner, boots to head, in the band the interface leaves free. In the unshifted
+   * projection (NDC y, before the view offset moves the frame by `shift`) that band runs from
+   * -1 - 2s + 2b (the dock's top edge) to 1 - 2s - 2t (the top bar's lower edge). The frame first
+   * tilts down until the boots clear the dock line; if the head would then leave the top of the band,
+   * it stands further back and tries again. Only lowers the aim or pulls back, never the reverse.
+   */
+  /**
+   * fitInBand composes the target; the lens itself trails it on springs (further behind the faster
+   * he runs), so check the real view too: if the boots sit below the dock line, tilt down just enough,
+   * never so far that the crown leaves the top of the band.
+   */
+  private holdInBand(runnerPos: THREE.Vector3): void {
+    const c = this.camera;
+    const s = this.shift;
+    const lo = -1 - 2 * s + 2 * this.insetBottom + 0.11;
+    const hi = 1 - 2 * s - 2 * this.insetTop - 0.05;
+    if (hi - lo < 0.2) return;
+    const tanHF = Math.tan((this.fov * Math.PI) / 360);
+    c.updateMatrixWorld();
+    const inv = this.tmpInv.copy(c.matrixWorld).invert();
+    const f = this.eye.copy(runnerPos).applyMatrix4(inv);
+    const hd = this.cand.copy(runnerPos).setY(runnerPos.y + 1.8).applyMatrix4(inv);
+    if (f.z > -0.3 || hd.z > -0.3) return;
+    const elevFeet = Math.atan2(f.y, -f.z);
+    const elevHead = Math.atan2(hd.y, -hd.z);
+    const need = Math.atan(lo * tanHF) - elevFeet; // > 0: boots below the line
+    if (need <= 0) return;
+    const room = Math.max(0, Math.atan(hi * tanHF) - elevHead);
+    const tilt = Math.min(need, room);
+    if (tilt > 1e-4) c.rotateX(-tilt);
+  }
+  private tmpInv = new THREE.Matrix4();
+
+  private fitInBand(f: Frame): Frame {
+    const s = this.shiftTarget;
+    // The bottom margin clears the gem crest that stands proud of the cash-out plate's top edge.
+    const lo = -1 - 2 * s + 2 * this.insetBottom + 0.11;
+    const hi = 1 - 2 * s - 2 * this.insetTop - 0.05;
+    if (hi - lo < 0.2) return f;
+    const a = this.camera.aspect;
+    const lens = Math.min(96, f.fov * (a < 1 ? Math.min(1.55, 1 + (1 - a) * 0.95) : 1));
+    const tanHF = Math.tan((lens * Math.PI) / 360);
+    const H = 1.8; // boots to crown, metres
+    const U = f.up;
+    let D = Math.max(0.5, -f.along);
+    const reach = f.lAlong + D;
+    const theta0 = Math.atan2(U - f.lUp, reach);
+    let theta = theta0;
+    for (let i = 0; i < 10; i++) {
+      const tMin = Math.atan2(U, D) + Math.atan(lo * tanHF);
+      const tMax = Math.atan(hi * tanHF) - Math.atan2(H - U, D);
+      theta = Math.max(theta0, tMin);
+      if (theta <= tMax) break;
+      D *= 1.1;
+    }
+    if (theta === theta0 && D === -f.along) return f;
+    const k = D / Math.max(0.5, -f.along);
+    return { ...f, along: -D, lat: f.lat * k, lUp: U - Math.tan(theta) * (f.lAlong + D) };
+  }
 
   private applyShift(dt: number) {
     this.shift += (this.shiftTarget - this.shift) * (1 - Math.exp(-dt * 3));

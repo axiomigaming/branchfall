@@ -6,6 +6,7 @@ import {
   EffectAttribute,
   EffectComposer,
   EffectPass,
+  FXAAEffect,
   NoiseEffect,
   RenderPass,
   SMAAEffect,
@@ -71,20 +72,26 @@ class MotionBlurEffect extends Effect {
         if (len * resolution.y < 1.5) { outputColor = inputColor; return; }
         vec3 acc = vec3(0.0);
         float w = 0.0;
-        float jitter = ignL(gl_FragCoord.xy);
+        float w0 = 0.0;
+        // Half-amplitude dither: a full 0..1 jitter over only 6–16 taps printed a halftone lattice.
+        float jitter = 0.5 + (ignL(gl_FragCoord.xy) - 0.5) * 0.5;
         for (int i = 0; i < ${samples}; i++) {
           float t = (float(i) + jitter) / float(${samples}) - 0.5;
           vec2 o = uv - v * t;
-          // Never drag the runner's pixels across the background.
-          float k = step(0.5, protectMask(o)) * (1.0 - abs(t));
+          // Never drag the runner's pixels across the background. A soft weight, not a step: a
+          // hard cut printed the edge of the rejected taps as a hard-edged patch beside him.
+          float k0 = 1.0 - abs(t);
+          float k = smoothstep(0.35, 0.75, protectMask(o)) * k0;
           vec3 c;
           c.r = texture2D(inputBuffer, o - v * fringe).r;
           c.g = texture2D(inputBuffer, o).g;
           c.b = texture2D(inputBuffer, o + v * fringe).b;
           acc += c * k;
           w += k;
+          w0 += k0;
         }
-        outputColor = w > 0.01 ? vec4(acc / w, inputColor.a) : inputColor;
+        // Where most taps were rejected, fall back to the sharp pixel smoothly.
+        outputColor = vec4(mix(inputColor.rgb, acc / max(w, 1e-4), clamp(2.0 * w / w0, 0.0, 1.0)), inputColor.a);
       }`,
       {
         attributes: EffectAttribute.CONVOLUTION | (camera ? EffectAttribute.DEPTH : 0),
@@ -124,7 +131,10 @@ class SunShaftsEffect extends Effect {
       void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
         if (strength < 0.001) { outputColor = inputColor; return; }
         vec2 delta = sunPos - uv;
-        float jitter = ign2(gl_FragCoord.xy);
+        // A small dither, centred on the half step: a full 0..1 jitter breaks the march's banding
+        // but prints the noise's lattice over the whole sky as a halftone. ±0.2 of a step keeps the
+        // bands broken up where they would show (the hard edges of occluders) and the sky clean.
+        float jitter = 0.5 + (ign2(gl_FragCoord.xy) - 0.5) * 0.4;
         vec3 acc = vec3(0.0);
         float open = 0.0;
         for (int i = 0; i < ${samples}; i++) {
@@ -470,8 +480,8 @@ class GradeEffect extends Effect {
       }`,
       {
         uniforms: new Map<string, THREE.Uniform>([
-          ['saturation', new THREE.Uniform(1.1)],
-          ['contrast', new THREE.Uniform(1.08)],
+          ['saturation', new THREE.Uniform(1.14)],
+          ['contrast', new THREE.Uniform(1.13)],
           ['tint', new THREE.Uniform(new THREE.Vector3(1.025, 0.995, 0.95))],
           ['danger', new THREE.Uniform(0)],
           ['cold', new THREE.Uniform(0)],
@@ -502,6 +512,9 @@ export interface PostParams {
   /** World time, for the water ripples in the reflections. */
   time?: number;
 }
+
+/** Bloom strength at rest (was 0.75: with the sky over the threshold it veiled the top of the frame). */
+const BLOOM = 0.5;
 
 /** Base exposure: the sun-drenched references sit well above a neutral grey. */
 export const EXPOSURE = 1.14;
@@ -555,19 +568,22 @@ export class Post {
     if (this.blurPass) this.composer.addPass(this.blurPass);
     this.hasPrev = false;
     this.sharpenBase = q.sharpen;
-    // Bloom: a tighter radius and a slightly higher knee, so the sky does not haze over every
-    // silhouette (a soft halo around all edges against the sky reads as a blurred frame).
-    this.bloom = q.bloom ? new BloomEffect({ mipmapBlur: true, luminanceThreshold: 1.1, luminanceSmoothing: 0.25, intensity: 0.75, radius: 0.5 }) : null;
+    // Bloom: a tight radius and a high knee, so the sky does not haze over every silhouette (a soft
+    // halo around all edges against the sky reads as a blurred, milky frame). Only the hot sun,
+    // its glints and the cash-out flare bloom.
+    this.bloom = q.bloom ? new BloomEffect({ mipmapBlur: true, luminanceThreshold: 1.3, luminanceSmoothing: 0.3, intensity: BLOOM, radius: 0.45 }) : null;
     this.lens = new LensEffect(q.lensFlare);
     this.flareOn = q.lensFlare;
     const tone = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
     const grain = new NoiseEffect({ premultiply: true, blendFunction: BlendFunction.SCREEN });
-    grain.blendMode.opacity.value = 0.035;
+    // Film grain, kept below what reads as dirt on a phone (was 0.035).
+    grain.blendMode.opacity.value = 0.018;
     const effects: Effect[] = [this.sharpen, this.lens];
     if (this.bloom) effects.push(this.bloom);
     effects.push(tone, this.grade, this.vignette, grain);
     this.composer.addPass(new EffectPass(this.camera, ...effects));
     if (q.smaa) this.composer.addPass(new EffectPass(this.camera, new SMAAEffect()));
+    else if (q.fxaa) this.composer.addPass(new EffectPass(this.camera, new FXAAEffect()));
   }
 
   setSize(w: number, h: number): void {
@@ -626,7 +642,7 @@ export class Post {
     g.get('gold')!.value = p.gold;
     g.get('flash')!.value = p.flash;
     g.get('fade')!.value = p.fade;
-    if (this.bloom) this.bloom.intensity = 0.75 + 0.5 * p.bloomBoost;
+    if (this.bloom) this.bloom.intensity = BLOOM + 0.5 * p.bloomBoost;
     this.vignette.darkness = 0.5 + p.speed * 0.2 + p.cold * 0.25;
     if (this.lens) this.lens.uniforms.get('exposure')!.value = EXPOSURE * (1 - 0.12 * p.cold);
   }
@@ -648,7 +664,7 @@ export class Post {
     if (this.shafts) {
       const u = this.shafts.uniforms;
       u.get('sunPos')!.value.set(x, y);
-      u.get('strength')!.value = behind ? 0 : 1.35 * Math.max(0, 1 - off * 1.6);
+      u.get('strength')!.value = behind ? 0 : 1.0 * Math.max(0, 1 - off * 1.6);
     }
     if (this.lens) {
       const u = this.lens.uniforms;

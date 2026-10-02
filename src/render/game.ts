@@ -1410,15 +1410,17 @@ export class Game {
     this.motes.update(this.worldT, cam, this.renderer.domElement.height / (2 * Math.tan((cam.fov * Math.PI) / 360)), 1, this.sunDir);
     this.ambient.update(this.worldT, cam);
 
-    // Keep the runner sharp in the blur: project the chest to screen.
-    const chest = this.tmpChest.copy(rp).setY(rp.y + 1.05).project(cam); // perf: no per-frame alloc
+    // Keep the runner sharp in the blur: the protected ellipse spans boots to crown. (It used to sit
+    // on the chest, so the legs were blurred and their dark taps smeared across the bright floor
+    // beside them: a hard-edged grey patch right of the legs.)
+    const feet = this.tmpChest.copy(rp).project(cam); // perf: no per-frame alloc
     const head = this.tmpHead.copy(rp).setY(rp.y + 1.85).project(cam);
-    const halfH = Math.min(0.6, Math.max(0.08, Math.abs(head.y - chest.y) * 0.5 * 1.25));
+    const halfY = Math.min(0.9, Math.max(0.06, (Math.abs(head.y - feet.y) * 0.25 * 1.12) / 0.75));
     const speedBlur = this.motion === 'reduced' ? 0 : Math.min(1, Math.max(0, (this.speed - 4) / 10));
     this.post.apply({
       speed: speedBlur,
-      runnerScreen: this.tmpScreen.set(chest.x * 0.5 + 0.5, chest.y * 0.5 + 0.5 - halfH * 0.15),
-      runnerSize: this.tmpSize.set((halfH * 0.62) / cam.aspect, halfH * 1.15),
+      runnerScreen: this.tmpScreen.set((feet.x + head.x) * 0.25 + 0.5, (feet.y + head.y) * 0.25 + 0.5),
+      runnerSize: this.tmpSize.set((halfY * 0.45) / cam.aspect, halfY),
       motion: this.motion === 'reduced' ? 0 : 1,
       dt: rawDt,
       time: this.worldT,
