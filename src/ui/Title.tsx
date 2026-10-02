@@ -40,7 +40,7 @@ export function Title() {
           ) : ready ? (
             <div className="title-actions">
               <button className={`btn btn-cta cta-go enter-btn${leaving ? ' busy' : ''}`} onClick={enter} onMouseEnter={() => ctl?.audio.ui('hover')} autoFocus>
-                <span className="crest" aria-hidden />
+                {/* the crest belongs to the wordmark on this screen; the CTA is plain carved stone */}
                 <span className="btn-label gold">Enter the ruins</span>
               </button>
               <button
