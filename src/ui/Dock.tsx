@@ -25,7 +25,11 @@ export function Dock() {
       let top = el.getBoundingClientRect().top;
       const crest = el.querySelector('.crest');
       if (crest) top = Math.min(top, crest.getBoundingClientRect().top);
-      const bar = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0;
+      // From above: the top bar, and during a run the multiplier block under it, so the runner is
+      // framed below the figure rather than behind it.
+      let bar = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0;
+      const hud = document.querySelector('.hud');
+      if (hud) bar = Math.max(bar, hud.getBoundingClientRect().bottom);
       ctl.game.rig.setInsets(bar, window.innerHeight - top, window.innerHeight);
     };
     report();
