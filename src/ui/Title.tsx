@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useStore } from '../state/store';
 import { useCtl } from './context';
+import { Logo } from './Logo';
 
 export function Title() {
   const phase = useStore((s) => s.phase);
@@ -27,8 +28,8 @@ export function Title() {
       <section className={`title${leaving ? ' leaving' : ''}`} aria-labelledby="wordmark">
         <div className="title-inner">
           <div className="eyebrow">A crash game in the sunken ruins</div>
-          <h1 className="wordmark gold" id="wordmark">
-            Causeway
+          <h1 className="wordmark" id="wordmark" aria-label="Causeway">
+            <Logo />
           </h1>
           <div className="rule" />
           <p className="tagline">The old road is coming apart beneath you. Every step deeper raises the multiplier — leave with it before the way falls.</p>

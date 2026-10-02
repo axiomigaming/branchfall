@@ -1,15 +1,17 @@
 /* CAUSEWAY — interface: Temple Relief.
    One material language, baked in Blender (blender/build_ui.py → public/ui):
-   · the hero plates (RUN, CASH OUT, ENTER) are a carved, chipped limestone frame with stepped
-     corners, key hooks on the end caps and moss on the top corners (plate-frame.webp), around
-     a recessed red-brown stone panel (panel*.webp) that opens ember seams as CASH OUT heats.
-     Their lettering is gold block type (Bungee, gold leaf with a carved notch, a dark outline
-     and a drop shadow); RUN is three gold tiles. The primary plate wears a gold crest with a
-     ruby between two emeralds and a fret pendant.
-   · everything else is a quieter stone tablet: a fine limestone rim around the same red-brown
-     panel (tablet.webp, painted by border-image at zero layout cost), jade when selected.
-   Type: Bungee for gold lettering, Marcellus SC for carved captions, Space Grotesk with tabular
-   figures for the interface and every amount. 8 px grid; every hit area is at least 48 px. */
+   · the hero plates (RUN, CASH OUT, ENTER) and the wordmark cartouche are a carved, chipped
+     limestone frame with stepped corners, key hooks on the end caps and moss on the top corners
+     (plate-frame.webp), around a recessed red-brown stone panel (panel*.webp) that opens ember
+     seams as CASH OUT heats. Their lettering is gold block type (Bungee, gold leaf with a carved
+     notch, a dark outline and a drop shadow); RUN is one hammered-gold slab with an engraved
+     word-mark. The primary plate wears a gold crest (a ruby between two emeralds) and a pendant.
+   · everything else is a carved stone key: a raised basalt face in a limestone socket
+     (tablet.webp, painted by border-image at zero layout cost), polished jade when selected.
+     Dividers are a gold step-fret (xicalcoliuhqui).
+   Type: Bungee for gold lettering, Marcellus SC for carved captions, Alegreya Sans (a warm
+   humanist sans with tabular lining figures) for the interface and every amount.
+   8 px grid; every hit area is at least 48 px. */
 :root {
   --ink: #0d0b08;
   --text: #fbf3e2;
@@ -44,7 +46,7 @@
   --jade-2: #1f9a6c;
   --jade-3: #0f6a4a;
   --jade-base: #06402d;
-  --f: 'Space Grotesk Variable', 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
+  --f: 'Alegreya Sans', 'Segoe UI', system-ui, sans-serif;
   --f-block: 'Bungee', 'Arial Black', Impact, sans-serif;
   --f-display: 'Marcellus SC', Georgia, serif;
   --f-ui: var(--f);
@@ -82,7 +84,7 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--ink); color: var(--text); overflow: hidden; }
-body { font-family: var(--f); font-size: 15px; font-synthesis: none; -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; touch-action: manipulation; user-select: none; }
+body { font-family: var(--f); font-size: 16px; font-synthesis: none; -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; touch-action: manipulation; user-select: none; }
 #world { position: fixed; inset: 0; width: 100%; height: 100%; display: block; opacity: 0; transition: opacity 1.4s var(--ease-out); }
 #world.on { opacity: 1; }
 #app { position: fixed; inset: 0; pointer-events: none; }
@@ -91,7 +93,7 @@ button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
 :focus-visible { outline: 2px solid #fff3d6; outline-offset: 3px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-/* Figures: Space Grotesk, bold, tabular, lining. */
+/* Figures: Alegreya Sans, bold, tabular, lining. */
 .num { font-family: var(--f); font-weight: 700; font-variant-numeric: tabular-nums lining-nums; letter-spacing: -0.01em; }
 /* Carved small caps. */
 .eyebrow { font-family: var(--f-display); font-weight: 400; letter-spacing: 0.16em; font-size: 13px; color: var(--gold-1); }
@@ -304,15 +306,6 @@ button { cursor: pointer; }
 }
 .title-inner { max-width: 640px; pointer-events: auto; }
 .title .eyebrow { font-size: 15px; opacity: 0; animation: rise 1s var(--ease-out) 0.15s forwards; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7), 0 1px 12px rgba(0, 0, 0, 0.6); }
-.wordmark {
-  font-size: clamp(44px, 7.4vw, 108px);
-  line-height: 1;
-  letter-spacing: 0.02em;
-  margin: 16px 0 0 -0.04em;
-  opacity: 0;
-  animation: rise 1.2s var(--ease-out) 0.25s forwards;
-  --gold-edge: drop-shadow(3px 0 0 var(--gold-ink)) drop-shadow(-3px 0 0 var(--gold-ink)) drop-shadow(0 3px 0 var(--gold-ink)) drop-shadow(0 -2px 0 var(--gold-ink)) drop-shadow(0 6px 4px rgba(0, 0, 0, 0.6));
-}
 /* the rule is the gold fret band itself */
 .rule { width: 224px; height: 12px; background: var(--fret) 0 0 / auto 12px repeat-x; filter: drop-shadow(0 0 1px rgba(20, 12, 4, 0.9)) drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5)); margin: 24px 0; opacity: 0; animation: grow 1.2s var(--ease-out) 0.5s forwards; transform-origin: left; }
 .tagline { font-size: clamp(16px, 1.4vw, 18px); line-height: 1.6; color: var(--text-2); max-width: 30em; margin: 0; opacity: 0; animation: rise 1.2s var(--ease-out) 0.55s forwards; text-shadow: 0 1px 12px rgba(0, 0, 0, 0.6); }
@@ -374,7 +367,8 @@ button { cursor: pointer; }
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.8);
 }
 .chip.mid { color: var(--gold-1); }
-.chip.high { color: #c8ffe6; border-image-source: var(--tablet-jade); }
+.chip { color: var(--ivory); }
+.chip.high { color: #fff0b8; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.8), 0 0 8px rgba(255, 200, 90, 0.6); }
 .chip.fresh { animation: chipIn 0.6s var(--ease-out); }
 .chip.mine { padding-right: 18px; }
 .chip.mine::after { content: ''; position: absolute; top: 50%; right: 7px; width: 5px; height: 5px; margin-top: -2.5px; transform: rotate(45deg); background: var(--emerald); box-shadow: 0 0 6px rgba(43, 212, 122, 0.8); }
@@ -462,35 +456,14 @@ button { cursor: pointer; }
 /* 48 px hit area around the 40 px tally */
 .qchip::after { content: ''; position: absolute; inset: -4px 0; }
 
-/* ---- RUN: three gold tiles */
+/* ---- RUN: one gold slab with one word-mark (the stake is read from the stepper) */
 .run-cell { display: flex; }
-.run-btn { --h: 84px; width: 416px; justify-content: space-between; gap: 16px; padding: 0 16px 0 16px; }
-.run-btn .btn-label { display: inline-flex; align-items: center; gap: 10px; }
-.tiles { display: inline-flex; gap: 6px; filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.55)); }
-.tiles i {
-  --t: 40px;
-  width: var(--t);
-  height: calc(var(--t) * 1.1);
-  display: grid;
-  place-items: center;
-  font-style: normal;
-  font-family: var(--f-block);
-  font-size: calc(var(--t) * 0.6);
-  line-height: 1;
-  color: #2a1003;
-  text-shadow: 0 1px 0 rgba(255, 246, 200, 0.6);
-  background: linear-gradient(180deg, #fff3b8 0%, #ffd960 30%, #f8bd34 64%, #e6a024 100%);
-  box-shadow: 0 0 0 1.5px var(--gold-ink), inset 0 2px 0 rgba(255, 252, 230, 0.9), inset 0 -2px 0 rgba(150, 82, 8, 0.4), inset 1.5px 0 0 rgba(255, 240, 180, 0.4), inset -1.5px 0 0 rgba(160, 90, 12, 0.3);
-  padding-top: 0.06em;
-}
-.run-btn .again { font-size: 17px; letter-spacing: 0.06em; }
-.run-btn .btn-sub { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-family: var(--f); font-size: 26px; font-weight: 700; letter-spacing: -0.01em; color: var(--gold-1); white-space: nowrap; font-variant-numeric: tabular-nums; text-shadow: var(--fig-edge); }
-.run-btn .btn-sub small { font-size: 10px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ivory); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.9); }
-.run-btn .btn-sub i { font-style: normal; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; margin-left: 4px; color: var(--ivory); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.9); }
-.run-btn .btn-sub .fig { display: flex; align-items: baseline; }
-.run-btn.busy .btn-label { font-size: 22px; }
-.run-btn:disabled .tiles i { filter: saturate(0.35); }
-.sep { display: none; }
+.run-btn { --h: 84px; --panel: url('/ui/panel-gold.webp'); width: 360px; justify-content: center; gap: 12px; padding: 0 16px; }
+.run-btn .word { display: inline-flex; align-items: center; gap: 12px; font-family: var(--f-block); font-size: 30px; letter-spacing: 0.08em; text-transform: uppercase; color: #2a1003; text-shadow: 0 1px 0 rgba(255, 244, 200, 0.75), 0 -1px 0 rgba(90, 44, 4, 0.35); }
+.run-btn .spinner { border-color: #2a1003; border-right-color: transparent; filter: none; }
+.run-btn:disabled .word { color: var(--ivory); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.9); }
+.cta-sun .word { color: var(--ivory); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.9); }
+.cta-sun .btn-sub { font-family: var(--f); font-size: 14px; font-weight: 700; color: var(--ivory); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.9); }
 /* success: after an escape, RUN AGAIN sweeps once and breathes up */
 .run-btn.won::after { animation: glint 1.2s var(--ease-out) 0.5s 1 both; }
 .run-btn.won { animation: wonPop 0.7s var(--ease-spring) 0.3s 1 both; }
@@ -524,7 +497,7 @@ button { cursor: pointer; }
 .cash > .heat.glow { border: 0; border-image: none; background: radial-gradient(70% 60% at 50% 125%, rgba(255, 120, 30, 0.5), rgba(255, 90, 20, 0) 70%); opacity: clamp(0, calc((var(--heat) - 0.4) * 1.6), 1); mix-blend-mode: screen; }
 .cash .crest { filter: brightness(calc(1 + var(--heat) * 0.25)) drop-shadow(0 0 calc(var(--heat) * 10px) rgba(255, 60, 40, calc(var(--heat) * 0.8))); }
 .cash .label { text-align: left; display: flex; flex-direction: column; gap: 6px; flex: none; max-width: 52%; }
-.cash .label small { font-family: var(--f); font-size: 12px; font-weight: 600; letter-spacing: 0.02em; color: var(--ivory); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.9); padding-left: 2px; }
+.cash .label small { font-family: var(--f); font-size: 13px; font-weight: 500; letter-spacing: 0.02em; color: var(--ivory); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.9); padding-left: 2px; }
 .cash .amt { --a: 11.5cqw; font-family: var(--f); font-weight: 700; font-size: min(48px, var(--a), calc(var(--h) * 0.44)); line-height: 1; white-space: nowrap; letter-spacing: -0.02em; font-variant-numeric: tabular-nums lining-nums; color: #ffe08a; text-shadow: var(--fig-edge); }
 /* Get set: grey stone, not yet live */
 .cash.lead { cursor: default; --panel: url('/ui/panel-smoke.webp'); --glowf: var(--none); --tone: saturate(0.7); }
@@ -534,7 +507,7 @@ button { cursor: pointer; }
 .cash.pressed { --tone: brightness(1.1); }
 .cash.pressed::after { animation: glint 0.6s var(--ease-out) 1 both; }
 @keyframes cashIn { from { transform: translateY(12px) scale(0.98); opacity: 0; } }
-.cash-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 12px; font-size: 12px; color: var(--text-2); text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9), 0 1px 0 rgba(0, 0, 0, 0.8); padding: 0 32px; }
+.cash-meta { display: flex; justify-content: center; gap: 4px; margin-top: 10px; font-size: 12px; color: var(--text-2); text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9), 0 1px 0 rgba(0, 0, 0, 0.8); padding: 0 32px; }
 .cash-meta b { color: var(--ivory); font-size: 15px; font-weight: 700; margin-left: 4px; font-variant-numeric: tabular-nums; }
 
 /* ================================================================== panels */
@@ -636,7 +609,6 @@ input[type='range']:focus-visible::-webkit-slider-thumb { filter: var(--ring-on)
 /* ================================================================== small screens: shared */
 @media (max-width: 760px), (max-height: 520px) and (orientation: landscape) {
   .wide-only { display: none; }
-  .brand-name { display: none; }
   .fine { display: none; }
   .limits, .auto-note { display: none; }
   .veil { place-items: end stretch; padding: 0; }
@@ -654,7 +626,7 @@ input[type='range']:focus-visible::-webkit-slider-thumb { filter: var(--ring-on)
 /* ================================================================== phones, portrait */
 @media (max-width: 760px) {
   /* mark · balance ········ sound · menu, then the history strip */
-  .topbar { grid-template-columns: auto minmax(0, 1fr) auto; row-gap: 4px; column-gap: 8px; padding-top: calc(8px + var(--safe-t)); padding-left: calc(12px + var(--safe-l)); padding-right: calc(8px + var(--safe-r)); }
+  .topbar { grid-template-columns: auto minmax(0, 1fr) auto; row-gap: 4px; column-gap: 8px; padding-top: max(12px, calc(var(--safe-t) + 8px)); padding-left: calc(12px + var(--safe-l)); padding-right: calc(8px + var(--safe-r)); }
   .brand { grid-column: 1; grid-row: 1; padding: 0 4px; }
   .brand .tag { display: none; }
   .balance { grid-column: 2; grid-row: 1; justify-items: start; justify-self: start; padding: 8px 14px; }
@@ -666,8 +638,8 @@ input[type='range']:focus-visible::-webkit-slider-thumb { filter: var(--ring-on)
   .history:has(.chip.none) { display: none; }
   .chip { font-size: 12px; padding: 7px 9px; }
 
-  .dock { left: 0; right: 0; transform: none; width: auto; bottom: 0; padding: 0 calc(8px + var(--safe-r)) calc(8px + var(--safe-b)) calc(8px + var(--safe-l)); }
-  .dock.live { width: auto; padding-left: calc(16px + var(--safe-l)); padding-right: calc(16px + var(--safe-r)); padding-bottom: calc(8px + var(--safe-b)); }
+  .dock { left: 0; right: 0; transform: none; width: auto; bottom: 0; padding: 0 calc(8px + var(--safe-r)) max(12px, calc(var(--safe-b) + 8px)) calc(8px + var(--safe-l)); }
+  .dock.live { width: auto; padding-left: calc(16px + var(--safe-l)); padding-right: calc(16px + var(--safe-r)); padding-bottom: max(16px, calc(var(--safe-b) + 8px)); }
   .dock.live::before, .dock.live::after { width: 44px; height: 60px; top: 0; }
   .dock.live::before { left: -6px; }
   .dock.live::after { right: -6px; }
@@ -679,9 +651,7 @@ input[type='range']:focus-visible::-webkit-slider-thumb { filter: var(--ring-on)
   .setup-body { grid-template-columns: 1fr; gap: 8px; }
   .amount input { font-size: 26px; }
   .run-btn { --h: 68px; width: 100%; min-width: 0; padding: 0 12px; }
-  .tiles i { --t: 32px; }
-  .run-btn .again { font-size: 15px; }
-  .run-btn .btn-sub { font-size: 22px; gap: 2px; }
+  .run-btn .word { font-size: 26px; }
 
   .cash { --h: 92px; gap: 8px; padding: 0 10px; }
   .cash .crest { --cs: 0.72; }
@@ -709,7 +679,6 @@ input[type='range']:focus-visible::-webkit-slider-thumb { filter: var(--ring-on)
   .qchip { min-height: 36px; }
   .qchip::after { inset: -6px 0; }
   .run-btn { --h: 60px; }
-  .tiles i { --t: 28px; }
   .cash { --h: 84px; }
   .cash .pendant { display: none; }
   .title-foot { display: none; }
@@ -723,7 +692,6 @@ input[type='range']:focus-visible::-webkit-slider-thumb { filter: var(--ring-on)
   .chips { gap: 4px; }
   .balance .v { font-size: 19px; }
   .cash .label small { display: none; }
-  .run-btn .again { display: none; }
 }
 
 /* ================================================================== phones, landscape */
@@ -750,10 +718,8 @@ input[type='range']:focus-visible::-webkit-slider-thumb { filter: var(--ring-on)
   .amount input { font-size: 24px; }
   .auto-well { height: 40px; }
   .auto-well input { width: 48px; font-size: 18px; line-height: 40px; }
-  .run-btn { --h: 64px; width: auto; min-width: 248px; padding: 0 10px; }
-  .tiles i { --t: 28px; }
-  .run-btn .btn-sub { font-size: 19px; }
-  .run-btn .btn-sub small { display: none; }
+  .run-btn { --h: 64px; width: auto; min-width: 220px; padding: 0 10px; }
+  .run-btn .word { font-size: 24px; }
   .cash { --h: 72px; padding: 0 10px; }
   .cash .crest { --cs: 0.6; }
   .cash .pendant { display: none; }
@@ -792,4 +758,81 @@ input[type='range']:focus-visible::-webkit-slider-thumb { filter: var(--ring-on)
 @media (min-width: 761px) and (min-height: 521px) and (max-height: 820px) {
   .fine { display: none; }
   .dock { bottom: calc(16px + var(--safe-b)); }
+}
+
+/* ================================================================== the wordmark
+   CAUSEWAY in a carved limestone cartouche (the hero frame and its recessed panel), chunky gold
+   glyph letters with a cast edge and a carved notch, under the gem crest. --lh is the plate. */
+.logo { --lh: 120px; position: relative; display: inline-block; padding-top: calc(var(--lh) * 0.23); line-height: 1; vertical-align: middle; }
+.logo-crest { position: absolute; z-index: 2; left: 50%; top: 0; transform: translateX(-50%); width: calc(var(--lh) * 1.05); height: calc(var(--lh) * 0.43); background: url('/ui/crest.webp') center / contain no-repeat; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5)); }
+.logo-plate {
+  --h: var(--lh);
+  --fx: calc(var(--h) * 0.3542);
+  --fy: calc(var(--h) * 0.1771);
+  position: relative;
+  isolation: isolate;
+  height: var(--h);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 calc(var(--h) * 0.1);
+  border-style: solid;
+  border-color: transparent;
+  border-width: var(--fy) var(--fx);
+  border-image: var(--frame) 50% 68 / 50% var(--fx) stretch;
+  filter: drop-shadow(0 0 1px rgba(20, 12, 4, 0.9)) drop-shadow(0 calc(var(--h) * 0.05) 0 var(--stone-d)) drop-shadow(0 10px 18px rgba(0, 0, 0, 0.5));
+}
+.logo-plate::before { content: ''; position: absolute; inset: 0; z-index: -1; border: 10px solid transparent; border-image: url('/ui/panel.webp') 24 fill / 10px stretch; }
+.logo-word { position: relative; display: block; font-family: var(--f-block); font-size: calc(var(--h) * 0.34); letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; }
+.logo-edge { position: absolute; left: 0; top: 0; color: #7a4308; transform: translateY(calc(var(--h) * 0.03)); -webkit-text-stroke: calc(var(--h) * 0.022) #2a1003; }
+.logo-face { position: relative; display: block; background: var(--leaf); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(1px 0 0 #3a1a06) drop-shadow(-1px 0 0 #3a1a06) drop-shadow(0 -1px 0 #3a1a06); }
+.logo-arch { width: calc(var(--h) * 0.48); height: calc(var(--h) * 0.48); fill: var(--gold-1); filter: drop-shadow(1px 0 0 #3a1a06) drop-shadow(-1px 0 0 #3a1a06) drop-shadow(0 1px 0 #3a1a06) drop-shadow(0 -1px 0 #3a1a06) drop-shadow(0 2px 0 #7a4308); }
+.logo.title { --lh: clamp(84px, 8.6vw, 124px); }
+.logo.compact { --lh: 48px; }
+.logo.compact { padding-top: 8px; }
+.logo.compact .logo-crest { width: 40px; height: 17px; }
+.logo.mark { --lh: 48px; display: none; padding-top: 6px; }
+.logo.mark .logo-plate { padding: 0 2px; }
+.logo.mark .logo-crest { width: 34px; height: 14px; }
+.wordmark { margin: 16px 0 0 -8px; opacity: 0; animation: rise 1.2s var(--ease-out) 0.25s forwards; font-size: inherit; }
+.brand { gap: 10px; }
+.brand svg { filter: none; }
+@media (max-width: 760px) {
+  .logo.compact { display: none; }
+  .logo.mark { display: inline-block; }
+  .wordmark { margin-left: -4px; }
+}
+@media (max-height: 520px) and (orientation: landscape) {
+  .logo.title { --lh: 64px; }
+  .logo.compact { display: none; }
+  .logo.mark { display: inline-block; --lh: 44px; }
+}
+
+/* ================================================================== CASH OUT, held at the outcome
+   For a beat after the settle the plate stays, frozen: fallen to grey stone, or secured in gold. */
+.cash.held { cursor: default; }
+.cash.held.fell { --panel: url('/ui/panel-smoke.webp'); --glowf: var(--none); --tone: saturate(0.75); }
+.cash.held.fell .heat { display: none; }
+.cash.held.fell .gold { background: linear-gradient(180deg, #ffe9c4 0%, #ffb27a 30%, #ff7a3a 47%, #8a2a06 49%, #e2581c 53%, #ff9a5a 80%, #ffd7b0 100%); -webkit-background-clip: text; background-clip: text; }
+.cash.held.fell .amt { color: rgba(251, 240, 214, 0.78); }
+.cash.held.won { --glowf: drop-shadow(0 0 18px rgba(255, 190, 80, 0.7)); }
+.cash.held.won .heat { display: none; }
+
+/* ================================================================== phones: a slimmer setup
+   One row stepper | auto, the quick tallies, then the gold slab: about a quarter of the screen. */
+@media (max-width: 760px) {
+  .setup { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'step auto' 'chips chips' 'run run'; gap: 8px; align-items: center; padding: 10px 12px 12px; }
+  .setup-body, .stake-col { display: contents; }
+  .setup-head { grid-area: auto; margin: 0; padding: 0; min-height: 48px; gap: 8px; }
+  .setup-head .field-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .toggle .long { display: none; }
+  .stepper { grid-area: step; min-width: 0; }
+  .chips { grid-area: chips; margin-top: 0; }
+  .run-cell { grid-area: run; }
+  .auto-well { height: 44px; }
+  .auto-well input { width: 48px; }
+}
+@media (max-width: 760px) and (max-height: 780px) {
+  .setup { gap: 6px; padding: 8px 10px 10px; }
+  .setup-head { min-height: 44px; }
 }
