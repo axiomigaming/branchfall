@@ -3,6 +3,7 @@ import { countUp, heatOf, milestoneCrossed, milestoneLabel, tierOf } from '../au
 import { formatCredits, formatMult } from '../engine/money';
 import { useStore } from '../state/store';
 import { useCtl } from './context';
+import { useHold } from './hold';
 import './hud.css';
 
 const EASE = 'cubic-bezier(0.16, 1, 0.3, 1)';
@@ -15,6 +16,8 @@ const EASE = 'cubic-bezier(0.16, 1, 0.3, 1)';
 export function Hud() {
   const phase = useStore((s) => s.phase);
   const live = useStore((s) => s.live);
+  const result = useStore((s) => s.result);
+  const hold = useHold();
   const motion = useStore((s) => s.settings.motion);
   const ctl = useCtl();
   const multRef = useRef<HTMLDivElement>(null);
@@ -22,7 +25,6 @@ export function Hud() {
   const fracRef = useRef<HTMLSpanElement>(null);
   const retRef = useRef<HTMLElement>(null);
   const flareRef = useRef<HTMLDivElement>(null);
-  const ringRef = useRef<HTMLDivElement>(null);
   const glowRef = useRef<HTMLDivElement>(null);
   // Survives the effect restarting on phase changes within one round.
   const prev = useRef<{ id: string | null; m: number }>({ id: null, m: 100 });
@@ -55,13 +57,6 @@ export function Hud() {
         );
       }
       if (!full) return;
-      ringRef.current?.animate(
-        [
-          { opacity: 0.85, transform: 'translate(-50%, -50%) scale(0.55)' },
-          { opacity: 0, transform: 'translate(-50%, -50%) scale(1.65)' },
-        ],
-        { duration: 1100, easing: EASE },
-      );
       glowRef.current?.animate([{ transform: 'scale(1)', filter: 'brightness(1)' }, { transform: 'scale(1.07)', filter: 'brightness(1.4)', offset: 0.2 }, { transform: 'scale(1)', filter: 'brightness(1)' }], {
         duration: 900,
         easing: EASE,
@@ -72,7 +67,9 @@ export function Hud() {
       const st = useStore.getState();
       const id = st.live?.id ?? null;
       if (id !== prev.current.id) prev.current = { id, m: 100 };
-      const m = ctl.currentMult();
+      // Settled and held on screen: the figure stops at the outcome (the fall point, or where you left).
+      const res = st.phase === 'result' ? st.result : null;
+      const m = res ? (res.won ? (res.round.cashoutMult ?? 100) : res.round.crash) : ctl.currentMult();
       if (st.phase === 'running') ctl.audio.climb(m);
       const el = multRef.current;
       if (!el) return;
@@ -90,7 +87,8 @@ export function Hud() {
       const frac = text.slice(dot);
       if (int !== lastInt && intRef.current) {
         // A short roll on each new whole number (not on the first paint).
-        if (full && lastInt !== '') intRef.current.animate([{ transform: 'translateY(0.14em)', opacity: 0.55 }, { transform: 'none', opacity: 1 }], { duration: 220, easing: EASE });
+        // Motion only: the figure is always one solid colour, never half-faded.
+        if (full && lastInt !== '') intRef.current.animate([{ transform: 'translateY(0.12em)' }, { transform: 'none' }], { duration: 220, easing: EASE });
         intRef.current.textContent = int;
         lastInt = int;
       }
@@ -108,7 +106,7 @@ export function Hud() {
         el.dataset.tier = String(tier);
         lastTier = tier;
       }
-      if (retRef.current) retRef.current.textContent = formatCredits(ctl.currentReturn());
+      if (retRef.current) retRef.current.textContent = formatCredits(res ? res.round.payout : ctl.currentReturn());
       if (st.phase === 'running' && m > prev.current.m) {
         const hit = milestoneCrossed(prev.current.m, m);
         if (hit >= 0) flare(hit);
@@ -119,14 +117,16 @@ export function Hud() {
     return () => cancelAnimationFrame(raf);
   }, [ctl, motion]);
 
-  if (!live || !(phase === 'lead' || phase === 'running' || phase === 'cashing')) return null;
+  const held = phase === 'result' && hold && !!result;
+  if (!held && (!live || !(phase === 'lead' || phase === 'running' || phase === 'cashing'))) return null;
+  const stake = live?.stake ?? result?.round.stake ?? 0;
+  const auto = live?.autoCashout ?? null;
   return (
-    <div className={`hud ${phase}`} aria-live="off">
+    <div className={`hud ${held ? (result!.won ? 'held won' : 'held fell') : phase}`} aria-live="off">
       <div className="hud-slot">
         {phase === 'lead' ? <span className="getready">Get ready</span> : <span className="flare gold" ref={flareRef} aria-hidden="true" />}
       </div>
       <div className="mult-wrap">
-        <div className="ring" ref={ringRef} aria-hidden="true" />
         <div ref={multRef} className="mult num" data-tier="0" role="timer" aria-label="Current multiplier">
           <div className="mult-glow" ref={glowRef}>
             <span className="mi" ref={intRef}>
@@ -141,14 +141,14 @@ export function Hud() {
       </div>
       <div className="hud-sub">
         <span>
-          Stake<b className="num">{formatCredits(live.stake)}</b>
+          Stake<b className="num">{formatCredits(stake)}</b>
         </span>
         <span className="ret">
-          Return<b className="num" ref={retRef}>{formatCredits(live.stake)}</b>
+          Return<b className="num" ref={retRef}>{formatCredits(stake)}</b>
         </span>
-        {live.autoCashout !== null && (
+        {auto !== null && (
           <span className="auto">
-            Auto<b className="num">{formatMult(live.autoCashout)}×</b>
+            Auto<b className="num">{formatMult(auto)}×</b>
           </span>
         )}
       </div>
@@ -162,8 +162,8 @@ export function ResultPlate() {
   const result = useStore((s) => s.result);
   const set = useStore((s) => s.set);
   // Held back until the world has played the fall or the escape (money is already settled).
-  const revealed = useStore((s) => s.revealed);
-  if (phase !== 'result' || !result || !revealed) return null;
+  const hold = useHold();
+  if (phase !== 'result' || !result || hold) return null;
   const r = result.round;
   const verify = (
     <button className="verify" onClick={() => set({ modal: 'fair', fairFocus: r.id })}>

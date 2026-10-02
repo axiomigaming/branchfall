@@ -3,6 +3,7 @@ import { heatOf } from '../audio/feedback';
 import { formatCredits, formatMult, parseCredits, parseMult, payout } from '../engine/money';
 import { useStore } from '../state/store';
 import { useCtl } from './context';
+import { useHold } from './hold';
 import { IconMinus, IconPlus } from './icons';
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -12,15 +13,20 @@ const LADDER = [10, 20, 50, 100, 200, 250, 500, 1000, 1500, 2000, 2500, 5000, 75
 
 export function Dock() {
   const phase = useStore((s) => s.phase);
+  const hold = useHold();
   const ctl = useCtl();
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el || !ctl) return;
     const report = () => {
-      const r = el.getBoundingClientRect();
-      const top = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0;
-      ctl.game.rig.setInsets(top, window.innerHeight - r.top, window.innerHeight);
+      // The covered band runs from the highest thing the dock draws: the plate, or the crest
+      // that rides above the live plate. Layout boxes, not transforms (the entrance slides in).
+      let top = el.getBoundingClientRect().top;
+      const crest = el.querySelector('.crest');
+      if (crest) top = Math.min(top, crest.getBoundingClientRect().top);
+      const bar = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0;
+      ctl.game.rig.setInsets(bar, window.innerHeight - top, window.innerHeight);
     };
     report();
     const ro = new ResizeObserver(report);
@@ -31,12 +37,13 @@ export function Dock() {
       window.removeEventListener('resize', report);
       ctl.game.rig.setInsets(0, 0, window.innerHeight);
     };
-  }, [ctl, phase]);
+  }, [ctl, phase, hold]);
   if (phase === 'title' || phase === 'loading') return null;
-  const live = phase === 'lead' || phase === 'running' || phase === 'cashing';
+  // While a settled round is held on screen, the plate stays (frozen at the outcome).
+  const live = phase === 'lead' || phase === 'running' || phase === 'cashing' || (phase === 'result' && hold);
   return (
     <div className={`dock${live ? ' live' : ''}`} ref={ref}>
-      {live ? <CashOut /> : <Setup />}
+      {live ? <CashOut held={phase === 'result'} /> : <Setup />}
     </div>
   );
 }
@@ -179,11 +186,8 @@ function Setup() {
           <div className="run-cell">
             {broke ? (
               <button className="btn btn-cta cta-sun run-btn" onClick={() => void ctl?.refill()} onMouseEnter={() => ctl?.audio.ui('hover')}>
-                <span className="btn-label gold">Refill</span>
-                <small className="btn-sub">
-                  <small>Demo</small>
-                  credits
-                </small>
+                <span className="btn-label word">Refill</span>
+                <small className="btn-sub">Demo credits</small>
               </button>
             ) : (
               <button
@@ -194,29 +198,11 @@ function Setup() {
                 aria-busy={busy}
                 aria-label={busy ? 'Placing your stake' : `${s.phase === 'result' ? 'Run again' : 'Run'} with a stake of ${formatCredits(s.stake)}`}
               >
-                {busy ? (
-                  <span className="btn-label gold">
-                    <span className="spinner" aria-hidden />
-                    Placing
-                  </span>
-                ) : (
-                  <span className="btn-label">
-                    {/* RUN as three gold tiles; the button's aria-label carries the words */}
-                    <span className="tiles" aria-hidden>
-                      <i>R</i>
-                      <i>U</i>
-                      <i>N</i>
-                    </span>
-                    {s.phase === 'result' && <span className="again gold">again</span>}
-                  </span>
-                )}
-                <small className="btn-sub num">
-                  <small>Stake</small>
-                  <span className="fig">
-                    {formatCredits(s.stake)}
-                    <i>CR</i>
-                  </span>
-                </small>
+                {/* One gold slab, one word-mark; the stake is read from the stepper above it. */}
+                <span className="btn-label word">
+                  {busy && <span className="spinner" aria-hidden />}
+                  {busy ? 'Placing' : s.phase === 'result' ? 'Run again' : 'Run'}
+                </span>
               </button>
             )}
           </div>
@@ -234,9 +220,10 @@ function Setup() {
   );
 }
 
-function CashOut() {
+function CashOut({ held }: { held: boolean }) {
   const phase = useStore((s) => s.phase);
-  const live = useStore((s) => s.live)!;
+  const live = useStore((s) => s.live);
+  const result = useStore((s) => s.result);
   const ctl = useCtl();
   const amtRef = useRef<HTMLSpanElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -247,6 +234,8 @@ function CashOut() {
     let lastText = '';
     const tick = () => {
       raf = requestAnimationFrame(tick);
+      // Settled and held: the plate is frozen at the outcome (written by React below).
+      if (useStore.getState().phase === 'result') return;
       const el = amtRef.current;
       if (el) {
         const text = formatCredits(ctl.currentReturn());
@@ -267,12 +256,25 @@ function CashOut() {
     tick();
     return () => cancelAnimationFrame(raf);
   }, [ctl]);
+  const round = held ? result?.round : undefined;
+  const won = held && !!result?.won;
+  const stake = live?.stake ?? round?.stake ?? 0;
+  const auto = live?.autoCashout ?? null;
   const lead = phase === 'lead';
+  const label = held ? (won ? 'Secured' : 'Fallen') : lead ? 'Get set' : phase === 'cashing' ? 'Securing' : 'Cash out';
+  const amount = held ? formatCredits(won ? (round?.payout ?? 0) : 0) : formatCredits(stake);
+  // The live figure is written by the frame loop (it owns the text node); the held one is set here.
+  useEffect(() => {
+    const el = amtRef.current;
+    if (!held || !el) return;
+    el.textContent = amount;
+    el.dataset.len = String(amount.length);
+  }, [held, amount]);
   return (
     <>
       <button
         ref={btnRef}
-        className={`btn btn-cta cta-sun cash${lead ? ' lead' : ''}${phase === 'cashing' ? ' pressed' : ''}`}
+        className={`btn btn-cta cash${lead ? ' lead' : ''}${phase === 'cashing' || won ? ' pressed' : ''}${held ? (won ? ' held won' : ' held fell') : ''}`}
         onPointerDown={(e) => {
           // Pointer-down, not click: the tap is the decision.
           if (e.button === 0) void ctl?.cashout();
@@ -280,8 +282,8 @@ function CashOut() {
         onKeyDown={(e) => {
           if (e.key === 'Enter') void ctl?.cashout();
         }}
-        aria-disabled={lead}
-        aria-label="Cash out"
+        aria-disabled={lead || held}
+        aria-label={held ? label : 'Cash out'}
       >
         {/* The stone heats: ember seams open in the panel as --heat climbs, the crest's ruby kindles. */}
         <span className="heat hot" aria-hidden />
@@ -289,26 +291,23 @@ function CashOut() {
         <span className="crest" aria-hidden />
         <span className="pendant" aria-hidden />
         <span className="label">
-          <span className="btn-label gold">{lead ? 'Get set' : phase === 'cashing' ? 'Securing' : 'Cash out'}</span>
-          <small>{lead ? 'The run starts in a moment' : phase === 'cashing' ? 'Taking the return' : 'Take the return now'}</small>
+          <span className="btn-label gold">{label}</span>
+          {/* the stake lives inside the plate: nothing orphaned in the home-indicator zone */}
+          <small>
+            Stake <b className="num">{formatCredits(stake)}</b>
+            {auto !== null && (
+              <>
+                {' · '}auto <b className="num">{formatMult(auto)}×</b>
+              </>
+            )}
+          </small>
         </span>
-        <span className="amt num" ref={amtRef} data-len={formatCredits(live.stake).length}>
-          {formatCredits(live.stake)}
+        <span className="amt num" ref={amtRef} data-len={amount.length}>
+          {amount}
         </span>
       </button>
-      <div className="cash-meta">
-        <span>
-          Stake <b>{formatCredits(live.stake)}</b>
-        </span>
-        {live.autoCashout ? (
-          <span>
-            Auto at <b>{formatMult(live.autoCashout)}×</b>
-          </span>
-        ) : (
-          <span className="kbd-hint">
-            Press <kbd>Space</kbd> to cash out
-          </span>
-        )}
+      <div className="cash-meta kbd-hint">
+        Press <kbd>Space</kbd> to cash out
       </div>
     </>
   );

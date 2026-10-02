@@ -13,12 +13,13 @@ stylesheet slices them with:
   panel*.webp        960×128  the recessed red-brown stone inside it (panel, panel-hot with
                               ember seams for CASH OUT heat, panel-jade, panel-smoke).
                               Nine-slice 24 px + fill.
-  tablet*.webp       192×96   secondary tablet: a fine limestone rim with stepped corners around
-                              the red-brown (or jade) panel. Nine-slice 16 px + fill.
+  tablet*.webp       192×96   secondary key: a raised, bevelled basalt (or jade) face in a worn
+                              limestone socket with stepped corners. Nine-slice 16 px + fill.
+  panel-gold.webp    960×128  the RUN slab: a recessed panel of hammered gold.
   crest.webp         256×104  gold crest with a red cabochon and two green ones (primary only).
   pendant.webp       176×56   gold fret pendant under the primary plate.
   leaves.webp        144×192  a tuft of jungle leaves tucked behind a plate end.
-  fret.webp          512×24   a gold key-fret band, tileable on x (dividers, the title rule).
+  fret.webp          480×24   a gold step-fret (xicalcoliuhqui) band, 24 px period, tileable on x.
   stud.webp           64×64   a gold boss with a ruby (toggle and slider thumbs).
 """
 import math
@@ -190,7 +191,11 @@ def sun_lamp(strength=1.7, el=42, az=135):
 
 
 # ---------------------------------------------------------------- materials
-def limestone(name="limestone", moss_zones=(), scale=1.0):
+LIME = ("#6f685b", "#8f8674", "#aaa08a")
+BASALT = ("#211e1a", "#2e2a25", "#3c3731")
+
+
+def limestone(name="limestone", moss_zones=(), scale=1.0, palette=LIME):
     """Weathered warm-grey limestone: pores, darker grime in the cavities, chipped bright
     edges, and moss where moss_zones say (list of (cx, cy, r) in object units, y down → -y)."""
     m = bpy.data.materials.new(name)
@@ -207,7 +212,7 @@ def limestone(name="limestone", moss_zones=(), scale=1.0):
     pore.inputs["Detail"].default_value = 8
     pore.inputs["Roughness"].default_value = 0.7
     L(nt, tc.outputs["Object"], pore.inputs["Vector"])
-    stone = ramp(nt, big.outputs["Fac"], [(0.3, hexcol("#6f685b")), (0.55, hexcol("#8f8674")), (0.78, hexcol("#aaa08a"))])
+    stone = ramp(nt, big.outputs["Fac"], [(0.3, hexcol(palette[0])), (0.55, hexcol(palette[1])), (0.78, hexcol(palette[2]))])
     ao = N(nt, "ShaderNodeAmbientOcclusion")
     ao.inputs["Distance"].default_value = 4.0 * scale
     ao.samples = 16
@@ -491,21 +496,80 @@ def panel(name):
     render(name)
 
 
-def tablet(name, pname):
-    """The secondary tablet: a 4 px worn limestone rim with stepped corners around the
-    red-brown (or jade) panel. 96×48 CSS, sliced 8 px."""
+def tablet(name, face):
+    """The secondary key: a raised, bevelled stone face (dark basalt, or jade when selected)
+    seated in a worn limestone socket with stepped corners. 96×48 CSS, sliced 16 px (8 CSS)."""
     import random
     W, H, s = 96, 48, 3
     scene(W, H)
-    sun_lamp(1.5)
+    sun_lamp(1.6)
     rng = random.Random(9)
     st = limestone("rim", scale=0.6)
     outer = chipped(stepped_rect(0.5, 0.5, W - 0.5, H - 0.5, s), rng, step=2.0, depth=0.4, bites=0.04)
-    inner = stepped_rect(4.2, 4.2, W - 4.2, H - 4.2, 2)
-    rim = curve_obj("rim", [P(outer, H), P(inner, H)], extrude=1.4, bevel=0.8, offset=-0.8, z=1.4, res=2)
+    inner = stepped_rect(3.4, 3.4, W - 3.4, H - 3.4, 2)
+    rim = curve_obj("rim", [P(outer, H), P(inner, H)], extrude=1.2, bevel=0.9, offset=-0.9, z=1.2, res=2)
     rim.data.materials.append(st)
-    plane("p", 3.6, 3.6, W - 3.6, H - 3.6, 0.2, panel_material(pname, W, H))
+    plane("seat", 3.0, 3.0, W - 3.0, H - 3.0, 0.1, panel_material("panel-smoke", W, H))
+    if face == "jade":
+        fm = gem_face("jade", ("#0a3a28", "#13573c", "#1d7552"))
+    else:
+        fm = limestone("basalt", scale=0.5, palette=BASALT)
+    key = curve_obj("key", [P(chipped(stepped_rect(4.4, 4.4, W - 4.4, H - 4.4, 2), rng, step=2.5, depth=0.25, bites=0.03), H)], extrude=1.8, bevel=2.2, offset=-2.2, z=2.8, res=3)
+    key.data.materials.append(fm)
     render(name)
+
+
+def gem_face(name, pal):
+    """Polished jade for a selected key."""
+    m = limestone(name, scale=0.5, palette=pal)
+    bs = m.node_tree.nodes["Principled BSDF"]
+    bs.inputs["Roughness"].default_value = 0.35
+    bs.inputs["Coat Weight"].default_value = 0.5
+    return m
+
+
+def gold_panel():
+    """The RUN slab: a recessed panel of hammered gold. 480×64 CSS, nine-slice 24 px + fill."""
+    W, H = 480, 64
+    scene(W, H)
+    sun_lamp(1.2)
+    m = bpy.data.materials.new("goldpanel")
+    m.use_nodes = True
+    nt = m.node_tree
+    bs = nt.nodes["Principled BSDF"]
+    tc = N(nt, "ShaderNodeTexCoord")
+    nz = N(nt, "ShaderNodeTexNoise")
+    nz.inputs["Scale"].default_value = 0.05
+    nz.inputs["Detail"].default_value = 4
+    L(nt, tc.outputs["Object"], nz.inputs["Vector"])
+    ham = N(nt, "ShaderNodeTexVoronoi")
+    ham.inputs["Scale"].default_value = 0.09
+    L(nt, tc.outputs["Object"], ham.inputs["Vector"])
+    base = ramp(nt, nz.outputs["Fac"], [(0.3, hexcol("#d9952a")), (0.7, hexcol("#f6c757"))])
+    sep = N(nt, "ShaderNodeSeparateXYZ")
+    L(nt, tc.outputs["Object"], sep.inputs[0])
+    top = maprange(nt, math_node(nt, "MULTIPLY", sep.outputs["Y"], -1.0), 0.0, 8.0, 0.7, 0.0)
+    left = maprange(nt, sep.outputs["X"], 0.0, 6.0, 0.5, 0.0)
+    right = maprange(nt, math_node(nt, "SUBTRACT", W, sep.outputs["X"]), 0.0, 5.0, 0.35, 0.0)
+    bot = maprange(nt, math_node(nt, "ADD", sep.outputs["Y"], H), 0.0, 4.0, 0.25, 0.0)
+    sh = math_node(nt, "MAXIMUM", math_node(nt, "MAXIMUM", top, left), math_node(nt, "MAXIMUM", right, bot))
+    mx = N(nt, "ShaderNodeMix")
+    mx.data_type = "RGBA"
+    L(nt, sh, mx.inputs[0])
+    L(nt, base, mx.inputs[6])
+    mx.inputs[7].default_value = hexcol("#4a2a06")
+    L(nt, mx.outputs[2], bs.inputs["Base Color"])
+    bs.inputs["Metallic"].default_value = 1.0
+    bs.inputs["Roughness"].default_value = 0.32
+    bump = N(nt, "ShaderNodeBump")
+    bump.inputs["Strength"].default_value = 0.12
+    L(nt, ham.outputs["Distance"], bump.inputs["Height"])
+    L(nt, bump.outputs["Normal"], bs.inputs["Normal"])
+    # a lit emission floor, so the gold never goes muddy under a flat top-down camera
+    bs.inputs["Emission Color"].default_value = hexcol("#ffcc55")
+    L(nt, math_node(nt, "MULTIPLY", math_node(nt, "SUBTRACT", 1.0, sh), 0.16), bs.inputs["Emission Strength"])
+    plane("p", 0, 0, W, H, 0, m)
+    render("panel-gold")
 
 
 def crest():
@@ -633,21 +697,33 @@ def leaves():
     render("leaves")
 
 
+def step_fret(x, top, bot):
+    """One xicalcoliuhqui period, 24 CSS px wide: three steps rise to the top rail, then the
+    line turns back into a square spiral (image coords, between the rails top..bot)."""
+    h = bot - top
+    u = h / 8.0
+    y = lambda k: top + k * u
+    return [
+        (x + 1, y(8)), (x + 1, y(6)), (x + 4, y(6)), (x + 4, y(4)), (x + 7, y(4)), (x + 7, y(2)), (x + 10, y(2)), (x + 10, y(0.4)),
+        (x + 21, y(0.4)), (x + 21, y(6.2)), (x + 14, y(6.2)), (x + 14, y(3)), (x + 18, y(3)),
+    ]
+
+
 def fret_strip():
-    W, H = 256, 12
+    W, H = 240, 12
     scene(W, H)
     sun_lamp(1.4)
     g = gold("fretgold", scale=0.6)
     pats = []
-    x = -16
-    while x < W + 16:
-        pats.append(P(key_hook(x + 2, 2.5, 7, flip_y=False) + [(x + 2, 9.5), (x + 16, 9.5)], H))
-        x += 16
+    x = -24
+    while x < W + 24:
+        pats.append(P(step_fret(x, 2.0, 10.0), H))
+        x += 24
     o = curve_obj("fret", pats, bevel=0.75, closed=False, z=1.4, dim="3D", res=2)
     o.data.materials.append(g)
-    rails = curve_obj("rails", [P([(-20, 0.9), (W + 20, 0.9)], H), P([(-20, 11.1), (W + 20, 11.1)], H)], bevel=0.7, closed=False, z=1.2, dim="3D", res=2)
+    rails = curve_obj("rails", [P([(-30, 0.9), (W + 30, 0.9)], H), P([(-30, 11.1), (W + 30, 11.1)], H)], bevel=0.7, closed=False, z=1.2, dim="3D", res=2)
     rails.data.materials.append(g)
-    bk = plane("back", -20, 0.5, W + 20, H - 0.5, 0.0, panel_material("panel", W + 40, H))
+    plane("back", -30, 0.5, W + 30, H - 0.5, 0.0, panel_material("panel", W + 60, H))
     render("fret")
 
 
@@ -671,8 +747,9 @@ JOBS = {
     "panel-hot": lambda: panel("panel-hot"),
     "panel-jade": lambda: panel("panel-jade"),
     "panel-smoke": lambda: panel("panel-smoke"),
-    "tablet": lambda: tablet("tablet", "panel"),
-    "tablet-jade": lambda: tablet("tablet-jade", "panel-jade"),
+    "tablet": lambda: tablet("tablet", "basalt"),
+    "tablet-jade": lambda: tablet("tablet-jade", "jade"),
+    "panel-gold": gold_panel,
     "crest": crest,
     "pendant": pendant,
     "leaves": leaves,
