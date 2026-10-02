@@ -458,7 +458,7 @@ function stageKit(kit: Kit): void {
   }
   const leaf = kit.mat.get('leaf');
   if (leaf) upgradeLeafMaterial(leaf);
-  for (const key of ['stoneA', 'stoneB', 'floor', 'rock', 'cliff', 'statue', 'glyph', 'wood']) {
+  for (const key of ['stoneA', 'stoneB', 'floor', 'rock', 'cliff', 'statue', 'glyph', 'wood', 'temple']) {
     const m = kit.mat.get(key);
     // Detail normals strongest underfoot, where the camera is closest.
     const detail = key === 'floor' ? 1 : key === 'stoneA' || key === 'stoneB' ? 0.8 : key === 'wood' ? 0.4 : 0.6;
