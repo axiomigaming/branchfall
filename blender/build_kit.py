@@ -204,7 +204,7 @@ mats = {
     "flora": (M.flora("flora"), 1024),
     "cliff": (M.cliff("cliff"), 2048),
     "gold": (M.gold("gold"), 1024),
-    "temple": (M.stone("temple", moss=0.5, glyphs=False), 1024),
+    "temple": (M.stone("temple", moss=0.5, glyphs=False), 512),  # far pieces; keeps the High set under budget
 }
 # The gate and stelae carry carved glyphs: give them their own small atlas.
 glyph_objs = [o for o in groups["stoneB"] if o.name.startswith(("gate_", "stele_"))]
