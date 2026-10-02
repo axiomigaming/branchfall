@@ -87,6 +87,8 @@ export class CameraRig {
   private variant = 0;
   /** 0..1: how grand the settled moment is (slower, wider, higher). */
   private epic = 0;
+  /** 0..1, set by the game: the runner has dropped into a chasm and the lens tilts down after them. */
+  gap = 0;
   /** 0..1: how far a settled escape ends on a vista over the runner's shoulder. */
   private reveal = 0;
   /** Continuous run tier (see world/choreo): camera energy rises with it. */
@@ -132,6 +134,7 @@ export class CameraRig {
     if (opts.variant !== undefined) this.variant = opts.variant;
     if (opts.epic !== undefined) this.epic = opts.epic;
     if (m === this.mode) return;
+    this.gap = 0;
     this.mode = m;
     this.modeT = 0;
     this.swingTarget = 0;
@@ -447,22 +450,27 @@ export class CameraRig {
     const f = this.crashBase(T, s);
     // A big fall pulls wider and cranes higher, slowly, to take in the whole collapse.
     const grow = ease(T / 2.6) * this.epic;
-    if (this.crashShot === 'gate') return { ...f, along: f.along * (1 + 0.18 * grow), up: f.up + 0.7 * grow, lUp: f.lUp + 0.4 * grow, fov: f.fov + 2 * grow };
+    // A tall screen already opens the lens (and settles further back): stay closer on the gate.
+    const tall = this.camera.aspect < 1 ? 0.8 : 1;
+    if (this.crashShot === 'gate') return { ...f, along: f.along * (1 + 0.18 * grow) * tall, up: f.up + 0.7 * grow, lUp: f.lUp + 0.4 * grow, fov: f.fov + 2 * grow };
     const v = this.variant ? -0.35 : 0;
-    return { ...f, along: f.along * (1 + 0.5 * grow), lat: f.lat * (1 + 0.25 * grow), up: f.up + 1.6 * grow + v * ease(T / 2), fov: f.fov + 4 * grow };
+    const out = { ...f, along: f.along * (1 + 0.5 * grow), lat: f.lat * (1 + 0.25 * grow), up: f.up + 1.6 * grow + v * ease(T / 2), fov: f.fov + 4 * grow };
+    // The runner went down with the floor: lean out over the lip and tilt down into the gap.
+    if (this.crashShot === 'chasm' && this.gap > 0) return mixFrame(out, F(-1.3, 1.1 * s, 3.1, 1.2, 0, -2.8, 56, 0), this.gap);
+    return out;
   }
 
   private crashBase(T: number, s: number): Frame {
     switch (this.crashShot) {
       case 'gate':
-        // Hold the chase and tilt up as the slab drops, then crane well back and up, off-axis: the
-        // whole slab with sky above it, the walls either side, the runner small but clear in front.
+        // Pull back and rise at once, eyes up on the door coming down, then settle off-axis and
+        // well back: the runner and the whole carved door together, never the door alone.
         return track(
           [
             [0, F(-3.2, 0.3 * s, 1.9, 4, 0, 2.8, 60, 0)],
-            [0.6, F(-4.4, 0.6 * s, 2.4, 3, 0, 2.6, 60, 0.2)],
-            [2.6, F(-9.2, 1.55 * s, 3.4, 2.6, 0, 2.2, 62, 0)],
-            [7, F(-8.6, 1.7 * s, 3.2, 2.6, 0.3 * s, 2.2, 61, 0)],
+            [0.4, F(-5.6, 1.1 * s, 2.6, 3, 0, 3.4, 62, 0.25)],
+            [1.2, F(-7.8, 1.7 * s, 2.9, 2.8, 0, 2.1, 60, 0)],
+            [7, F(-7.3, 1.9 * s, 2.7, 2.8, 0.3 * s, 1.9, 58, 0)],
           ],
           T,
         );
@@ -523,7 +531,9 @@ export class CameraRig {
       // Settled shots: keep up with a runner still carrying speed (a big escape's run-out) along the
       // route, so the figure never shrinks into the distance while the springs catch up.
       const along = this.tmp.copy(this.targetPos).sub(this.pos).dot(this.fwd);
-      this.pos.addScaledVector(this.fwd, along * (1 - Math.exp(-dt * 6)));
+      // An escape's run-out carries real speed for its first second: keep up harder then.
+      const k = this.mode === 'cashout' && this.modeT < 1.6 ? 10 : 6;
+      this.pos.addScaledVector(this.fwd, along * (1 - Math.exp(-dt * k)));
     }
     dampV(this.look, this.targetLook, stiff * 1.4, dt);
     this.constrain(this.pos);

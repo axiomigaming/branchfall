@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../src/engine/rng';
-import { FX_CAPACITY, escapeScale, fallScale, fxBudget, grandOf, nextDangerCue } from '../src/render/fxScale';
+import { FX_CAPACITY, escapeScale, fallScale, fxBudget, grandOf, nextDangerCue, revealHold } from '../src/render/fxScale';
 
 describe('fx scaling', () => {
   it('grandOf is 0 for small, 1 for huge, monotonic between', () => {
@@ -104,6 +104,22 @@ describe('danger cues', () => {
       const c = nextDangerCue(r, 2 + i);
       expect(c!.strength).toBeGreaterThan(0);
       expect(c!.strength).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+describe('result reveal hold', () => {
+  it('holds the card about a second after the impact, longer for a big fall, always capped', () => {
+    const a = revealHold('fall', 1.2);
+    const b = revealHold('fall', 40);
+    expect(a.after).toBeGreaterThanOrEqual(0.8);
+    expect(b.after).toBeLessThanOrEqual(1.25);
+    expect(b.after).toBeGreaterThan(a.after);
+    for (const o of ['fall', 'escape'] as const) {
+      const h = revealHold(o, 10);
+      expect(h.cap).toBeGreaterThan(h.after);
+      expect(h.cap).toBeLessThanOrEqual(3.5);
+      expect(revealHold(o, 10, 'reduced').after).toBeLessThanOrEqual(h.after);
     }
   });
 });

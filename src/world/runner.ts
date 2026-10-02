@@ -62,8 +62,8 @@ const ONE_SHOT = new Set<string>(['start', 'fall_start', 'fall_chasm', 'fall_cha
 const EVENTS: Record<string, [number, Foot, number][]> = {
   start: [[0.16, 'L', 0.45], [0.27, 'R', 0.8], [0.5, 'L', 0.7], [0.73, 'R', 0.65], [0.9, 'L', 0.6]],
   win: [[0.2, 'R', 0.5], [0.4, 'L', 0.35], [0.6, 'R', 0.25]],
-  fall_chasm: [[0.12, 'L', 1], [0.28, 'R', 0.9], [1.1, 'R', 0.4]],
-  fall_gate: [[0.15, 'L', 0.9], [0.43, 'R', 0.5], [0.62, 'L', 0.5], [0.83, 'R', 0.45]],
+  fall_chasm: [[0.12, 'L', 1], [0.28, 'R', 0.9]],
+  fall_gate: [[0.13, 'L', 0.9], [0.5, 'R', 0.55], [0.7, 'L', 0.5], [0.9, 'R', 0.4]],
   fall_rock: [[0.12, 'L', 0.8], [0.45, 'R', 0.4]],
   fall_start: [[0.38, 'L', 0.5], [0.6, 'R', 0.5]],
   fall_chasm_b: [[0.12, 'L', 1], [0.3, 'R', 0.9], [0.52, 'L', 0.6]],
@@ -91,6 +91,8 @@ function smoothstep(a: number, b: number, x: number): number {
  */
 export const RUNNER_FILL = 0.45;
 export const RUNNER_RIM = 0.4;
+/** A cool sky-light edge (not tinted by the albedo), so the figure separates from the terracotta. */
+export const RUNNER_COOL_RIM = 0.22;
 function liftRunner(m: THREE.MeshStandardMaterial): void {
   for (const t of [m.map, m.normalMap, m.roughnessMap]) {
     if (!t) continue;
@@ -102,8 +104,9 @@ function liftRunner(m: THREE.MeshStandardMaterial): void {
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uRunnerFill = { value: RUNNER_FILL };
     sh.uniforms.uRunnerRim = { value: RUNNER_RIM };
+    sh.uniforms.uRunnerCool = { value: RUNNER_COOL_RIM };
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uRunnerFill;\nuniform float uRunnerRim;')
+      .replace('#include <common>', '#include <common>\nuniform float uRunnerFill;\nuniform float uRunnerRim;\nuniform float uRunnerCool;')
       .replace(
         '#include <lights_fragment_end>',
         `#include <lights_fragment_end>
@@ -112,6 +115,7 @@ function liftRunner(m: THREE.MeshStandardMaterial): void {
           vec3 hemi = mix(vec3(0.46, 0.36, 0.28), vec3(0.62, 0.68, 0.78), nW.y * 0.5 + 0.5);
           float rim = pow(1.0 - saturate(dot(normal, normalize(vViewPosition))), 3.0);
           reflectedLight.indirectDiffuse += diffuseColor.rgb * (hemi * uRunnerFill + vec3(1.0, 0.86, 0.68) * rim * uRunnerRim);
+          reflectedLight.indirectSpecular += vec3(0.62, 0.74, 0.92) * pow(rim, 1.4) * uRunnerCool * (0.6 + 0.4 * saturate(nW.y + 0.5));
         }`,
       );
   };

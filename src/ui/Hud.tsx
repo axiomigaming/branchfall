@@ -161,6 +161,7 @@ export function ResultPlate() {
   const phase = useStore((s) => s.phase);
   const result = useStore((s) => s.result);
   const set = useStore((s) => s.set);
+  // Held back until the world has played the fall or the escape (money is already settled).
   const hold = useHold();
   if (phase !== 'result' || !result || hold) return null;
   const r = result.round;
