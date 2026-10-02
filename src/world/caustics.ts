@@ -84,10 +84,10 @@ float dtN(vec3 p) {
 float detailHeight(vec3 p, float px) {
   // Each octave fades out before it is finer than a couple of pixels (no shimmer at a distance).
   float h = 0.0;
-  h += (dtN(p * 7.0) - 0.5) * 0.0045 * (1.0 - smoothstep(0.08, 0.3, px * 7.0));
-  h += (dtN(p * 23.0 + 3.1) - 0.5) * 0.0016 * (1.0 - smoothstep(0.08, 0.3, px * 23.0));
+  h += (dtN(p * 7.0) - 0.5) * 0.007 * (1.0 - smoothstep(0.08, 0.3, px * 7.0));
+  h += (dtN(p * 23.0 + 3.1) - 0.5) * 0.0026 * (1.0 - smoothstep(0.08, 0.3, px * 23.0));
   float c = abs(dtN(p * vec3(1.7, 2.3, 1.9) + 7.0) - 0.5);
-  h -= (1.0 - smoothstep(0.0, 0.035, c)) * 0.0035 * (1.0 - smoothstep(0.05, 0.25, px * 4.0));
+  h -= (1.0 - smoothstep(0.0, 0.035, c)) * 0.005 * (1.0 - smoothstep(0.05, 0.25, px * 4.0));
   return h;
 }`;
 
