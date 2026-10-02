@@ -11,6 +11,7 @@ export function TopBar() {
   const balance = useStore((s) => s.balance);
   const history = useStore((s) => s.history);
   const phase = useStore((s) => s.phase);
+  const result = useStore((s) => s.result);
   const settings = useStore((s) => s.settings);
   const set = useStore((s) => s.set);
   const setSettings = useStore((s) => s.setSettings);
@@ -31,6 +32,11 @@ export function TopBar() {
     set({ modal: m });
   };
   const quiet = phase === 'result';
+  // Responsible play: after a cash-out, the round just settled stays out of the strip until the
+  // next run starts, so its fall point (always above the cash-out) never sits on the win screen.
+  // It is still in the history panel and the verifier, which the player opens on purpose.
+  const held = phase === 'result' && result?.won ? result.round.id : null;
+  const shown = held ? history.filter((h) => h.id !== held) : history;
 
   return (
     <header className="topbar">
@@ -45,12 +51,12 @@ export function TopBar() {
       <button className={`history${quiet ? ' quiet' : ''}`} onClick={() => open('history')} aria-label="History of previous rounds">
         {history.length === 0 ? (
           <span className="chip none">No runs yet</span>
-        ) : (
+        ) : shown.length === 0 ? null : (
           <>
             <span className="hist-k" aria-hidden>
               History
             </span>
-            {history.slice(0, 14).map((h) => (
+            {shown.slice(0, 14).map((h) => (
               <span key={h.id} className="chip" title={`Round fell at ${formatMult(h.crash)}×`}>
                 {formatMult(h.crash)}×
               </span>
