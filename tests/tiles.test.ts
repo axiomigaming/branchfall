@@ -54,4 +54,17 @@ describe('walkable tiles', () => {
     expect(under.alive).toBe(true);
     expect(track.tileAt(under.sFar + 2)).toBeUndefined();
   });
+
+  it('are never mirrored, even in a mirrored section (a negative determinant draws a slab inside out)', async () => {
+    const track = new Track(fakeKit());
+    await track.prepare({ foliage: 1, scenery: 1 });
+    track.reset('mirror');
+    track.update(800, 0.5);
+    let mirrored = 0;
+    for (const sec of track.sections) {
+      if (sec.mirror) mirrored++;
+      for (const t of sec.tiles) expect(t.world.determinant()).toBeGreaterThan(0);
+    }
+    expect(mirrored).toBeGreaterThan(0);
+  });
 });

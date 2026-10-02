@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../src/engine/rng';
 import { Path } from '../src/world/path';
-import { buildLayout, nextType, SECTION_TYPES, type SectionType } from '../src/world/sections';
+import { buildLayout, nextType, PATH_HALF, SECTION_TYPES, type SectionType } from '../src/world/sections';
 
 describe('route generation', () => {
   it('stays continuous, bounded and varied over 5 km', () => {
@@ -80,6 +80,43 @@ describe('route generation', () => {
     }
     expect(gates).toBeGreaterThan(0);
     expect(cliffs).toBeGreaterThan(10);
+  });
+
+  it('keeps the jungle off the way: banks behind the walls, limbs high over it, falls landing at its edge', () => {
+    let banks = 0;
+    let limbs = 0;
+    let pathFalls = 0;
+    let vistas = 0;
+    const v = new THREE.Vector3();
+    for (const t of SECTION_TYPES) {
+      for (let i = 0; i < 4; i++) {
+        const l = buildLayout(t, `${t}#${i}`, { foliage: 1, scenery: 1 });
+        for (const p of l.props) {
+          v.setFromMatrixPosition(p.m);
+          if (/^jungle_bank_\d$/.test(p.piece)) {
+            banks++;
+            expect(Math.abs(v.x)).toBeGreaterThanOrEqual(PATH_HALF + 1.9);
+          }
+          if (/^canopy_\d$/.test(p.piece)) {
+            limbs++;
+            expect(Math.abs(v.x)).toBeLessThan(1e-6);
+          }
+          if (p.piece === 'arch_1' && Math.abs(v.x) < 1e-6 && v.z < -l.len + 3) vistas++;
+        }
+        for (const f of l.falls) {
+          if (!f.path) continue;
+          pathFalls++;
+          v.setFromMatrixPosition(f.m);
+          expect(Math.abs(v.x)).toBeGreaterThan(PATH_HALF);
+          expect(Math.abs(v.x)).toBeLessThan(PATH_HALF + 1);
+          expect(f.h).toBeCloseTo(v.y, 0);
+        }
+      }
+    }
+    expect(banks).toBeGreaterThan(10);
+    expect(limbs).toBeGreaterThan(4);
+    expect(pathFalls).toBeGreaterThan(0);
+    expect(vistas).toBeGreaterThan(0);
   });
 
   it('the tunnel has no room for the slab gate; its portals and vault fit inside the section', () => {

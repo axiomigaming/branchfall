@@ -5,7 +5,10 @@ import type { Kit } from './assets';
 import { Path, frameMatrix, type Frame, type Segment } from './path';
 import { buildLayout, isWaterPiece, nextType, type Layout, type SectionType } from './sections';
 import { foamTime, makeFoamMaterial, makeFoamRing, makeFoamStrip } from './water';
-import { makeWaterfallMaterial } from './waterfall';
+import { fallFeet, makeFallsGeometry, makeWaterfallMaterial } from './waterfall';
+import { patchWetStone, updateCaustics } from './caustics';
+import { upgradeLeafMaterial } from './foliage';
+import { atmosphereUniforms } from './atmosphere';
 
 const VARIANTS: Record<SectionType, number> = {
   start: 1,
@@ -52,8 +55,12 @@ export interface SectionInstance {
   mirror: boolean;
   tiles: TileSlot[];
   falls: THREE.Mesh[];
+  /** World-space feet of this section's waterfalls (xyz) and the reach of their spray (w). */
+  feet: THREE.Vector4[];
   variant: Variant;
 }
+
+const MIRROR_X = new THREE.Matrix4().makeScale(-1, 1, 1);
 
 /** Length along the path of each walkable piece (metres). */
 const TILE_LENGTH: Record<string, number> = { floor_wide_0: 8 };
@@ -86,8 +93,10 @@ class TileSystem {
       const m = new THREE.InstancedMesh(geo, kit.mat.get(kit.matOf.get(piece)!)!, cap);
       m.name = `tiles:${piece}`;
       m.receiveShadow = true;
-      // Paving lies flat on the causeway: its shadow falls only on itself. Planks and stairs stand over water.
-      m.castShadow = !piece.startsWith('floor_');
+      // Paving lies flat on the causeway: its shadow falls only on itself. Planks neither: in the low
+      // sun their warped boards shadowed each other edge to edge, and the boardwalk read grey-green
+      // (sky light only) instead of sun-bleached wood. Stairs stand over water and keep theirs.
+      m.castShadow = !piece.startsWith('floor_') && !piece.startsWith('planks_');
       m.frustumCulled = false;
       m.count = 0;
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -204,7 +213,18 @@ export class Track {
       }
       p.setFromMatrixPosition(pl.m);
       // Scattered pebbles are a zone of their own: near the path, but too small to be worth a shadow.
-      const zone = isWaterPiece(pl.piece) ? 'water' : pl.piece.startsWith('scatter_') ? 'grit' : Math.abs(p.x) > 7.5 ? 'far' : 'near';
+      // Jungle banks, shrub masses and banana clumps stand by the path but throw no shadow (in a low sun
+      // ahead their masses would blanket the causeway in sky-lit grey): they join the far scenery's
+      // draw call. Like it they follow the water when stairs lower a section, which they rise out of. The limbs over the way do cast, through holes (see leafDepth).
+      const zone = isWaterPiece(pl.piece)
+        ? 'water'
+        : pl.piece.startsWith('scatter_')
+          ? 'grit'
+          : pl.piece.startsWith('jungle_bank') || (/^(shrub_mass|banana)/.test(pl.piece) && p.y < -1.5)
+            ? 'far'
+            : Math.abs(p.x) > 7.5
+              ? 'far'
+              : 'near';
       const key = `${this.kit.matOf.get(pl.piece)!}|${zone}`;
       const c = g.clone().applyMatrix4(pl.m);
       if (!byKey.has(key)) byKey.set(key, []);
@@ -220,6 +240,7 @@ export class Track {
       const mesh = new THREE.Mesh(merged, this.kit.mat.get(mat)!);
       mesh.name = key;
       mesh.castShadow = zone === 'near' && mat !== 'flora';
+      if (mesh.castShadow && mat === 'leaf') mesh.customDepthMaterial = leafDepth(this.kit);
       if (zone === 'water') mesh.renderOrder = 1;
       mesh.receiveShadow = true;
       group.add(mesh);
@@ -282,28 +303,36 @@ export class Track {
       inst.castShadow = m.castShadow;
       inst.receiveShadow = m.receiveShadow;
       inst.renderOrder = m.renderOrder;
+      inst.customDepthMaterial = m.customDepthMaterial;
       inst.name = m.name;
       if (!m.name.endsWith('|near') && !m.name.endsWith('|grit')) inst.position.y = toWater;
       root.add(inst);
     }
+    // Every fall in the section is one mesh: sheets and spray in a single draw call.
     const falls: THREE.Mesh[] = [];
-    for (const f of layout.falls) {
-      const geo = new THREE.PlaneGeometry(f.w, f.h, 1, 12).translate(0, -f.h / 2, 0);
-      const mesh = new THREE.Mesh(geo, this.fallMat);
-      mesh.matrixAutoUpdate = false;
-      mesh.matrix.makeTranslation(0, toWater, 0).multiply(f.m);
+    const fg = makeFallsGeometry(layout.falls, toWater, seg.s0 * 0.013);
+    if (fg) {
+      const mesh = new THREE.Mesh(fg, this.fallMat);
+      mesh.name = 'falls';
       mesh.renderOrder = 2;
       root.add(mesh);
       falls.push(mesh);
     }
+    const feet: THREE.Vector4[] = [];
+    fallFeet(layout.falls, world, toWater, feet);
     this.root.add(root);
 
-    const inst: SectionInstance = { type, layout, s0: seg.s0, len: layout.len, seg, root, mirror, tiles: [], falls, variant };
+    const inst: SectionInstance = { type, layout, s0: seg.s0, len: layout.len, seg, root, mirror, tiles: [], falls, feet, variant };
     const tmp = new THREE.Matrix4();
     const a = new THREE.Vector3();
     const b = new THREE.Vector3();
     for (const t of layout.tiles) {
       tmp.copy(world).multiply(t.m);
+      // A mirrored section must not mirror its tiles: an instance matrix with a negative determinant
+      // flips the winding (three only corrects that per object, not per instance), so the slabs drew
+      // inside out — their dark undersides seen through culled tops, half the causeway near black.
+      // Mirror each tile back about its own axis instead (they are symmetric enough).
+      if (mirror) tmp.multiply(MIRROR_X);
       // A tile runs `len` metres along its own −Z from its origin. Push both ends through the
       // placement and read the extent along the section's −Z: robust to however the rotation is
       // factored (a half turn about Y can decompose as Euler (π, 0, π)).
@@ -372,10 +401,18 @@ export class Track {
     this.tiles.hide(t);
   }
 
-  tick(time: number): void {
+  tick(time: number, s = 0): void {
     this.fallMat.uniforms.uTime!.value = time;
+    const sd = atmosphereUniforms.fogSunDir.value;
+    (this.fallMat.uniforms.uSun!.value as THREE.Vector3).set(sd.x, sd.y, sd.z);
     foamTime.value = time;
+    // The spray around the nearest falls ahead of the runner (then the ones just behind) wets the stone.
+    this.feet.length = 0;
+    for (const sec of this.sections) if (sec.s0 + sec.len >= s - 4) for (const f of sec.feet) this.feet.push(f);
+    for (const sec of this.sections) if (sec.s0 + sec.len < s - 4) for (const f of sec.feet) this.feet.push(f);
+    updateCaustics(time, this.feet);
   }
+  private feet: THREE.Vector4[] = [];
 
   /** Every prepared section variant's merged props (for shader and upload warm-up). */
   variantGroups(): THREE.Object3D[] {
@@ -393,6 +430,35 @@ export class Track {
  * dome the size of the cliff (the loader's radial foliage normals).
  */
 function stageKit(kit: Kit): void {
+  // Round 5: the jungle clumps come in on a material of their own so the loader keeps their authored
+  // normals; they draw with (and merge into) the one leaf material.
+  // The optimizer quantizes UVs per material (KHR_texture_transform on each material's map), so
+  // the clumps' UVs are brought into the leaf material's frame before they share its draw call.
+  const lj = (kit.mat.get('leaf_jungle') as THREE.MeshStandardMaterial | undefined)?.map;
+  const lf = (kit.mat.get('leaf') as THREE.MeshStandardMaterial | undefined)?.map;
+  let uvFix: THREE.Matrix3 | null = null;
+  if (lj && lf) {
+    lj.updateMatrix();
+    lf.updateMatrix();
+    uvFix = new THREE.Matrix3().copy(lf.matrix).invert().multiply(lj.matrix);
+  }
+  for (const [name, key] of kit.matOf) {
+    if (key !== 'leaf_jungle') continue;
+    kit.matOf.set(name, 'leaf');
+    const g = kit.geo.get(name);
+    const uv = g?.getAttribute('uv') as THREE.BufferAttribute | undefined;
+    if (uv && uvFix && !g!.userData.uvFixed) {
+      g!.userData.uvFixed = true;
+      uv.applyMatrix3(uvFix);
+      uv.needsUpdate = true;
+    }
+  }
+  const leaf = kit.mat.get('leaf');
+  if (leaf) upgradeLeafMaterial(leaf);
+  for (const key of ['stoneA', 'stoneB', 'floor', 'rock', 'cliff', 'statue', 'glyph', 'wood']) {
+    const m = kit.mat.get(key);
+    if (m) patchWetStone(m, key !== 'floor', key === 'rock' || key === 'cliff');
+  }
   const gold = kit.mat.get('gold') as THREE.MeshStandardMaterial | undefined;
   if (gold && !gold.userData.staged) {
     gold.userData.staged = true;
@@ -418,6 +484,34 @@ function stageKit(kit: Kit): void {
     }
     nrm.needsUpdate = true;
   }
+}
+
+let leafDepthMat: THREE.MeshDepthMaterial | null = null;
+/**
+ * The leaves' shadow: their alpha-tested cards, opened up by world-space holes so a canopy throws
+ * dappled light (pools of sun between the shade) rather than one solid shadow.
+ */
+function leafDepth(kit: Kit): THREE.MeshDepthMaterial {
+  if (leafDepthMat) return leafDepthMat;
+  const leaf = kit.mat.get('leaf') as THREE.MeshStandardMaterial | undefined;
+  const m = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: leaf?.map ?? null, alphaTest: 0.5, side: THREE.DoubleSide });
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vDapW;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvDapW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+        varying vec3 vDapW;
+        float dapH(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+        float dapN(vec3 p) { vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(mix(dapH(i), dapH(i + vec3(1,0,0)), f.x), mix(dapH(i + vec3(0,1,0)), dapH(i + vec3(1,1,0)), f.x), f.y),
+                     mix(mix(dapH(i + vec3(0,0,1)), dapH(i + vec3(1,0,1)), f.x), mix(dapH(i + vec3(0,1,1)), dapH(i + vec3(1,1,1)), f.x), f.y), f.z); }`)
+      .replace('#include <alphatest_fragment>', `#include <alphatest_fragment>
+        if (dapN(vDapW * 1.3) * 0.65 + dapN(vDapW * 3.1) * 0.35 < 0.47) discard;`);
+  };
+  m.customProgramCacheKey = () => 'leaf-dapple';
+  leafDepthMat = m;
+  return m;
 }
 
 function disposeGroup(g: THREE.Group) {

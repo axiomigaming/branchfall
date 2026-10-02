@@ -18,8 +18,8 @@ from common import add_block, add_stone, drop_faces_below, finish_obj, hexcol, j
 SAND = [hexcol(h) for h in ("#c4814d", "#b37043", "#d39560", "#a5653d", "#c07c4e", "#b88660", "#d09058")]
 TERRA = [hexcol(h) for h in ("#a3634a", "#ae7057", "#94583f", "#b67b5e", "#8b5543", "#a36d57")]
 WOOD = [hexcol(h) for h in ("#8a6547", "#7a5a40", "#96714f", "#6d4f38")]
-# Weathered boards: grey-brown, silvered where the sun and rain take them.
-BOARDS = [hexcol(h) for h in ("#b08560", "#a07550", "#c09470", "#95704f", "#b89a78", "#a8805a")]
+# Weathered boards: warm honey-brown, bleached where the sun takes them (round 5: never grey).
+BOARDS = [hexcol(h) for h in ("#b8895c", "#a87a4e", "#c4986a", "#9e754e", "#c09c72", "#b08458")]
 DUSTSAND = [hexcol(h) for h in ("#b8936a", "#c29e74", "#a98660")]
 MOSSY = [hexcol(h) for h in ("#8a7a48", "#7f7a44", "#96864f")]
 
@@ -227,12 +227,14 @@ def floor(name, seed, width=PATH_W, length=4.0, broken=0.0, thickness=0.22, pale
                     radius=rad, erode=0.3 + broken * 0.3, pillow=0.06, uvshrink=hidden, taper=0.02)
             x += sl
         y += rd
-    # The bed: packed sand showing in the joints and where slabs are gone.
-    blk(bm, rng, (width - 0.04, length - 0.02, 0.16), (0, length / 2, -0.125), color=jitter_color(hexcol("#a88460"), rng, 0.04),
+    # The bed: packed sand showing in the joints and where slabs are gone. Its top (−0.085) stays below
+    # the lowest sunk, tilted slab: at −0.045 it covered some sunk slabs, which baked black (the bed's
+    # face 9 mm over them closed their AO) and z-fought it in game — a dark rectangle beside the lane.
+    blk(bm, rng, (width - 0.04, length - 0.02, 0.16), (0, length / 2, -0.165), color=jitter_color(hexcol("#a88460"), rng, 0.04),
         radius=0.2, erode=0.15, cuts=2, pillow=0.0, uvshrink={"top": 0.3, "side": 0.9, "bottom": 0.95, "end": 0.9}, taper=0.0)
     for cx, cy, sl, rd in holes:
         for _ in range(rng.randint(2, 5)):
-            pebble(bm, rng, rng.uniform(0.04, 0.09), (cx + rng.uniform(-sl, sl) * 0.35, cy + rng.uniform(-rd, rd) * 0.35, -0.045),
+            pebble(bm, rng, rng.uniform(0.04, 0.09), (cx + rng.uniform(-sl, sl) * 0.35, cy + rng.uniform(-rd, rd) * 0.35, -0.075),
                    color=jitter_color(rng.choice(pal + SAND), rng, 0.1))
     # Grit in the joints: a few tiny stones.
     for _ in range(rng.randint(4, 9)):
