@@ -268,14 +268,15 @@ export class CameraRig {
         const period = this.motionScale < 1 ? 90 : 46;
         const c = ease(0.5 - 0.5 * Math.cos((2 * Math.PI * this.t) / period));
         const drift = Math.sin(this.t * 0.11) * 0.25;
-        // On a tall screen the lens opens ~40 % wider vertically, so at 5.4 m the high pass looked
-        // straight into the crowns of the arches over the road (7–8 m): big soft blocks across the
-        // top of every phone title. There it rides above them instead.
+        // At 5.4 m the high pass looked straight into the crowns of the arches over the road (7–8 m):
+        // big soft blocks across the top of the frame. It rides above them instead.
         const tall = Math.min(1, Math.max(0, (1 - this.camera.aspect) / 0.5));
         fov = this.shot(runnerPos, {
           along: lerp(-8.5, -2.3, c),
           lat: lerp(-0.5, -1.45, c) + drift,
-          up: lerp(5.4 + 4.4 * tall, 1.05, Math.pow(c, 1.5)),
+          // (Round 9: on a wide screen too; at 5.4 m the desktop title looked through the stacked
+          // stones of the arch beside the lens, a quarter of the frame each side.)
+          up: lerp(9.0 + 0.8 * tall, 1.05, Math.pow(c, 1.5)),
           lAlong: lerp(22, 6, c),
           lLat: lerp(0.2, 0.95, c),
           lUp: lerp(0.4, 1.55, c),
@@ -288,12 +289,14 @@ export class CameraRig {
         // The whole runner stands in the band the interface leaves free (the view offset centres
         // that band, see setInsets): stand back far enough that head to feet fill ~60 % of it,
         // and aim at the hips.
-        const sfov = 52;
-        // The lens as update() will open it on a portrait screen (see `portrait` there).
+        // On a wide screen a narrower lens from further back: the corridor walls beside the lens
+        // filled a quarter of the frame on each side as huge soft slabs.
         const a = this.camera.aspect;
+        const sfov = a > 1 ? 44 : 52;
+        // The lens as update() will open it on a portrait screen (see `portrait` there).
         const lens = Math.min(96, sfov * (a < 1 ? Math.min(1.55, 1 + (1 - a) * 0.95) : 1));
         const span = 0.6 * this.free * 2 * Math.tan((lens * Math.PI) / 360);
-        const back = Math.min(7.5, Math.max(2.75, 1.95 / span));
+        const back = Math.min(9, Math.max(2.75, 1.95 / span));
         fov = this.shot(runnerPos, F(-back, 0.25 + 0.06 * back, 1.15 + 0.12 * back, 0.6, 0.1, 0.92, sfov));
         break;
       }
@@ -315,7 +318,11 @@ export class CameraRig {
         // Round 8: a three-quarter view over his right shoulder, a hand lower than before. Straight
         // from behind the forward lean of the run (9°) and the sprint (17°) vanished into his own
         // silhouette and read as an upright jog; from the side and below it reads as drive.
-        fov = this.shot(runnerPos, this.fitInBand(F(-dist, 0.72 + drift, 1.34 - 0.06 * I - 0.05 * hi, 9, 0.6 + drift * 0.4, 1.0, 60 + 16 * I + 2 * hi)));
+        // Round 9: on a narrow (portrait) frame the shoulder offset pushed his far arm off the left
+        // edge; there it comes in toward the axis (keepInFrame below enforces the margin).
+        const narrow = Math.min(1, Math.max(0, (1 - this.camera.aspect) / 0.5));
+        const lat = lerp(0.72, 0.36, narrow);
+        fov = this.shot(runnerPos, this.fitInBand(F(-dist, lat + drift, 1.34 - 0.06 * I - 0.05 * hi, 9, lerp(0.6, 0.3, narrow) + drift * 0.4, 1.0, 60 + 16 * I + 2 * hi)));
         break;
       }
       case 'crash': {
@@ -557,11 +564,20 @@ export class CameraRig {
   update(dt: number, runnerPos: THREE.Vector3, runnerYaw: number, intensity: number): void {
     this.t += dt;
     this.modeT += dt;
+    // The game clamps a frame to 50 ms of presentation time. On a device (or a capture) running at a
+    // frame or two a second, a settled move (title → setup, the result framing) therefore took
+    // tens of seconds of real time, and the setup showed the title's view with only the runner's
+    // head above the dock. Outside the run the springs follow real time too (capped at 1 s a frame);
+    // presentation keyframes still run on game time.
+    const now = performance.now();
+    const wall = this.wallClock && this.lastWall > 0 ? Math.min(1, (now - this.lastWall) / 1000) : 0;
+    this.lastWall = now;
+    const sdt = this.mode === 'run' || this.mode === 'lead' ? dt : Math.max(dt, wall);
     const fov = this.computeTarget(runnerPos, runnerYaw, intensity, dt);
     this.clearance(dt);
     const running = this.mode === 'run';
     const stiff = running ? 7.5 : this.mode === 'title' ? 1.2 : this.mode === 'lead' ? 2.4 : 3.2;
-    dampV(this.pos, this.targetPos, stiff, dt);
+    dampV(this.pos, this.targetPos, stiff, sdt);
     if (running) {
       // Hold the chase distance along the route; springs only carry sway and height. For the first
       // moments of a run the hold is loose, so the runner bursts away before the lens catches up.
@@ -577,7 +593,7 @@ export class CameraRig {
       const k = this.mode === 'cashout' && this.modeT < 1.6 ? 10 : 6;
       this.pos.addScaledVector(this.fwd, along * (1 - Math.exp(-dt * k)));
     }
-    dampV(this.look, this.targetLook, stiff * 1.4, dt);
+    dampV(this.look, this.targetLook, stiff * 1.4, sdt);
     this.constrain(this.pos);
     if (this.mode === 'cashout' || this.mode === 'crash') this.keepMedium(runnerPos);
     // Never let the lens dip under the runner's feet.
@@ -586,7 +602,7 @@ export class CameraRig {
     const a = this.camera.aspect;
     const portrait = a < 1 ? Math.min(1.55, 1 + (1 - a) * 0.95) : 1;
     this.fovKick *= Math.exp(-dt * 2.2);
-    this.fov = damp(this.fov, Math.min((fov + this.fovKick) * portrait, 96), 2.5, dt);
+    this.fov = damp(this.fov, Math.min((fov + this.fovKick) * portrait, 96), 2.5, sdt);
 
     // Operator: footfall bob and a little sway on a spring.
     const n = Math.max(1, Math.ceil(dt * 120));
@@ -622,7 +638,8 @@ export class CameraRig {
     this.camera.position.addScaledVector(this.right, sx + this.sway + hx);
     this.camera.position.y += sy + this.bob + breathe + hy;
     this.camera.lookAt(this.look);
-    if (this.mode === 'run' || this.mode === 'lead') this.holdInBand(runnerPos);
+    this.camera.fov = this.fov;
+    if (this.mode !== 'title') this.keepInFrame(runnerPos);
     this.camera.rotateZ((Math.sin(t * 13.1) * 0.5 + Math.sin(t * 7.7)) * amp * 0.25 + this.dutch + hr);
     this.camera.fov = this.fov;
     this.revealK += ((this.revealed && (this.mode === 'crash' || this.mode === 'cashout') ? 1 : 0) - this.revealK) * (1 - Math.exp(-dt * 2.5));
@@ -630,9 +647,11 @@ export class CameraRig {
     // passed a metre or two above the lens and filled the top of a phone frame as huge, soft blocks.
     // Nothing the title is about is nearer than the runner, so its near plane follows him: up to
     // 6.5 m out on the high pass (the floor is ≥ 9 m below it there), ~1.5 m on the low pass.
-    if (this.mode === 'title') {
+    // The setup on a wide screen stands back down the corridor: the walls right beside the lens are
+    // clipped the same way (nothing it frames is nearer than ~40 % of the way to the runner).
+    if (this.mode === 'title' || this.mode === 'setup') {
       const d = this.camera.position.distanceTo(this.tmp.copy(runnerPos).setY(runnerPos.y + 1));
-      this.camera.near = Math.min(6.5, Math.max(0.1, 0.55 * d));
+      this.camera.near = this.mode === 'title' ? Math.min(6.5, Math.max(0.1, 0.55 * d)) : Math.min(3.5, Math.max(0.1, 0.4 * d));
     } else this.camera.near = 0.1;
     this.applyShift(dt);
     this.camera.updateProjectionMatrix();
@@ -659,31 +678,91 @@ export class CameraRig {
    * tilts down until the boots clear the dock line; if the head would then leave the top of the band,
    * it stands further back and tries again. Only lowers the aim or pulls back, never the reverse.
    */
+  /** Follow real time in the springs outside the run (set by the game: false while it steps QA time). */
+  wallClock = true;
+  private lastWall = 0;
+
   /**
-   * fitInBand composes the target; the lens itself trails it on springs (further behind the faster
-   * he runs), so check the real view too: if the boots sit below the dock line, tilt down just enough,
-   * never so far that the crown leaves the top of the band.
+   * The runner, whole, in the part of the frame the interface leaves free — every frame, whatever
+   * the springs are doing. The composed targets (fitInBand, the setup shot, resultFrame) aim for
+   * this; the lens trails them on springs (further behind the faster he runs, and for long seconds on
+   * a slow device), so the real view is checked here and corrected directly:
+   *  - settled shots (setup, falls, escapes) stand back along the view until boots to crown and
+   *    both arms fit, then tilt and pan just enough to bring him inside;
+   *  - the run and the lead tilt down until the boots clear the cash-out plate (never so far that
+   *    the crown leaves the band), and pan so no arm leaves the side margin (~16 pt on a phone).
+   * In unshifted NDC the band runs from -1 - 2s + 2b (the dock's top edge) to 1 - 2s - 2t.
    */
-  private holdInBand(runnerPos: THREE.Vector3): void {
+  private keepInFrame(runnerPos: THREE.Vector3): void {
+    if (this.mode === 'crash' && this.gap > 0.3) return; // looking down into the gap after him
     const c = this.camera;
     const s = this.shift;
     const lo = -1 - 2 * s + 2 * this.insetBottom + 0.11;
     const hi = 1 - 2 * s - 2 * this.insetTop - 0.05;
     if (hi - lo < 0.2) return;
-    const tanHF = Math.tan((this.fov * Math.PI) / 360);
-    c.updateMatrixWorld();
-    const inv = this.tmpInv.copy(c.matrixWorld).invert();
-    const f = this.eye.copy(runnerPos).applyMatrix4(inv);
-    const hd = this.cand.copy(runnerPos).setY(runnerPos.y + 1.8).applyMatrix4(inv);
-    if (f.z > -0.3 || hd.z > -0.3) return;
-    const elevFeet = Math.atan2(f.y, -f.z);
-    const elevHead = Math.atan2(hd.y, -hd.z);
-    const need = Math.atan(lo * tanHF) - elevFeet; // > 0: boots below the line
-    if (need <= 0) return;
-    const room = Math.max(0, Math.atan(hi * tanHF) - elevHead);
-    const tilt = Math.min(need, room);
-    if (tilt > 1e-4) c.rotateX(-tilt);
+    const tanV = Math.tan((this.fov * Math.PI) / 360);
+    const tanH = tanV * c.aspect;
+    const mx = 1 - 0.09; // side margin in NDC (16 pt of a 390 pt phone)
+    const settled = this.mode === 'setup' || this.mode === 'crash' || this.mode === 'cashout';
+    const pts = this.framePts;
+    const measure = () => {
+      c.updateMatrixWorld();
+      const inv = this.tmpInv.copy(c.matrixWorld).invert();
+      pts[0]!.copy(runnerPos);
+      pts[1]!.copy(runnerPos).setY(runnerPos.y + 1.85);
+      pts[2]!.copy(runnerPos).setY(runnerPos.y + 1.2).addScaledVector(this.right, -0.45);
+      pts[3]!.copy(runnerPos).setY(runnerPos.y + 1.2).addScaledVector(this.right, 0.45);
+      const m = this.frameM;
+      m.feet = m.head = m.left = m.right = 0;
+      m.depth = 0;
+      for (let i = 0; i < 4; i++) {
+        const p = pts[i]!.applyMatrix4(inv);
+        if (p.z > -0.3) return false;
+        const x = p.x / -p.z;
+        const y = p.y / -p.z;
+        if (i === 0) m.feet = y;
+        if (i === 1) m.head = y;
+        if (i === 0 || i === 1) m.depth += -p.z / 2;
+        if (i === 2) m.left = Math.min(x, (pts[0]!.x / -pts[0]!.z));
+        if (i === 3) m.right = Math.max(x, (pts[0]!.x / -pts[0]!.z));
+      }
+      const l = Math.min(m.left, m.right);
+      const r = Math.max(m.left, m.right);
+      m.left = l;
+      m.right = r;
+      return true;
+    };
+    if (!measure()) return;
+    const m = this.frameM;
+    if (settled) {
+      // Too big for the band (or the width): stand back along the view.
+      const needV = (m.head - m.feet) / ((hi - lo) * tanV * 0.92);
+      const needH = (m.right - m.left) / (2 * mx * tanH * 0.92);
+      const k = Math.max(needV, needH);
+      if (k > 1) {
+        c.getWorldDirection(this.tmp);
+        c.position.addScaledVector(this.tmp, -m.depth * (k - 1));
+        if (!measure()) return;
+      }
+    }
+    // Vertical: boots above the dock line first; then the crown under the top of the band.
+    const loT = lo * tanV;
+    const hiT = hi * tanV;
+    let tilt = 0;
+    if (m.feet < loT) tilt = -(Math.atan(loT) - Math.atan(m.feet));
+    else if (settled && m.head > hiT) tilt = Math.atan(m.head) - Math.atan(hiT);
+    if (tilt < 0) tilt = -Math.min(-tilt, Math.max(0, Math.atan(hiT) - Math.atan(m.head)));
+    else if (tilt > 0) tilt = Math.min(tilt, Math.max(0, Math.atan(m.feet) - Math.atan(loT)));
+    if (Math.abs(tilt) > 1e-4) c.rotateX(tilt);
+    // Horizontal: both arms inside the side margins.
+    const mT = mx * tanH;
+    let pan = 0;
+    if (m.left < -mT) pan = Math.atan(-mT) - Math.atan(m.left);
+    else if (m.right > mT) pan = -(Math.atan(m.right) - Math.atan(mT));
+    if (Math.abs(pan) > 1e-4) c.rotateY(pan);
   }
+  private framePts = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  private frameM = { feet: 0, head: 0, left: 0, right: 0, depth: 0 };
   private tmpInv = new THREE.Matrix4();
 
   private fitInBand(f: Frame): Frame {

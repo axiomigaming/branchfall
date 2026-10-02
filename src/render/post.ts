@@ -475,10 +475,12 @@ class GradeEffect extends Effect {
       uniform float gold;
       uniform float flash;
       uniform float fade;
+      uniform float tension;
+      uniform float coolTop;
       void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
         vec3 c = inputColor.rgb;
         float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-        c = mix(vec3(l), c, saturation + gold * 0.15 - cold * 0.6);
+        c = mix(vec3(l), c, saturation + gold * 0.15 - cold * 0.6 + tension * 0.07);
         // Split tone: shade stays warm-neutral (sunlit stone bounces into it), the lights bleach
         // toward cream the way a sun-drenched frame does; only the deepest darks lean teal.
         float hl = smoothstep(0.1, 0.75, l);
@@ -495,10 +497,17 @@ class GradeEffect extends Effect {
         // space clipped everything under ~0.04 (sRGB ~0.2) to pure black: backlit jungle and cliffs
         // against the sun became flat black holes in the sky, and deep shade lost all detail.
         // Here the offset fades in with c, so the curve is the same above ~0.3 and reaches 0 only at 0.
-        float kc = contrast + danger * 0.06 + cold * 0.1;
+        float kc = contrast + danger * 0.06 + cold * 0.1 + tension * 0.09;
         c = max(c, 0.0);
         c = c * kc - (kc - 1.0) * 0.5 * (c / (c + 0.15));
         c *= tint;
+        // Tension (the live multiplier, nothing else): the light warms toward late afternoon and
+        // the shade sinks, a little more with every doubling.
+        c = mix(c, c * mix(vec3(0.95, 0.94, 0.96), vec3(1.07, 0.99, 0.88), hl), tension * 0.55);
+        // Phones: the upper sky over a tall frame is a large flat field of warm grey; a cool
+        // teal-green lean there (and in the shade) gives the warm key light its counterpoint.
+        float upper = smoothstep(0.5, 1.0, uv.y);
+        c = mix(c, c * vec3(0.92, 1.01, 1.05), coolTop * (upper * 0.55 + deep * 0.45));
         // Danger: embers in the highlights, a clamp in the shadows.
         c = mix(c, c * vec3(1.1, 0.95, 0.86), danger * 0.4);
         // Fall: blue-grey and heavy.
@@ -519,6 +528,8 @@ class GradeEffect extends Effect {
           ['gold', new THREE.Uniform(0)],
           ['flash', new THREE.Uniform(0)],
           ['fade', new THREE.Uniform(0)],
+          ['tension', new THREE.Uniform(0)],
+          ['coolTop', new THREE.Uniform(0)],
         ]),
       },
     );
@@ -536,6 +547,8 @@ export interface PostParams {
   flash: number;
   fade: number;
   bloomBoost: number;
+  /** 0..1 from the live multiplier during a run (0 outside it): the tension ramp of the grade. */
+  tension?: number;
   /** 1 with full motion, 0 when the player asked for reduced motion (no camera blur). */
   motion?: number;
   /** Frame time in seconds (for the shutter). */
@@ -633,6 +646,7 @@ export class Post {
       e.uniforms.get('span')!.value = Math.max(1, 1 / a);
       e.uniforms.get('calm')!.value = Math.min(1, Math.max(0, (1 - a) / 0.45));
     }
+    this.grade.uniforms.get('coolTop')!.value = 0.5 * Math.min(1, Math.max(0, (1 - a) / 0.45));
   }
 
   apply(p: PostParams): void {
@@ -684,7 +698,11 @@ export class Post {
     g.get('flash')!.value = p.flash;
     g.get('fade')!.value = p.fade;
     if (this.bloom) this.bloom.intensity = BLOOM + 0.5 * p.bloomBoost;
-    this.vignette.darkness = 0.5 + p.speed * 0.2 + p.cold * 0.25;
+    const tension = p.tension ?? 0;
+    g.get('tension')!.value = tension;
+    // The frame closes in as the multiplier climbs.
+    this.vignette.darkness = 0.5 + p.speed * 0.2 + p.cold * 0.25 + tension * 0.22;
+    this.vignette.offset = 0.28 - tension * 0.08;
     if (this.lens) this.lens.uniforms.get('exposure')!.value = EXPOSURE * this.exposureK * (1 - 0.12 * p.cold);
   }
 

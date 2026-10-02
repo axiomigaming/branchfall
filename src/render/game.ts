@@ -1397,6 +1397,8 @@ export class Game {
     const rp = this.runner.root.position;
     this.rig.shakeEnabled = this.motion === 'full';
     this.rig.motionScale = this.motion === 'full' ? 1 : 0.25;
+    // Settled camera moves follow real time on a slow device; QA time-stepping stays deterministic.
+    this.rig.wallClock = !this.paused;
     if (this.gapAt !== null && this.worldT >= this.gapAt) {
       this.rig.gap = Math.min(1, this.rig.gap + rawDt * 1.4);
       this.rig.focus.copy(rp);
@@ -1460,7 +1462,11 @@ export class Game {
     this.particles.update(dt);
     if (this.stage === 'cashout') this.cine.pool.place(rp, 1.5 + (this.escape?.g ?? 0));
     this.cine.update(dt, rawDt, cam, this.sunDir, this.worldT, this.renderer.domElement.height / (2 * Math.tan((cam.fov * Math.PI) / 360)));
-    this.motes.update(this.worldT, cam, this.renderer.domElement.height / (2 * Math.tan((cam.fov * Math.PI) / 360)), 1, this.sunDir);
+    // Tension ramp (grade, vignette, dust in the air): from the live multiplier only, while running;
+    // it eases back once the round settles (the fall's cold and the escape's gold take over).
+    const tensionTarget = this.stage === 'run' ? Math.min(1, Math.max(0, Math.log(this.live.mult) / Math.log(20))) : 0;
+    this.tension += (tensionTarget - this.tension) * (1 - Math.exp(-rawDt * (this.stage === 'run' ? 1.5 : 0.8)));
+    this.motes.update(this.worldT, cam, this.renderer.domElement.height / (2 * Math.tan((cam.fov * Math.PI) / 360)), 1 + 1.3 * this.tension, this.sunDir);
     this.ambient.update(this.worldT, cam);
 
     // Keep the runner sharp in the blur: the protected ellipse spans boots to crown. (It used to sit
@@ -1483,6 +1489,7 @@ export class Game {
       flash: this.fx.flash,
       fade: this.fx.fade,
       bloomBoost: this.fx.bloom,
+      tension: this.tension,
     });
     this.sounds.run(I, this.stage === 'run', this.speed);
     if (!render) return;
@@ -1493,6 +1500,7 @@ export class Game {
 
   // perf: dynamic resolution first; the tier steps down only when the scale is at its floor.
   private dynRes = new DynamicResolution();
+  private tension = 0;
   private govern(ms: number, dt: number) {
     if (!this.autoQuality || this.paused) return;
     if (this.dynRes.sample(dt * 1000)) this.resize();
@@ -1556,6 +1564,53 @@ export class Game {
       if (m.castShadow) out[key]!.shadow += tris;
     });
     return out;
+  }
+
+  /**
+   * QA (tools/framing-check.mjs): where the runner sits in the current frame and what stands between
+   * the lens and him. Boots, knees, hips, chest and head are projected (view offset included) and
+   * each sight line from the lens is raycast against the whole scene; leaf cards are counted apart
+   * (their cut-out alpha lets most of the view through).
+   */
+  debugFraming() {
+    const cam = this.rig.camera;
+    cam.updateMatrixWorld();
+    this.scene.updateMatrixWorld();
+    const rp = this.runner.root.position;
+    const skip = new Set<THREE.Object3D>([this.runner.root, this.cine.root, this.particles.points, this.motes.points, this.ambient.root, this.water.mesh, this.sunDisc, this.contact.mesh]);
+    const targets: THREE.Object3D[] = [];
+    const walk = (o: THREE.Object3D) => {
+      if (skip.has(o) || !o.visible) return;
+      if ((o as THREE.Mesh).isMesh) targets.push(o);
+      for (const c of o.children) walk(c);
+    };
+    walk(this.scene);
+    const rc = new THREE.Raycaster();
+    const ndc: number[][] = [];
+    let solid = 0;
+    let leaf = 0;
+    const hits: string[] = [];
+    for (const h of [0.05, 0.5, 1.0, 1.35, 1.75]) {
+      const p = new THREE.Vector3(rp.x, rp.y + h, rp.z);
+      const q = p.clone().project(cam);
+      ndc.push([+q.x.toFixed(3), +q.y.toFixed(3)]);
+      const dir = p.clone().sub(cam.position);
+      const len = dir.length();
+      rc.set(cam.position, dir.normalize());
+      rc.near = cam.near;
+      rc.far = len - 0.25;
+      const hit = rc.intersectObjects(targets, false)[0];
+      if (!hit) continue;
+      const m = hit.object as THREE.Mesh;
+      const name = (Array.isArray(m.material) ? m.material[0]?.name : m.material?.name) ?? '';
+      if (/leaf|flora/.test(name) || /leaf|flora/.test(m.name)) leaf++;
+      else {
+        solid++;
+        hits.push(`${m.name || m.parent?.name}@${hit.distance.toFixed(1)}`);
+      }
+    }
+    const r = this.rig as unknown as { insetTop: number; insetBottom: number; shift: number };
+    return { mode: this.rig.mode, ndc, solid, leaf, hits, near: +cam.near.toFixed(2), band: [+(-1 + 2 * r.insetBottom).toFixed(3), +(1 - 2 * r.insetTop).toFixed(3)] };
   }
 
   get debugState() {
