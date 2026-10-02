@@ -16,6 +16,8 @@ stylesheet slices them with:
   tablet*.webp       192×96   secondary key: a raised, bevelled basalt (or jade) face in a worn
                               limestone socket with stepped corners. Nine-slice 16 px + fill.
   panel-gold.webp    960×128  the RUN slab: a recessed panel of hammered gold.
+  logo-frame.webp    800×300  the wordmark's own stone: a temple lintel with a stepped crown,
+                              a carved step-fret beam and a recessed panel (drawn whole).
   crest.webp         256×104  gold crest with a red cabochon and two green ones (primary only).
   pendant.webp       176×56   gold fret pendant under the primary plate.
   leaves.webp        144×192  a tuft of jungle leaves tucked behind a plate end.
@@ -488,6 +490,66 @@ def plate_frame():
     render("plate-frame")
 
 
+def logo_frame():
+    """The wordmark's own stone: a temple lintel, not a button. A long beam overhangs a recessed
+    panel, a stepped crown block rises from its middle to seat the crest, a step-fret is carved
+    along the beam, key hooks on the jambs, a stepped foot below, moss on the beam ends.
+    400×150 CSS, drawn whole (the wordmark has fixed proportions, nothing is sliced)."""
+    import random
+    import bmesh
+    W, H = 400, 150
+    scene(W, H)
+    sun_lamp()
+    rng = random.Random(23)
+    moss = [(6, 26, 18), (W - 6, 26, 18), (150, 8, 8), (250, 8, 8), (30, 40, 8), (W - 30, 40, 9)]
+    st = limestone("lintel", moss_zones=moss)
+    parts = [
+        ("jambs", stepped(18, 36, W - 36, 92, 5), 3.0),  # the body around the panel
+        ("beam", stepped(0, 20, W, 24, 5), 4.4),  # the overhanging lintel
+        ("crown", stepped(146, 2, 108, 24, 6), 5.4),  # the stepped crown that seats the crest
+        ("foot", stepped(30, 122, W - 60, 18, 4), 2.4),  # the stepped foot
+    ]
+    for name, poly, z in parts:
+        loops = [P(chipped(poly, rng), H)]
+        if name == "jambs":
+            loops.append(P(chipped(rect(46, 50, W - 46, 114), rng, depth=0.5, bites=0.03), H))
+        o = curve_obj(name, loops, extrude=z / 2, bevel=1.6, offset=-1.6, z=z / 2, res=3)
+        o.data.materials.append(st)
+    plane("panel", 44, 48, W - 44, 116, 0.2, panel_material("panel", W - 88, 68))
+    # a step-fret carved along the beam (raised stone relief)
+    pats = []
+    x = 14
+    while x < W - 30:
+        if not (138 < x + 12 < 262):
+            pats.append(P(step_fret(x, 24.5, 39.5), H))
+        x += 24
+    fr = curve_obj("beamfret", pats, bevel=1.25, closed=False, z=5.6, dim="3D", res=2)
+    fr.data.materials.append(st)
+    # key hooks on the jambs, a bar between them
+    hooks = []
+    for xx, fx in ((22, False), (W - 22 - 18, True)):
+        hooks.append(key_hook(xx, 52, 18, flip_x=fx))
+        hooks.append(key_hook(xx, 112 - 18, 18, flip_x=fx, flip_y=True))
+    rel = curve_obj("keys", [P(hk, H) for hk in hooks], bevel=1.9, closed=False, z=3.6, dim="3D", res=2)
+    rel.data.materials.append(st)
+    # moss tufts on the beam ends and the crown shoulders
+    mm = limestone("moss", moss_zones=[(x, y, 60) for x, y, _ in moss])
+    bm = bmesh.new()
+    for cx, cy, r in moss:
+        for _ in range(int(r * 5)):
+            a = rng.uniform(0, math.tau)
+            d = abs(rng.gauss(0, r * 0.38))
+            x, y = cx + math.cos(a) * d * 1.4, cy + abs(math.sin(a)) * d * 0.7
+            bmesh.ops.create_icosphere(bm, subdivisions=1, radius=rng.uniform(0.9, 2.0), matrix=Matrix.Translation((x, -y, 5.0 + rng.uniform(-0.5, 0.8))))
+    me = bpy.data.meshes.new("tufts")
+    bm.to_mesh(me)
+    bm.free()
+    ob = bpy.data.objects.new("tufts", me)
+    bpy.context.scene.collection.objects.link(ob)
+    ob.data.materials.append(mm)
+    render("logo-frame")
+
+
 def panel(name):
     W, H = 480, 64
     scene(W, H)
@@ -743,6 +805,7 @@ def stud():
 
 JOBS = {
     "frame": plate_frame,
+    "logo": logo_frame,
     "panel": lambda: panel("panel"),
     "panel-hot": lambda: panel("panel-hot"),
     "panel-jade": lambda: panel("panel-jade"),

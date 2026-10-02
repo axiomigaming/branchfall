@@ -14,6 +14,7 @@ const LADDER = [10, 20, 50, 100, 200, 250, 500, 1000, 1500, 2000, 2500, 5000, 75
 export function Dock() {
   const phase = useStore((s) => s.phase);
   const hold = useHold();
+  const revealed = useStore((s) => s.revealed);
   const ctl = useCtl();
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -25,11 +26,14 @@ export function Dock() {
       let top = el.getBoundingClientRect().top;
       const crest = el.querySelector('.crest');
       if (crest) top = Math.min(top, crest.getBoundingClientRect().top);
-      // From above: the top bar, and during a run the multiplier block under it, so the runner is
-      // framed below the figure rather than behind it.
+      // From above: the top bar, then whatever stands under it: the multiplier block during a run,
+      // the result card once revealed, so the cameras frame the runner below them, never behind.
+      // Layout boxes (offsets), not transforms: the card is still rising in when this runs.
       let bar = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0;
-      const hud = document.querySelector('.hud');
-      if (hud) bar = Math.max(bar, hud.getBoundingClientRect().bottom);
+      for (const q of ['.hud', '.result']) {
+        const e = document.querySelector<HTMLElement>(q);
+        if (e) bar = Math.max(bar, e.offsetTop + e.offsetHeight);
+      }
       ctl.game.rig.setInsets(bar, window.innerHeight - top, window.innerHeight);
     };
     report();
@@ -41,7 +45,7 @@ export function Dock() {
       window.removeEventListener('resize', report);
       ctl.game.rig.setInsets(0, 0, window.innerHeight);
     };
-  }, [ctl, phase, hold]);
+  }, [ctl, phase, hold, revealed]);
   if (phase === 'title' || phase === 'loading') return null;
   // While a settled round is held on screen, the plate stays (frozen at the outcome).
   const live = phase === 'lead' || phase === 'running' || phase === 'cashing' || (phase === 'result' && hold);
