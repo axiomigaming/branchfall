@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { formatCredits, formatMult } from '../engine/money';
 import { useStore } from '../state/store';
 import { useCtl } from './context';
-import { IconMenu, IconShield, IconSliders, IconSound, Mark } from './icons';
+import { IconMenu, IconShield, IconSliders, IconSound } from './icons';
+import { Logo } from './Logo';
 
 export const tierOf = (m: number) => (m >= 1000 ? 'high' : m >= 200 ? 'mid' : '');
 
@@ -34,8 +35,8 @@ export function TopBar() {
   return (
     <header className="topbar">
       <button className="brand" onClick={() => open('menu')} aria-label="Causeway menu">
-        <Mark />
-        <span className="brand-name gold">Causeway</span>
+        <Logo size="compact" />
+        <Logo size="mark" />
         <span className="tag">Demo</span>
       </button>
       <button className="history" onClick={() => open('history')} aria-label="Previous runs">

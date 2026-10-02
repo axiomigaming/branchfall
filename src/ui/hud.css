@@ -49,16 +49,16 @@
   line-height: 0.86;
   letter-spacing: -0.035em;
   font-variant-numeric: tabular-nums lining-nums;
-  /* White warming to sun as it climbs; the glow grows with it but never blooms over the digits. */
-  color: #fff;
-  color: color-mix(in oklab, #fbf3e2 calc((1 - var(--heat)) * 100%), #ffd27a);
+  /* One solid ivory for every digit, always. The heat lives in the glow behind the carved
+     outline, which warms and widens as the multiplier climbs. */
+  color: var(--ivory);
   text-shadow:
     var(--big-edge),
-    0 6px 34px rgba(0, 0, 0, 0.45),
-    0 0 calc(18px + var(--heat) * 46px) rgba(246, 176, 80, calc(var(--heat) * 0.6));
+    0 6px 30px rgba(0, 0, 0, 0.45),
+    0 0 calc(14px + var(--heat) * 40px) rgba(255, 176, 70, calc(0.15 + var(--heat) * 0.6));
   transform: scale(calc(1 + var(--heat) * 0.09));
   transform-origin: 50% 60%;
-  transition: color 0.35s, transform 0.5s var(--ease-out), filter 0.4s;
+  transition: transform 0.5s var(--ease-out), filter 0.4s;
   white-space: nowrap;
 }
 .hud .mult-glow { display: inline-block; transform-origin: 50% 60%; }
@@ -67,26 +67,10 @@
 .hud .mult .x { font-size: 0.42em; font-weight: 500; margin-left: 0.06em; color: var(--gold); vertical-align: 0.72em; }
 /* Past 10x the × heats too; past 50x the whole figure runs hot. */
 .hud .mult[data-tier='3'] .x, .hud .mult[data-tier='4'] .x { color: #ff9a3c; }
-.hud .mult[data-tier='4'] { color: #ffc766; }
-.hud.lead .mult { color: var(--text-2); transform: none; text-shadow: var(--big-edge), 0 6px 40px rgba(0, 0, 0, 0.45); }
+.hud.lead .mult { transform: none; text-shadow: var(--big-edge), 0 6px 40px rgba(0, 0, 0, 0.45); }
 /* Cash-out sent: the figure lifts and turns to gold while the server answers. */
-.hud.cashing .mult { color: var(--sun-1); transform: translateY(-6px) scale(calc(1.02 + var(--heat) * 0.09)); text-shadow: var(--big-edge), 0 0 50px rgba(255, 190, 90, 0.55); }
+.hud.cashing .mult { transform: translateY(-6px) scale(calc(1.02 + var(--heat) * 0.09)); text-shadow: var(--big-edge), 0 0 50px rgba(255, 190, 90, 0.55); }
 
-/* Milestone ring: a carved circle that breathes out once. */
-.hud .ring {
-  position: absolute;
-  left: 50%;
-  top: 52%;
-  width: 1.9em;
-  height: 1.9em;
-  font-size: clamp(76px, 11vw, 150px);
-  border-radius: 50%;
-  border: 3px solid rgba(233, 195, 122, 0.85);
-  box-shadow: 0 0 24px rgba(255, 160, 50, 0.4), inset 0 0 18px rgba(255, 160, 50, 0.25);
-  transform: translate(-50%, -50%) scale(0.55);
-  opacity: 0;
-  pointer-events: none;
-}
 .hud .flare {
   font-size: 20px;
   letter-spacing: 0.08em;
@@ -113,8 +97,8 @@
 .hud.lead .hud-sub { opacity: 0.7; }
 
 /* ------------------------------------------------------------------ result plates */
-.result { animation: resultIn 0.7s var(--ease-out); }
-@keyframes resultIn { from { opacity: 0; } }
+.result { animation: resultIn 0.55s var(--ease-out) both; }
+@keyframes resultIn { from { opacity: 0; transform: translateY(-14px) scale(0.97); } }
 .result .eyebrow { font-size: 17px; letter-spacing: 0.18em; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6), 0 1px 14px rgba(0, 0, 0, 0.8); }
 .result .big { --fit: calc((100vw - 32px) / (var(--chars, 6) * 0.56)); position: relative; font-family: var(--f); font-weight: 700; font-size: min(clamp(80px, 10.4vw, 144px), var(--fit)); line-height: 0.86; letter-spacing: -0.035em; font-variant-numeric: tabular-nums lining-nums; white-space: nowrap; }
 /* the facts sit on a slim stone strip, so they read over the brightest stone */
@@ -197,7 +181,8 @@
 .result .stamp.fell { border-image-source: var(--tablet); filter: drop-shadow(0 0 1px rgba(20, 12, 4, 0.9)) drop-shadow(0 2px 0 var(--stone-d)) drop-shadow(0 0 18px rgba(255, 90, 40, 0.35)); animation: none; }
 .result .stamp.fell .gold { background: linear-gradient(180deg, #ffe9c4 0%, #ffb27a 30%, #ff7a3a 47%, #8a2a06 49%, #e2581c 53%, #ff9a5a 80%, #ffd7b0 100%); -webkit-background-clip: text; background-clip: text; }
 .result.lost .big { color: #f0dcd4; }
-.result .crack { display: inline-block; }
+.result .crack { display: inline-block; animation: crackGlow 1.9s var(--ease-out) both; }
+@keyframes crackGlow { from { filter: drop-shadow(0 0 22px rgba(255, 110, 50, 0.9)); } 45% { filter: drop-shadow(0 0 14px rgba(239, 106, 69, 0.5)); } to { filter: drop-shadow(0 0 10px rgba(239, 106, 69, 0.25)); } }
 .result .crack .half { display: block; }
 .result .crack .half.a {
   clip-path: polygon(0 0, 100% 0, 100% 45%, 88% 40%, 76% 51%, 63% 43%, 52% 56%, 39% 47%, 27% 58%, 14% 52%, 0 63%);
@@ -212,18 +197,19 @@
   color: #d6bdb2;
   animation: coolB 1.9s var(--ease-out) both;
 }
-.result .crack .half { text-shadow: var(--big-edge), 0 6px 34px rgba(0, 0, 0, 0.5), 0 0 26px rgba(239, 106, 69, 0.22); }
+/* Only the hard carved outline on the halves: a soft shadow would be cut square by the clip. */
+.result .crack .half { text-shadow: var(--big-edge); }
 @keyframes coolA {
-  from { transform: none; color: #fff0d0; text-shadow: 0 0 30px rgba(255, 120, 60, 0.95), 0 0 60px rgba(255, 90, 40, 0.6); }
+  from { transform: none; color: #fff0d0; }
   12% { transform: translate(0, 0); color: #ffb07a; }
   22% { transform: translate(-2px, -2px); }
-  45% { color: #ff8a5c; text-shadow: 0 0 26px rgba(239, 106, 69, 0.6); }
+  45% { color: #ff8a5c; }
 }
 @keyframes coolB {
-  from { transform: none; color: #fff0d0; text-shadow: 0 0 30px rgba(255, 120, 60, 0.95), 0 0 60px rgba(255, 90, 40, 0.6); }
+  from { transform: none; color: #fff0d0; }
   12% { transform: none; color: #ffb07a; }
   24% { transform: translate(3px, 5px) rotate(0.8deg); }
-  45% { color: #f07a52; text-shadow: 0 0 26px rgba(239, 106, 69, 0.6); }
+  45% { color: #f07a52; }
 }
 .result .crack .fault { position: absolute; inset: -4% -3%; width: 106%; height: 108%; overflow: visible; pointer-events: none; }
 .result .crack .fault polyline {
@@ -240,14 +226,15 @@
 }
 /* A fall at 1x is over quickly; a fall from 10x up burns longer and stays warmer. */
 .result.lost[data-grade='0'] .crack .half, .result.lost[data-grade='0'] .crack .fault polyline { animation-duration: 1s; }
-.result.lost[data-grade='3'] .crack .half, .result.lost[data-grade='4'] .crack .half { animation-duration: 2.8s; text-shadow: var(--big-edge), 0 6px 34px rgba(0, 0, 0, 0.5), 0 0 34px rgba(239, 106, 69, 0.38); }
+.result.lost[data-grade='3'] .crack .half, .result.lost[data-grade='4'] .crack .half { animation-duration: 2.8s; }
+.result.lost[data-grade='3'] .crack, .result.lost[data-grade='4'] .crack { animation-duration: 2.8s; }
 .result.lost[data-grade='3'] .crack .fault polyline, .result.lost[data-grade='4'] .crack .fault polyline { animation-duration: 2.6s; opacity: 0.5; }
 @keyframes fault { from { stroke-dashoffset: 160; opacity: 1; stroke: #fff0d0; } 14% { stroke-dashoffset: 0; opacity: 1; } }
 
 /* ------------------------------------------------------------------ small screens */
 @media (max-width: 760px) {
   .hud, .result { --hud-top: 15vh; --slot-h: 24px; }
-  .hud .mult, .hud .ring { font-size: clamp(72px, 23vw, 108px); }
+  .hud .mult { font-size: clamp(72px, 23vw, 108px); }
   .result .big { font-size: min(clamp(72px, 23vw, 108px), var(--fit)); }
   .hud .hud-sub { font-size: 12px; gap: 4px 16px; margin-top: 12px; }
   .hud .hud-sub b { font-size: 18px; margin-left: 5px; }
@@ -258,7 +245,7 @@
 /* Landscape phones: little height; sit the number just under the top bar and keep it compact. */
 @media (max-height: 520px) and (orientation: landscape) {
   .hud, .result { --hud-top: 0px; --slot-h: 20px; top: calc(var(--safe-t) + 78px); }
-  .hud .mult, .hud .ring { font-size: clamp(48px, 17vh, 76px); }
+  .hud .mult { font-size: clamp(48px, 17vh, 76px); }
   .result .big { font-size: min(clamp(48px, 17vh, 76px), var(--fit)); }
   .hud .hud-sub { margin-top: 8px; font-size: 11px; }
   .hud .hud-sub b { font-size: 16px; }
@@ -267,4 +254,16 @@
   .result .verify { margin-top: 0; min-height: 40px; }
   .result .verify::before { inset: 4px 0; }
   .result .stamp { font-size: 13px; }
+}
+
+/* Held at the outcome (the beat before the card): the figure stops where the way fell, cracks
+   ember and dims; or where you left, and warms to gold. One colour per state, never two-tone. */
+.hud.held .hud-slot { visibility: hidden; }
+.hud.held.fell .mult { color: #f5d9cc; transform: none; text-shadow: var(--big-edge), 0 0 26px rgba(255, 90, 40, 0.75); animation: fellShake 0.45s var(--ease-out) 1; }
+.hud.held.won .mult { color: var(--gold-1); text-shadow: var(--big-edge), 0 0 40px rgba(255, 190, 80, 0.7); }
+.hud.held .hud-sub { opacity: 0.85; }
+@keyframes fellShake { 20% { translate: -4px 2px; } 40% { translate: 4px -2px; } 60% { translate: -2px 1px; } 80% { translate: 1px 0; } }
+/* Phones: the card sits in the upper third, clear of the runner. */
+@media (max-width: 760px) {
+  .result { --hud-top: 11vh; }
 }

@@ -1,9 +1,11 @@
-// Three families: Bungee for the gold block lettering on the plates and titles, Marcellus SC
-// for carved small-caps captions, Space Grotesk (variable weight, tabular figures) for the
-// interface and every amount of money.
+// Three families: Bungee for the gold block lettering on the plates and the wordmark, Marcellus
+// SC for carved small-caps captions, Alegreya Sans (a warm humanist sans with tabular lining
+// figures) for the interface text and every amount of money.
 import '@fontsource/bungee/latin-400.css';
 import '@fontsource/marcellus-sc/latin-400.css';
-import '@fontsource-variable/space-grotesk/wght.css';
+import '@fontsource/alegreya-sans/latin-500.css';
+import '@fontsource/alegreya-sans/latin-700.css';
+import '@fontsource/alegreya-sans/latin-800.css';
 import './ui/styles.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
