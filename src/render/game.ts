@@ -145,7 +145,7 @@ export class Game {
 
     scene.background = kit.backdrop;
     kit.backdrop.mapping = THREE.EquirectangularReflectionMapping;
-    scene.backgroundIntensity = 1.0;
+    scene.backgroundIntensity = 0.92; // round 8: a deeper sky, less of a pale veil over the top of the frame
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     scene.environment = pmrem.fromEquirectangular(kit.env).texture;
     // The sky fills the shade; sunlit sandstone bounces warm light back into it, so shade reads

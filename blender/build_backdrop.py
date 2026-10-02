@@ -119,11 +119,11 @@ def ridge(name, r0, r1, hmax, seed, mat, steps_a=720, steps_r=40, cliff=0.0, gap
             a = 2 * math.pi * j / steps_a
             p = Vector((math.cos(a) * r, math.sin(a) * r, 0))
             q = p * 0.0022 + off
-            n = noise.fractal(q, 0.55, 2.1, 7)
+            n = noise.fractal(q, 0.55, 2.1, 5)
             # Round 8: three octaves, not five — single-vertex needles on the far ridges read as spires.
             n2 = noise.ridged_multi_fractal(q * 1.7, 0.9, 2.0, 3, 1.0, 2.0)
             env = math.sin(math.pi * i / steps_r) ** 0.6
-            h = hmax * max(0.0, 0.45 + 0.55 * n + 0.15 * (n2 - 1.0)) * env
+            h = hmax * max(0.0, 0.45 + 0.55 * n + 0.05 * (n2 - 1.0)) * env
             if cliff:
                 # Terraced mesas: quantise heights, keep the walls steep.
                 step = hmax * 0.18
