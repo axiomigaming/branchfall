@@ -208,22 +208,22 @@ RUN = dict(
     ts=0.3, D=0.84, xtd=0.24, knee=(0.36, 0.85, 0.28), v=5.0,
     af=[(0.0, 0.14), (0.14, 0.0), (0.44, 0.0), (1.0, -1.0)],
     swing=[(0.18, -0.34, 1.05, 0.45), (0.42, 0.12, 1.85, 0.12), (0.68, 0.72, 1.42, -0.12), (0.86, 0.66, 0.66, -0.16)],
-    hp=0.14, lean=0.14, hyaw=0.12, hroll=0.05, chest=0.8, head_down=0.14,
-    arm_c=0.12, arm_a=0.75, elbow=1.55, elbow_a=0.2, out=0.26, curl=0.5, peak=0.76, frames=48,
+    hp=0.14, lean=0.17, hyaw=0.12, hroll=0.05, chest=0.8, head_down=0.14,
+    arm_c=0.2, arm_a=0.8, elbow=1.65, elbow_a=0.35, out=0.26, curl=0.5, peak=0.76, frames=48,
 )
 SPRINT = dict(
     ts=0.225, D=0.88, xtd=0.18, knee=(0.4, 0.8, 0.2), v=9.0,
     af=[(0.0, -0.2), (0.4, -0.05), (0.55, -0.08), (1.0, -1.12)],
     swing=[(0.15, -0.4, 1.28, 0.55), (0.38, 0.2, 2.3, 0.1), (0.64, 1.12, 1.75, -0.2), (0.84, 0.92, 0.78, -0.12)],
-    hp=0.21, lean=0.26, hyaw=0.16, hroll=0.06, chest=0.9, head_down=0.08,
-    arm_c=0.25, arm_a=1.0, elbow=1.5, elbow_a=0.4, out=0.2, curl=0.55, peak=0.74, frames=48,
+    hp=0.23, lean=0.32, hyaw=0.16, hroll=0.06, chest=0.9, head_down=0.1,
+    arm_c=0.3, arm_a=1.1, elbow=1.6, elbow_a=0.5, out=0.22, curl=0.55, peak=0.74, frames=48,
 )
 # The desperate all-out run of the top tiers: longer reach, higher knees, a harder pump, a deeper lean.
 DASH = dict(SPRINT, ts=0.19, D=0.92, xtd=0.21, knee=(0.42, 0.78, 0.18), v=12.6,
             af=[(0.0, -0.26), (0.4, -0.08), (0.55, -0.1), (1.0, -1.18)],
             swing=[(0.15, -0.42, 1.38, 0.55), (0.37, 0.24, 2.42, 0.1), (0.63, 1.26, 1.85, -0.22), (0.83, 1.02, 0.84, -0.12)],
-            hp=0.23, lean=0.29, hyaw=0.19, hroll=0.07, chest=0.95, head_down=0.05,
-            arm_c=0.28, arm_a=1.15, elbow=1.45, elbow_a=0.5, out=0.22, curl=0.6, peak=0.73)
+            hp=0.27, lean=0.42, hyaw=0.19, hroll=0.07, chest=0.95, head_down=0.18,
+            arm_c=0.35, arm_a=1.35, elbow=1.58, elbow_a=0.6, out=0.24, curl=0.6, peak=0.73)
 
 
 def _rot(y, z, a):
@@ -504,8 +504,8 @@ def build(rig):
         # Left foot a half step ahead; the weight rocks onto the right hip and back.
         leg(P, "L", hip=0.2 + 0.05 * sway, knee=0.32 + 0.08 * sway, ankle=0.12 + 0.03 * sway, out=0.07)
         leg(P, "R", hip=0.05 - 0.05 * sway, knee=0.18 - 0.06 * sway, ankle=0.12 - 0.03 * sway, out=0.1)
-        arm(P, "L", fwd=0.2 + 0.03 * br, elbow=0.6 + 0.05 * br, out=0.16, wrist=0.15, twist=0.15, curl=0.55)
-        arm(P, "R", fwd=0.15 + 0.5 * tug, elbow=0.5 + 1.4 * tug, out=0.17 - 0.08 * tug, wrist=0.1, twist=0.1 + 0.3 * tug, curl=0.6 + 0.5 * tug)
+        arm(P, "L", fwd=0.3 + 0.03 * br, elbow=0.95 + 0.05 * br, out=-0.04, wrist=0.2, twist=-0.2, curl=0.6)
+        arm(P, "R", fwd=0.22 + 0.45 * tug, elbow=0.8 + 1.1 * tug, out=-0.02 + 0.02 * tug, wrist=0.15, twist=-0.15 + 0.4 * tug, curl=0.65 + 0.4 * tug)
         P["shoulder.L"] = (0.03 * br, 0, 0.04)
         P["shoulder.R"] = (0.03 * br + 0.08 * tug, 0, 0.04)
         key(f + 1, P, x=0.012 * sway)
@@ -528,8 +528,8 @@ def build(rig):
               head_roll=0.18 * neck * math.cos((f - 20) / 36 * 2 * math.pi) if 20 <= f <= 56 else 0.0, breath=0.016 * br)
         leg(P, "R", hip=0.02, knee=0.02, ankle=0.0, out=0.08 + 0.02 * hipk)
         leg(P, "L", hip=0.1 + 0.12 * hipk, knee=0.12 + 0.3 * hipk, ankle=0.08 + 0.12 * hipk, out=0.06 - 0.02 * hipk)
-        arm(P, "L", fwd=0.16 + 0.65 * brush, elbow=0.5 + 0.95 * brush, out=0.1 - 0.02 * brush, twist=0.5 * brush, curl=0.5 - 0.2 * brush)
-        arm(P, "R", fwd=0.14 + 0.5 * brush + 0.05 * stroke * brush, elbow=0.5 + 1.2 * brush, out=0.1 - 0.12 * brush + 0.04 * stroke * brush,
+        arm(P, "L", fwd=0.26 + 0.55 * brush, elbow=0.85 + 0.6 * brush, out=-0.04 + 0.02 * brush, twist=-0.2 + 0.7 * brush, curl=0.5 - 0.2 * brush)
+        arm(P, "R", fwd=0.22 + 0.42 * brush + 0.05 * stroke * brush, elbow=0.8 + 0.9 * brush, out=-0.03 - 0.03 * brush + 0.04 * stroke * brush,
             twist=0.3 * brush, curl=0.45 - 0.35 * brush)
         P["shoulder.L"] = (0.02 * br + 0.1 * neck * max(0.0, nroll), 0, 0)
         P["shoulder.R"] = (0.02 * br + 0.1 * neck * max(0.0, -nroll), 0, 0)
@@ -554,8 +554,8 @@ def build(rig):
         bend = 0.1 + 0.1 * bz + 0.04 * look
         standing(P, wide=0.07, bend=bend)
         for s_, k in (("L", 1.0), ("R", -1.0)):
-            arm(P, s_, fwd=0.18 + 0.2 * shake + 0.05 * sh * k + 0.05 * bz, elbow=0.5 + 0.2 * shake + 0.2 * bz,
-                out=0.12 + 0.08 * shake + 0.03 * sh, wrist=0.35 * sh * k, twist=0.2 * sh, curl=0.4 - 0.25 * shake,
+            arm(P, s_, fwd=0.24 + 0.15 * shake + 0.05 * sh * k + 0.05 * bz, elbow=0.75 + 0.1 * shake + 0.2 * bz,
+                out=-0.02 + 0.12 * shake + 0.03 * sh, wrist=0.35 * sh * k, twist=0.2 * sh, curl=0.4 - 0.25 * shake,
                 shrug=0.08 * roll * max(0.0, math.sin(rph)), prot=0.1 * roll * math.cos(rph))
         # On the toes at the top of each bounce.
         for s_ in "LR":
@@ -836,7 +836,7 @@ def build(rig):
         P = {}
         torso(P, lean=-0.12 * up, look=0.35 * up, yaw=-0.1, roll=-0.05, breath=0.03 * (fr % 20 == 0))
         standing(P, wide=0.1, bend=0.02)
-        arm(P, "R", fwd=2.95 * up, elbow=0.3 + (1 - up) * 3, out=0.3, curl=1.35, twist=0.3)
+        arm(P, "R", fwd=2.95 * up, elbow=0.3 + (1 - up) * 3, out=-0.25, curl=1.35, twist=0.3)
         arm(P, "L", fwd=0.12, elbow=0.95, out=0.22, curl=1.2)
         P["shoulder.R"] = (0.2, 0, -0.05)
         key(fr, P)
@@ -1101,7 +1101,9 @@ def extra_clips():
         torso(P, lean=-0.18 * up, look=0.5 * up)
         standing(P, wide=0.13, bend=bend)
         for sd in "LR":
-            arm(P, sd, fwd=2.6 * up, elbow=0.35 + (1 - up) * 2, out=0.9, curl=1.35, twist=0.2)
+            # Both fists straight up in a V: unmistakable from behind and from the side.
+            # (Overhead, the abduction axis is flipped: a negative "out" spreads the arms into the V.)
+            arm(P, sd, fwd=2.85 * up, elbow=0.05 + (1 - up) * 1.6, out=-0.45 * up + 0.3 * (1 - up), curl=1.35, twist=0.0)
         key(fr, P)
     P = {}
     torso(P, lean=0.05, look=0.15)
@@ -1174,14 +1176,14 @@ def extra_clips():
     torso(P, lean=0.05, look=0.35)
     leg(P, "L", hip=1.25, knee=1.6, ankle=0.1)
     leg(P, "R", hip=-0.35, knee=0.5, ankle=0.6, toe=0.3)
-    arm(P, "R", fwd=2.85, elbow=0.3, out=0.3, curl=1.35, twist=0.2)
+    arm(P, "R", fwd=2.85, elbow=0.3, out=-0.25, curl=1.35, twist=0.2)
     arm(P, "L", fwd=0.4, elbow=0.8, out=0.9, curl=0.8)
     key(14, P, lift=0.45)
     P = {}
     torso(P, lean=-0.05, look=0.45)
     leg(P, "L", hip=1.1, knee=1.3, ankle=0.1)
     leg(P, "R", hip=0.2, knee=1.2, ankle=0.3)
-    arm(P, "R", fwd=3.0, elbow=0.2, out=0.3, curl=1.35, twist=0.2)
+    arm(P, "R", fwd=3.0, elbow=0.2, out=-0.25, curl=1.35, twist=0.2)
     arm(P, "L", fwd=0.5, elbow=0.8, out=1.0, curl=0.8)
     key(20, P, lift=0.55)
     P = {}
@@ -1210,7 +1212,7 @@ def extra_clips():
         torso(P, lean=0.12 - 0.22 * up, look=0.1 + 0.3 * up, yaw=-0.1 * up)
         standing(P, wide=0.1, bend=0.12 - 0.08 * up)
         if up > 0:
-            arm(P, "R", fwd=2.95 * up, elbow=0.3, out=0.3, curl=1.35, twist=0.3)
+            arm(P, "R", fwd=2.95 * up, elbow=0.3, out=-0.25, curl=1.35, twist=0.3)
         else:
             arm(P, "R", fwd=0.7, elbow=2.3, out=0.15, curl=1.35)
         arm(P, "L", fwd=0.12, elbow=0.95, out=0.22, curl=1.2)

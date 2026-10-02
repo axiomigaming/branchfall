@@ -425,6 +425,11 @@ export class Game {
     this.staging = st;
     this.epic = st.epic;
     this.cine.bars.target = 0.06;
+    // Nothing of an escape may linger into a fall (shafts, sunburst, glints, the light pool).
+    this.cine.beams.clear();
+    this.cine.glory.clear();
+    this.cine.sparkles.clear();
+    this.cine.pool.clear();
     this.stageCrash(st, new Rng(`${roundId}/staging`), mult / 100);
     if (!this.rev) this.holdReveal(0.3);
     this.sounds.crash(st.kind);
@@ -447,9 +452,21 @@ export class Game {
   private holdReveal(impactIn: number, outcome: 'fall' | 'escape' = 'fall'): void {
     const H = revealHold(outcome, this.live.mult, this.motion);
     if (this.rev) clearTimeout(this.rev.timer);
-    const timer = window.setTimeout(() => this.reveal(), (H.cap + 0.6) * 1000);
-    this.rev = { impactAt: this.worldT + impactIn, after: H.after, t: 0, cap: H.cap, timer };
+    this.rev = { impactAt: this.worldT + impactIn, after: H.after, t: 0, cap: H.cap, timer: this.revealFallback(H.cap + 0.6) };
   }
+
+  /**
+   * Real-time fallback for the reveal, for a hidden or stalled tab only: while frames keep coming the
+   * hold follows the presentation clock (a slow device must not show the card before the impact).
+   */
+  private revealFallback(sec: number): number {
+    return window.setTimeout(() => {
+      if (!this.rev) return;
+      if (document.visibilityState !== 'visible' || performance.now() - this.lastFrameAt > 1500) this.reveal();
+      else this.rev.timer = this.revealFallback(0.5);
+    }, sec * 1000);
+  }
+  private lastFrameAt = 0;
 
   private reveal(): void {
     if (this.rev) clearTimeout(this.rev.timer);
@@ -513,10 +530,27 @@ export class Game {
       m.receiveShadow = true;
       door.add(m);
     };
-    // The medallion faces the runner (+z, centre 3.3 m up, r 1.35 m): a gold mask fills it.
-    add('face_gate_0_gold', [0, 3.3 - 11.51 * 0.29, 0.62], [0.29, 0.29, 0.1]);
-    // A carved relief band across the lower door, both faces.
-    for (const side of [1, -1]) add(`relief_wall_${side > 0 ? 0 : 1}`, [side * 2.6, 0.55, side * 0.5], [0.22, 0.5, 1.25], side * Math.PI / 2);
+    // Limestone, not the glyph atlas (which stretches across a slab this size like wood grain).
+    const stone = this.kit.mat.get('statue') ?? this.kit.mat.get('stoneB');
+    if (stone) door.material = stone;
+    // The medallion faces the runner (+z, centre 3.3 m up, r 1.35 m): the gold mask fills it.
+    add('face_gate_0_gold', [0, 3.3 - 12.33 * 0.36, 0.5], [0.36, 0.36, 0.2]);
+    // A carved relief band across the lower door, both faces, in the same limestone.
+    for (const side of [1, -1]) add(`relief_wall_${side > 0 ? 0 : 1}`, [side > 0 ? 2.65 : -2.73, 0.55, side * 0.5], [0.22, 0.5, 1.25], (side * Math.PI) / 2);
+    for (const c of door.children) if (stone && (c as THREE.Mesh).material !== this.kit.mat.get('gold')) (c as THREE.Mesh).material = stone;
+    // A raised, stepped border: a heavy lintel band, a plinth, two jambs, and step-fret blocks.
+    if (!stone) return;
+    const box = (w: number, hgt: number, d: number, x: number, y: number, z: number) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, hgt, d), stone);
+      m.position.set(x, y, z);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      door.add(m);
+    };
+    box(6.5, 0.6, 1.3, 0, 5.75, 0);
+    box(6.5, 0.45, 1.3, 0, 0.22, 0);
+    for (const x of [-2.95, 2.95]) box(0.55, 5.2, 1.25, x, 3.0, 0);
+    for (let k = -4; k <= 4; k++) box(0.42, k % 2 ? 0.3 : 0.5, 0.25, k * 0.66, 5.2 + (k % 2 ? 0.15 : 0.25), 0.62);
   }
 
   private staging: CrashStaging | EscapeStaging | null = null;
@@ -540,13 +574,16 @@ export class Game {
     this.epic = st.epic;
     this.escape = E;
     this.setStage('cashout');
-    this.runner.play(st.clip as RunnerAnim, 0.2, st.offset);
+    // A clear payoff at every escape: the look-back (which ends turned side-on, arms down) gives way
+    // to the cheer, fists up toward the gate of light; salute and leap stand as they are.
+    const clip = st.variant === 'lookback' ? 'win_cheer' : st.clip;
+    this.runner.play(clip as RunnerAnim, 0.2, st.offset);
     // Run out of it: how long depends on the move.
     const T = { lookback: 0.72, cheer: 0.5, salute: 1.0, leap: 1.15 }[st.variant];
     this.setStop(this.s + (v * T) / 2);
     this.sounds.escape();
     this.fx.flash = 0.16 + 0.12 * E.g;
-    this.rig.setMode('cashout', { side: this.cosmetic.chance(0.5) ? 1 : -1, escape: st.variant, epic: st.epic, reveal: Math.max(0.75, E.reveal) });
+    this.rig.setMode('cashout', { side: this.cosmetic.chance(0.5) ? 1 : -1, escape: st.variant, epic: st.epic, reveal: 1 });
     // A held breath on the moment of escape, longer and deeper for a big one (the leap holds at its apex).
     if (v > 3) this.slowmo = { t: st.variant === 'leap' ? -0.3 : 0, dur: E.slowDur, min: E.slowMin };
     this.stageEscape(E);
@@ -917,12 +954,14 @@ export class Game {
       // Brake hard; the slab slams down a few metres ahead and the runner skids short of it, then
       // recoils back (the clip). At the push-off it drops right in front of the crouch.
       const T = 0.5;
-      const stop = this.s + (v * T) / 2;
-      // The door lands just beyond the next whole slab, so the slab between it and the runner can
-      // break under the impact (the way falls); with no seam in reach it lands close and cracks it.
-      const seam = st.atStart ? null : this.tileEdge(stop + 0.6, stop + 4.4);
+      // He brakes to the very edge of his own slab: the door lands just beyond the next one, whose
+      // fall then opens the gap at his feet (the way falls). With no seam in braking reach the door
+      // lands close and cracks the floor.
+      const seam = st.atStart ? null : this.tileEdge(this.s + v * 0.15 + 0.6, this.s + v * 0.45 + 1.4);
+      const stop = seam !== null ? seam - 0.6 : this.s + (v * T) / 2;
       const gateS = st.atStart ? this.s + 3.2 : seam !== null ? seam + 4.4 : stop + 3.4;
       this.setStop(stop);
+      this.rig.subjectAhead = gateS - stop;
       const h = frameAt(gateS);
       this.rig.focus.copy(h.pos).setY(h.pos.y + 1.6);
       // Long enough in the air to read as a door coming down, not a flicker across the lens.
@@ -980,6 +1019,19 @@ export class Game {
             }),
           );
           this.later(0.2, () => kick(0.5));
+          // The lip at his feet crumbles away and the gap widens; his own slab cracks.
+          const lip = frameAt(seam);
+          this.cine.cracks.spawn(lip.pos.clone().setY(lip.pos.y + 0.05).addScaledVector(lip.fwd, -0.05), lip.yaw + Math.PI, PATH_HALF * 2 + 0.2, 1.0 + 0.6 * e, 0.4, 30);
+          for (let k = 0; k < n(6); k++) {
+            this.later(0.35 + k * 0.09, () => {
+              const p = lip.pos.clone().addScaledVector(lip.right, r.range(-PATH_HALF, PATH_HALF)).addScaledVector(lip.fwd, -0.1).setY(lip.pos.y - 0.05);
+              const sc = r.range(0.18, 0.4);
+              this.debris.spawn(`shard_${k % 6}`, new THREE.Matrix4().compose(p, new THREE.Quaternion().setFromEuler(new THREE.Euler(r.range(0, 6), r.range(0, 6), 0)), new THREE.Vector3(sc, sc, sc)), lip.fwd.clone().multiplyScalar(r.range(0.2, 0.8)), new THREE.Vector3(r.range(-4, 4), 0, r.range(-4, 4)), () => null, { mat: 'floor' });
+              this.particles.burst(p, 4, { spread: 0.4, up: 0.3, speed: 0.5, size: 0.15, life: 1.2, color: DUST_DARK, alpha: 0.5, gravity: 6 });
+            });
+          }
+          // A big fall: the edge drops out from under him and he goes down on his knees at the lip.
+          if (e >= 0.55) this.later(0.3, () => this.runner.play('fall_chasm_b', 0.3, 0.45));
         }
         kick();
         this.fx.flash = 0.12 + 0.08 * e;
@@ -1255,6 +1307,7 @@ export class Game {
   private tmpChest = new THREE.Vector3(); // perf
   private tmpScreen = new THREE.Vector2(); // perf
   private frame(rawDt: number, render = true): void {
+    this.lastFrameAt = performance.now();
     const t0 = performance.now();
     // Presentation time can slow down; the round clock never does.
     if (this.slowmo) {
@@ -1397,6 +1450,8 @@ export class Game {
     const rp = this.runner.root.position;
     this.rig.shakeEnabled = this.motion === 'full';
     this.rig.motionScale = this.motion === 'full' ? 1 : 0.25;
+    // Settled camera moves follow real time on a slow device; QA time-stepping stays deterministic.
+    this.rig.wallClock = !this.paused;
     if (this.gapAt !== null && this.worldT >= this.gapAt) {
       this.rig.gap = Math.min(1, this.rig.gap + rawDt * 1.4);
       this.rig.focus.copy(rp);
@@ -1460,7 +1515,11 @@ export class Game {
     this.particles.update(dt);
     if (this.stage === 'cashout') this.cine.pool.place(rp, 1.5 + (this.escape?.g ?? 0));
     this.cine.update(dt, rawDt, cam, this.sunDir, this.worldT, this.renderer.domElement.height / (2 * Math.tan((cam.fov * Math.PI) / 360)));
-    this.motes.update(this.worldT, cam, this.renderer.domElement.height / (2 * Math.tan((cam.fov * Math.PI) / 360)), 1, this.sunDir);
+    // Tension ramp (grade, vignette, dust in the air): from the live multiplier only, while running;
+    // it eases back once the round settles (the fall's cold and the escape's gold take over).
+    const tensionTarget = this.stage === 'run' ? Math.min(1, Math.max(0, Math.log(this.live.mult) / Math.log(20))) : 0;
+    this.tension += (tensionTarget - this.tension) * (1 - Math.exp(-rawDt * (this.stage === 'run' ? 1.5 : 0.8)));
+    this.motes.update(this.worldT, cam, this.renderer.domElement.height / (2 * Math.tan((cam.fov * Math.PI) / 360)), 1 + 1.3 * this.tension, this.sunDir);
     this.ambient.update(this.worldT, cam);
 
     // Keep the runner sharp in the blur: the protected ellipse spans boots to crown. (It used to sit
@@ -1483,6 +1542,7 @@ export class Game {
       flash: this.fx.flash,
       fade: this.fx.fade,
       bloomBoost: this.fx.bloom,
+      tension: this.tension,
     });
     this.sounds.run(I, this.stage === 'run', this.speed);
     if (!render) return;
@@ -1493,6 +1553,7 @@ export class Game {
 
   // perf: dynamic resolution first; the tier steps down only when the scale is at its floor.
   private dynRes = new DynamicResolution();
+  private tension = 0;
   private govern(ms: number, dt: number) {
     if (!this.autoQuality || this.paused) return;
     if (this.dynRes.sample(dt * 1000)) this.resize();
@@ -1556,6 +1617,53 @@ export class Game {
       if (m.castShadow) out[key]!.shadow += tris;
     });
     return out;
+  }
+
+  /**
+   * QA (tools/framing-check.mjs): where the runner sits in the current frame and what stands between
+   * the lens and him. Boots, knees, hips, chest and head are projected (view offset included) and
+   * each sight line from the lens is raycast against the whole scene; leaf cards are counted apart
+   * (their cut-out alpha lets most of the view through).
+   */
+  debugFraming() {
+    const cam = this.rig.camera;
+    cam.updateMatrixWorld();
+    this.scene.updateMatrixWorld();
+    const rp = this.runner.root.position;
+    const skip = new Set<THREE.Object3D>([this.runner.root, this.cine.root, this.particles.points, this.motes.points, this.ambient.root, this.water.mesh, this.sunDisc, this.contact.mesh]);
+    const targets: THREE.Object3D[] = [];
+    const walk = (o: THREE.Object3D) => {
+      if (skip.has(o) || !o.visible) return;
+      if ((o as THREE.Mesh).isMesh) targets.push(o);
+      for (const c of o.children) walk(c);
+    };
+    walk(this.scene);
+    const rc = new THREE.Raycaster();
+    const ndc: number[][] = [];
+    let solid = 0;
+    let leaf = 0;
+    const hits: string[] = [];
+    for (const h of [0.05, 0.5, 1.0, 1.35, 1.75]) {
+      const p = new THREE.Vector3(rp.x, rp.y + h, rp.z);
+      const q = p.clone().project(cam);
+      ndc.push([+q.x.toFixed(3), +q.y.toFixed(3)]);
+      const dir = p.clone().sub(cam.position);
+      const len = dir.length();
+      rc.set(cam.position, dir.normalize());
+      rc.near = cam.near;
+      rc.far = len - 0.25;
+      const hit = rc.intersectObjects(targets, false)[0];
+      if (!hit) continue;
+      const m = hit.object as THREE.Mesh;
+      const name = (Array.isArray(m.material) ? m.material[0]?.name : m.material?.name) ?? '';
+      if (/leaf|flora/.test(name) || /leaf|flora/.test(m.name)) leaf++;
+      else {
+        solid++;
+        hits.push(`${m.name || m.parent?.name}@${hit.distance.toFixed(1)}`);
+      }
+    }
+    const r = this.rig as unknown as { insetTop: number; insetBottom: number; shift: number };
+    return { mode: this.rig.mode, ndc, solid, leaf, hits, near: +cam.near.toFixed(2), band: [+(-1 + 2 * r.insetBottom).toFixed(3), +(1 - 2 * r.insetTop).toFixed(3)] };
   }
 
   get debugState() {
