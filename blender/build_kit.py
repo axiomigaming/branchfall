@@ -19,6 +19,7 @@ import foliage as F
 import setpieces as S
 import stage as G
 import jungle as J
+from uvcheck import overlap_texels
 
 FAST = "--fast" in sys.argv
 Q = 4 if FAST else 1
@@ -313,6 +314,12 @@ for key, (mat, size) in mats.items():
     # KIT_BAKE_CAP: bake no larger than this (the UVs keep the full size's packing). The shipped sets
     # are capped at 2048 px by assets:optimize, so a 2048 bake ships the same texels in a quarter of the time.
     bake_size = min(size // Q, int(os.environ.get("KIT_BAKE_CAP", "0")) or size // Q)
+    # Two faces on the same texels bake as one: refuse to bake a group whose packing overlaps.
+    over = overlap_texels(objs, 512)
+    if over:
+        log(f"  {key}: {over} overlapping texels at 512 px")
+    if over > 200:
+        raise SystemExit(f"{key}: UV islands overlap ({over} texels at 512 px); fix the packing before baking")
     digest = group_hash(objs, key, bake_size)
     if cached_group(objs, key, digest):
         log(f"cached {key} ({len(objs)} objects)")
