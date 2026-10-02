@@ -35,6 +35,25 @@ const PROTECT = /* glsl */ `
  * A zoom term from the vanishing point adds the stylised rush on top. Low: the zoom term alone,
  * no depth.
  */
+/**
+ * One NaN or Inf pixel (a shader dividing by zero for a frame) is harmless on its own, but the
+ * bloom's mip chain spreads it over the whole image and the frame goes black. This zeroes such
+ * pixels (and clamps runaway values) before anything blurs or blooms them.
+ */
+class NanGuardEffect extends Effect {
+  constructor() {
+    super(
+      'NanGuard',
+      /* glsl */ `
+      void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
+        vec3 c = inputColor.rgb;
+        bool bad = any(isnan(c)) || any(isinf(c)) || c.r != c.r || c.g != c.g || c.b != c.b;
+        outputColor = vec4(bad ? vec3(0.0) : min(c, vec3(64000.0)), inputColor.a);
+      }`,
+    );
+  }
+}
+
 class MotionBlurEffect extends Effect {
   constructor(samples: number, camera: boolean) {
     super(
@@ -603,6 +622,9 @@ export class Post {
     this.composer.removeAllPasses();
     this.composer.addPass(this.renderPass);
     this.ssr = q.waterReflections > 0 ? new WaterReflectEffect(q.waterReflections) : null;
+    // The guard runs first, on the raw render, so nothing downstream ever sees a NaN pixel.
+    // Its own pass: the effects after it sample their input buffer directly, so it must be written first.
+    this.composer.addPass(new EffectPass(this.camera, new NanGuardEffect()));
     if (this.ssr) this.composer.addPass(new EffectPass(this.camera, this.ssr));
     this.shafts = q.godRays > 0 ? new SunShaftsEffect(q.godRays) : null;
     this.ao = q.ao > 0 ? new DepthAOEffect(q.ao) : null;
@@ -707,6 +729,34 @@ export class Post {
   }
 
   /** Place the shafts and the flare on the sun disc (found by name in the scene), fading as it leaves the frame. */
+  private warned = false;
+  /** Every effect uniform finite: a stray NaN or Inf (one frame is enough) blacks out the image. */
+  private sanitize(): void {
+    let bad = '';
+    for (const e of [this.blur, this.shafts, this.lens, this.ssr, this.ao, this.grade]) {
+      if (!e) continue;
+      for (const [k, u] of e.uniforms) {
+        const v = u.value as unknown;
+        if (typeof v === 'number') {
+          if (!Number.isFinite(v)) ((u.value = 0), (bad ||= k));
+        } else if (v && typeof v === 'object') {
+          const o = v as { isVector2?: boolean; isVector3?: boolean; isVector4?: boolean; isMatrix4?: boolean; isColor?: boolean; elements?: number[]; toArray?: () => number[] };
+          if (o.isMatrix4) {
+            if (!o.elements!.every(Number.isFinite)) ((v as THREE.Matrix4).identity(), (bad ||= k));
+          } else if ((o.isVector2 || o.isVector3 || o.isVector4 || o.isColor) && !o.toArray!().every(Number.isFinite)) {
+            (v as THREE.Vector4).fromArray(o.toArray!().map((x) => (Number.isFinite(x) ? x : 0)));
+            bad ||= k;
+          }
+        }
+      }
+    }
+    if (this.bloom && !Number.isFinite(this.bloom.intensity)) ((this.bloom.intensity = 0.75), (bad ||= 'bloom'));
+    if (bad && !this.warned) {
+      this.warned = true;
+      console.warn(`post: non-finite uniform '${bad}' reset`);
+    }
+  }
+
   private updateSun(): void {
     this.sun ??= this.scene.getObjectByName('sunDisc') ?? null;
     if (!this.sun) {
@@ -716,9 +766,12 @@ export class Post {
     }
     const cam = this.camera as THREE.PerspectiveCamera;
     this.sunV.setFromMatrixPosition(this.sun.matrixWorld).project(cam);
-    const behind = this.sunV.z > 1;
-    const x = this.sunV.x * 0.5 + 0.5;
-    const y = this.sunV.y * 0.5 + 0.5;
+    // With the sun near the lens plane its projection blows up (w → 0): keep it finite and bounded,
+    // or the shafts and glare multiply 0 by Inf and one NaN pixel, spread by the bloom, blacks the frame.
+    const fin = Number.isFinite(this.sunV.x) && Number.isFinite(this.sunV.y) && Number.isFinite(this.sunV.z);
+    const behind = !fin || this.sunV.z > 1;
+    const x = fin ? Math.min(4, Math.max(-3, this.sunV.x * 0.5 + 0.5)) : -3;
+    const y = fin ? Math.min(4, Math.max(-3, this.sunV.y * 0.5 + 0.5)) : -3;
     const off = Math.max(0, Math.max(Math.abs(x - 0.5), Math.abs(y - 0.5)) - 0.5);
     if (this.shafts) {
       const u = this.shafts.uniforms;
@@ -737,6 +790,7 @@ export class Post {
 
   render(dt: number): void {
     this.updateSun();
+    this.sanitize();
     // The rig moves the near plane (a far one on the title fly-over); depth-reading effects copy the
     // camera's near/far only when built, so re-copy on a change or their depth would be wrong.
     const cam = this.camera as THREE.PerspectiveCamera;

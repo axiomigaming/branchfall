@@ -462,7 +462,9 @@ export class Game {
   private revealFallback(sec: number): number {
     return window.setTimeout(() => {
       if (!this.rev) return;
-      if (document.visibilityState !== 'visible' || performance.now() - this.lastFrameAt > 1500) this.reveal();
+      // Hidden, or no frame at all for a while: release. (Slow frames still step the beat on real
+      // time, see loop(), so they never need the fallback.)
+      if (document.visibilityState !== 'visible' || performance.now() - this.lastFrameAt > 4000) this.reveal();
       else this.rev.timer = this.revealFallback(0.5);
     }, sec * 1000);
   }
@@ -1243,6 +1245,45 @@ export class Game {
   }
 
   /** A distant rumble: camera tremor, grit off the walls, and a plume of dust far off over the jungle. */
+  /**
+   * Last line of defence for the lens: if the camera went non-finite, or sits inside a solid prop or
+   * a heavy falling body (the door), cut to a safe shot behind and above the runner.
+   */
+  private guardCamera(): void {
+    const cam = this.rig.camera;
+    const p = cam.position;
+    const q = cam.quaternion;
+    const bad = ![p.x, p.y, p.z, q.x, q.y, q.z, q.w, cam.fov].every(Number.isFinite) || ((this.stage === 'crash' || this.stage === 'cashout') && this.insideSolid(p));
+    if (!bad) return;
+    this.rig.safeShot(this.runner.root.position, this.runner.root.rotation.y);
+  }
+
+  private guardBox = new THREE.Box3();
+  private guardP = new THREE.Vector3();
+  private insideSolid(p: THREE.Vector3): boolean {
+    if (!this.track) return false;
+    if (p.y < WATER_Y + 0.15) return true;
+    for (const sec of this.track.sections) {
+      if (sec.s0 > this.s + 25 || sec.s0 + sec.len < this.s - 25) continue;
+      for (const e of this.solids(sec)) {
+        this.guardP.copy(p).applyMatrix4(e.inv);
+        this.guardBox.copy(e.geo.boundingBox!).expandByScalar(-0.15);
+        if (!this.guardBox.containsPoint(this.guardP)) continue;
+        // In the box (an arch spans the path, so that alone means nothing): a ray straight up that
+        // crosses the surface an odd number of times starts inside it.
+        const o = this.occl;
+        o.mesh.geometry = e.geo;
+        o.mesh.matrixWorld.copy(e.world);
+        o.rc.set(p, UP);
+        o.rc.far = 60;
+        o.hits.length = 0;
+        o.mesh.raycast(o.rc, o.hits);
+        if (o.hits.length % 2 === 1) return true;
+      }
+    }
+    return this.debris.containsHeavy(p);
+  }
+
   private tremor(I: number, k = I) {
     this.rig.addTrauma(0.1 + I * 0.25);
     this.sounds.tremor(I);
@@ -1271,8 +1312,14 @@ export class Game {
   private loop = (): void => {
     this.raf = requestAnimationFrame(this.loop);
     if (!this.visible || this.paused) return;
-    const rawDt = Math.min(this.clock.getDelta(), 0.05);
-    this.frame(rawDt);
+    const real = Math.min(this.clock.getDelta(), 1);
+    // A fall or an escape plays on real time even on a device (or a capture) drawing a frame or two
+    // a second: the beat is stepped in ≤ 50 ms slices (physics stays stable) and drawn once. Elsewhere
+    // a frame stays clamped to 50 ms, as before (the run is bound to the round clock anyway).
+    if ((this.stage === 'crash' || this.stage === 'cashout') && real > 0.05) {
+      const n = Math.min(20, Math.ceil(real / 0.05));
+      for (let i = 0; i < n; i++) this.frame(real / n, i === n - 1);
+    } else this.frame(Math.min(real, 0.05));
   };
 
   private footstep(foot: 'L' | 'R', k: number) {
@@ -1458,6 +1505,7 @@ export class Game {
     }
     this.rig.update(rawDt * (this.stage === 'crash' || this.stage === 'cashout' ? Math.max(this.timeScale, 0.55) : 1), rp, this.runner.root.rotation.y, this.stage === 'run' ? I : 0);
     const cam = this.rig.camera;
+    this.guardCamera();
     if (this.debugPin) {
       const d = this.debugPin;
       const ry = this.runner.root.rotation.y;

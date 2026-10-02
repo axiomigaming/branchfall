@@ -172,7 +172,9 @@ const GLORY_FRAG = /* glsl */ `
   varying vec2 vUv;
   void main() {
     float r = length(vUv);
-    float ang = atan(vUv.y, vUv.x);
+    // atan(0, 0) is undefined: on some GPUs (SwiftShader) it is NaN, and one NaN pixel spread by the
+    // bloom's mip chain blacks out the whole frame.
+    float ang = atan(vUv.y, vUv.x + 1e-4);
     // Slowly turning rays of uneven width, a soft halo and a hot core.
     float rays = pow(0.5 + 0.5 * sin(ang * 13.0 + uTime * 0.25), 6.0) * 0.6 + pow(0.5 + 0.5 * sin(ang * 7.0 - uTime * 0.18 + 1.3), 8.0) * 0.5;
     rays *= smoothstep(1.0, 0.15, r) * smoothstep(0.0, 0.12, r);

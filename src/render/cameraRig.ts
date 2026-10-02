@@ -157,6 +157,32 @@ export class CameraRig {
     this.pullTarget = 1;
   }
 
+  /**
+   * A safe shot (the lens went non-finite or into solid geometry): behind and above the runner,
+   * looking at the chest, with every spring, kick and offset reset.
+   */
+  safeShot(runnerPos: THREE.Vector3, runnerYaw: number): void {
+    if (![runnerPos.x, runnerPos.y, runnerPos.z, runnerYaw].every(Number.isFinite)) return;
+    this.yaw = this.lastYaw = runnerYaw;
+    this.fwd.set(-Math.sin(runnerYaw), 0, -Math.cos(runnerYaw));
+    this.right.set(Math.cos(runnerYaw), 0, -Math.sin(runnerYaw));
+    this.pos.copy(runnerPos).addScaledVector(this.fwd, -4.2).addScaledVector(this.right, 0.8).setY(runnerPos.y + 2.4);
+    this.look.copy(runnerPos).setY(runnerPos.y + 1.1);
+    this.trauma = this.fovKick = this.rollKick = this.dutch = 0;
+    this.bob = this.bobV = this.sway = this.swayV = 0;
+    this.swing = this.swingTarget = 0;
+    this.pull = this.pullTarget = 1;
+    this.fov = 58;
+    const c = this.camera;
+    c.position.copy(this.pos);
+    c.quaternion.identity();
+    c.lookAt(this.look);
+    c.fov = this.fov;
+    c.near = 0.1;
+    c.updateProjectionMatrix();
+    c.updateMatrixWorld();
+  }
+
   /** Snap to the current target (after a teleport such as a new round). */
   snap(runnerPos: THREE.Vector3, runnerYaw: number): void {
     this.yaw = runnerYaw;
