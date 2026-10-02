@@ -16,7 +16,8 @@ const BEAM_VERT = /* glsl */ `
     vec3 axis = aTop - aBot;
     vec3 p = mix(aBot, aTop, t);
     vec3 toCam = normalize(cameraPosition - p);
-    vec3 side = normalize(cross(axis, toCam));
+    vec3 sc = cross(axis, toCam);
+    vec3 side = dot(sc, sc) > 1e-8 ? normalize(sc) : vec3(1.0, 0.0, 0.0);
     p += side * position.x * aW.x * (0.55 + 0.9 * t);
     vUv = vec2(position.x * 2.0, t);
     vW = aW;
@@ -165,7 +166,7 @@ export function installRim(root: THREE.Object3D): RimUniforms {
             '#include <emissivemap_fragment>',
             `#include <emissivemap_fragment>
             {
-              float rimF = pow(1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0), 3.0);
+              float rimF = pow(1.0 - clamp(dot(normal, normalize(vViewPosition + vec3(0.0, 0.0, 1e-5))), 0.0, 1.0), 3.0);
               totalEmissiveRadiance += uRimColor * rimF * (0.3 + 0.7 * max(0.0, dot(normal, uRimDir)));
             }`,
           );

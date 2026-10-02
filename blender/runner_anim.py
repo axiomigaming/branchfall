@@ -1105,13 +1105,14 @@ def extra_clips():
             # (Overhead, the abduction axis is flipped: a negative "out" spreads the arms into the V.)
             arm(P, sd, fwd=2.85 * up, elbow=0.05 + (1 - up) * 1.6, out=-0.45 * up + 0.3 * (1 - up), curl=1.35, twist=0.0)
         key(fr, P)
-    P = {}
-    torso(P, lean=0.05, look=0.15)
-    standing(P, wide=0.12, bend=0.04)
-    for sd in "LR":
-        arm(P, sd, fwd=-0.15, elbow=1.5, out=0.55, twist=0.5, curl=0.6)
-    key(100, P)
-    key(120, P)
+    # The hold under the result card: one fist still high, the other hand on the hip, chin up, breathing.
+    for fr, br in ((96, 0.0), (108, 1.0), (120, 0.0)):
+        P = {}
+        torso(P, lean=-0.06, look=0.3, breath=0.04 * br)
+        standing(P, wide=0.12, bend=0.04)
+        arm(P, "R", fwd=2.8, elbow=0.12, out=-0.4, curl=1.35)
+        arm(P, "L", fwd=-0.2, elbow=1.55, out=0.55, twist=0.6, curl=0.6)
+        key(fr, P)
 
     # ---------------------------------------------------------- win_salute: ease down to a walk, turn back, salute
     new_action("win_salute")
@@ -1120,43 +1121,56 @@ def extra_clips():
     key(8, P, z=gait_root(0.5, RUN, 0.6), x=x)
     P, x = loco(0.0, RUN, 0.3)
     key(15, P, z=gait_root(0.0, RUN, 0.3), x=x)
+    # Plant, and a fist pump pulled down to the hip: "yes!" (the low-tier escape's payoff starts here).
     P = {}
-    torso(P, lean=0.05, look=0.05)
-    standing(P, wide=0.07, bend=0.04)
-    arm(P, "L", fwd=0.15, elbow=0.5, curl=0.5)
-    arm(P, "R", fwd=0.1, elbow=0.5, curl=0.5)
-    key(22, P)
-    for fr, yaw, lift_leg in ((28, 0.9, "R"), (34, 1.9, "L"), (40, 2.7, "R"), (46, 2.85, None)):
+    torso(P, lean=0.28, look=0.12, hp=0.08)
+    standing(P, wide=0.1, bend=0.2)
+    arm(P, "R", fwd=0.55, elbow=2.1, out=0.22, curl=1.35, twist=0.2)
+    arm(P, "L", fwd=0.2, elbow=0.9, out=0.2, curl=0.9)
+    key(18, P)
+    # ... then punched at the sky, held a beat (the camera is behind him: it has to clear his head).
+    for fr in (22, 27):
         P = {}
-        torso(P, lean=0.04, look=0.05, head_yaw=0.35 if fr < 40 else 0.0)
-        standing(P, wide=0.08, bend=0.04)
+        torso(P, lean=-0.04, look=0.3, hp=0.0)
+        standing(P, wide=0.1, bend=0.08)
+        arm(P, "R", fwd=2.75, elbow=0.3, out=-0.25, curl=1.35, twist=0.2)
+        arm(P, "L", fwd=0.15, elbow=1.0, out=0.25, curl=0.9)
+        key(fr, P)
+    # Turn back toward the ruins, breathing hard, a hand on the hip, chest up.
+    akimbo = dict(fwd=-0.2, elbow=1.55, out=0.55, twist=0.6, curl=0.6)
+    for fr, yaw, lift_leg, br in ((33, 0.9, "R", 1.0), (38, 1.9, "L", 0.0), (43, 2.7, "R", 1.0), (48, 2.85, None, 0.0)):
+        P = {}
+        torso(P, lean=0.06, look=0.15, head_yaw=0.35 if fr < 41 else 0.0, breath=0.04 * br)
+        standing(P, wide=0.09, bend=0.06)
         if lift_leg:
             leg(P, lift_leg, hip=0.4, knee=0.7, ankle=0.1)
-        arm(P, "L", fwd=0.1, elbow=0.4, curl=0.5)
-        arm(P, "R", fwd=0.05, elbow=0.4, curl=0.5)
+        arm(P, "L", **akimbo)
+        arm(P, "R", fwd=0.7, elbow=2.0, out=0.25, curl=1.35, twist=0.2)
         standing_turned(P, yaw)
         key(fr, P)
     # Two fingers to the brow, then out: a salute to the ruins.
     for fr, ph in ((54, 1), (62, 1), (68, 2), (76, 3)):
         P = {}
-        torso(P, lean=0.0, look=0.12, yaw=-0.08)
-        standing(P, wide=0.08, bend=0.02)
+        torso(P, lean=0.0, look=0.15, yaw=-0.08)
+        standing(P, wide=0.09, bend=0.04)
         if ph == 1:
             arm(P, "R", fwd=1.2, elbow=2.35, out=0.75, twist=0.5, wrist=0.3, curl=0.9)
         elif ph == 2:
             arm(P, "R", fwd=1.6, elbow=0.9, out=0.95, twist=0.2, curl=0.9)
         else:
-            arm(P, "R", fwd=0.15, elbow=0.4, out=0.14, curl=0.5)
-        arm(P, "L", fwd=0.1, elbow=0.4, curl=0.5)
+            arm(P, "R", fwd=0.5, elbow=1.9, out=0.2, curl=1.35, twist=0.2)
+        arm(P, "L", **akimbo)
         standing_turned(P, 2.85)
         key(fr, P)
-    # A small bow, hand to the chest.
-    for fr, b in ((88, 1.0), (100, 1.0), (112, 0.0), (130, 0.0)):
+    # And it holds as a payoff: the fist raised above the head, a hand on the hip, chest out, chin up,
+    # still catching his breath (the result card shows over this; the clip clamps on its last key).
+    for fr, br in ((86, 0.0), (96, 1.0), (106, 0.0), (118, 1.0), (130, 0.0)):
         P = {}
-        torso(P, lean=0.4 * b, look=-0.35 * b + 0.05)
-        standing(P, wide=0.08, bend=0.03)
-        arm(P, "R", fwd=0.55 + 0.1 * b, elbow=2.0 * b + 0.4 * (1 - b), out=-0.05 * b + 0.14 * (1 - b), twist=0.3 * b, curl=0.4)
-        arm(P, "L", fwd=0.1 - 0.3 * b, elbow=0.4, curl=0.5)
+        torso(P, lean=-0.06, look=0.28, yaw=-0.1, breath=0.04 * br)
+        standing(P, wide=0.1, bend=0.05)
+        arm(P, "R", fwd=2.3 + 0.05 * br, elbow=0.95, out=-0.12, curl=1.35, twist=0.25)
+        arm(P, "L", **akimbo)
+        P["shoulder.R"] = (0.12, 0, 0)
         standing_turned(P, 2.85)
         key(fr, P)
 

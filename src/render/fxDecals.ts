@@ -121,7 +121,9 @@ const RING_FRAG = /* glsl */ `
   void main() {
     float r = length(vUv) * 2.0;
     float t = vP.x;
-    float ang = atan(vUv.y, vUv.x);
+    // atan(0, 0) is undefined: on some GPUs (SwiftShader) it is NaN, and one NaN pixel spread by the
+    // bloom's mip chain blacks out the whole frame.
+    float ang = atan(vUv.y, vUv.x + 1e-4);
     float wob = 0.012 * sin(ang * 7.0 + vP.z * 30.0) + 0.008 * sin(ang * 13.0 - vP.z * 11.0);
     float R1 = (1.0 - pow(1.0 - t, 2.2)) * 0.92 + wob;
     float R2 = R1 * 0.62;
