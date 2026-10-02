@@ -93,7 +93,7 @@
 .hud .hud-sub span { display: inline-flex; align-items: baseline; }
 .hud .hud-sub b { font-weight: 700; font-size: 20px; color: var(--ivory); margin-left: 8px; font-variant-numeric: tabular-nums; }
 .hud .hud-sub .ret b { color: var(--sun-1); min-width: 3.2em; text-align: left; }
-.hud .hud-sub .auto b { color: var(--jade); }
+.hud .hud-sub .auto b { color: var(--gold-1); }
 .hud.lead .hud-sub { opacity: 0.7; }
 
 /* ------------------------------------------------------------------ result plates */
@@ -105,7 +105,8 @@
 .result .line { margin-top: 16px; padding: 9px 20px 10px; font-size: 15px; font-weight: 600; color: var(--text-2); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.8); display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 2px 8px; border: 0 solid transparent; border-image: var(--tablet) 16 fill / 7px stretch; filter: drop-shadow(0 0 1px rgba(20, 12, 4, 0.9)) drop-shadow(0 2px 0 var(--stone-d)) drop-shadow(0 6px 12px rgba(0, 0, 0, 0.35)); }
 .result .line b { font-size: 20px; color: var(--ivory); font-weight: 700; font-variant-numeric: tabular-nums; }
 .result .line b.hot { color: var(--sun-1); }
-.result .line b.jade { color: var(--jade); }
+/* profit in gold, like every amount you take home */
+.result .line b.jade { color: var(--gold-1); }
 .result .line .dot { font-style: normal; color: var(--text-3); }
 /* a small tablet, like the other secondary controls (44 px target around a 40 px tablet) */
 .result .verify {
@@ -265,5 +266,12 @@
 @keyframes fellShake { 20% { translate: -4px 2px; } 40% { translate: 4px -2px; } 60% { translate: -2px 1px; } 80% { translate: 1px 0; } }
 /* Phones: the card sits in the upper third, clear of the runner. */
 @media (max-width: 760px) {
-  .result { --hud-top: 11vh; }
+  .result { --hud-top: 112px; }
+}
+
+/* desktop: a compact result card (headline, number, one line, Verify) so the runner stays in view */
+@media (min-width: 761px) and (min-height: 521px) {
+  .result .big { font-size: min(clamp(64px, 6.6vw, 104px), var(--fit)); }
+  .result .line { margin-top: 10px; }
+  .result .verify { margin-top: 4px; }
 }

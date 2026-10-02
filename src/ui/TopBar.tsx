@@ -30,7 +30,7 @@ export function TopBar() {
     ctl?.audio.ui('open');
     set({ modal: m });
   };
-  const newest = history[0]?.id;
+  const quiet = phase === 'result';
 
   return (
     <header className="topbar">
@@ -39,15 +39,23 @@ export function TopBar() {
         <Logo size="mark" />
         <span className="tag">Demo</span>
       </button>
-      <button className="history" onClick={() => open('history')} aria-label="Previous runs">
+      {/* Responsible play: the strip is a quiet, uniform record. No highlight of big falls, no
+          "this was your round" mark, no entrance on the newest entry, and while a result is shown it
+          steps back further, so a past fall point never reads as a near miss beside a win. */}
+      <button className={`history${quiet ? ' quiet' : ''}`} onClick={() => open('history')} aria-label="History of previous rounds">
         {history.length === 0 ? (
           <span className="chip none">No runs yet</span>
         ) : (
-          history.slice(0, 14).map((h) => (
-            <span key={h.id} className={`chip ${tierOf(h.crash)}${h.id === newest ? ' fresh' : ''}${h.outcome === 'cashout' ? ' mine' : ''}`} title={h.outcome === 'cashout' ? `You left at ${formatMult(h.cashoutMult!)}×` : undefined}>
-              {formatMult(h.crash)}×
+          <>
+            <span className="hist-k" aria-hidden>
+              History
             </span>
-          ))
+            {history.slice(0, 14).map((h) => (
+              <span key={h.id} className="chip" title={`Round fell at ${formatMult(h.crash)}×`}>
+                {formatMult(h.crash)}×
+              </span>
+            ))}
+          </>
         )}
       </button>
       <div className={`balance${bump ? ' bump' : ''}`} aria-live="polite">

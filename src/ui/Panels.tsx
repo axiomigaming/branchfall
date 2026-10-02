@@ -180,11 +180,15 @@ function History({ onClose }: { onClose: () => void }) {
         <p className="empty">No runs yet.</p>
       ) : (
         <div className="rows">
+          <div className="hhead" aria-hidden>
+            <span>Fell at</span>
+            <span>Your run</span>
+          </div>
           {history.map((h) => (
             <button key={h.id} className="hrow" onClick={() => set({ modal: 'fair', fairFocus: h.id })}>
               <span className={`c num ${tierOf(h.crash)}`}>{formatMult(h.crash)}×</span>
               <span>
-                {h.outcome === 'cashout' ? `Left at ${formatMult(h.cashoutMult!)}×${h.auto ? ' (auto)' : ''}` : 'The way fell'} · stake {formatCredits(h.stake)}
+                {h.outcome === 'cashout' ? `Cashed out at ${formatMult(h.cashoutMult!)}×${h.auto ? ' (auto)' : ''}` : 'Not cashed out'} · stake {formatCredits(h.stake)}
               </span>
               <span className={`out num ${h.outcome === 'cashout' ? 'won' : 'lost'}`}>{h.outcome === 'cashout' ? `+${formatCredits(h.payout)}` : `−${formatCredits(h.stake)}`}</span>
               <span className="when">#{h.nonce}</span>

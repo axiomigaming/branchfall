@@ -5,6 +5,7 @@ import { Rng, hashString } from '../engine/rng';
 import { loadKit, pickAssetSet, wind, type Kit } from '../world/assets';
 import { DynamicResolution, warmUp } from './perf';
 import { installShadowEdgeFade } from './shadows';
+import { ContactShadow } from './contact';
 import { installAtmosphere, patchFogUniforms, setAtmosphereMist, setAtmosphereSun } from '../world/atmosphere';
 import { Debris } from '../world/debris';
 import { forward } from '../world/path';
@@ -70,6 +71,7 @@ export class Game {
   private debris!: Debris;
   private particles = new Particles(1100);
   private motes = new Motes(420);
+  private contact = new ContactShadow(); // grounds the runner on every tier
   private ambient = new Ambient(); // world art: birds, butterflies, leaves
   /** Cinematic effects: lit dust, water shockwaves, cracks, birds, sun shafts, escape rim. */
   private cine = new Fx();
@@ -205,6 +207,8 @@ export class Game {
     this.runner = new Runner(kit);
     this.runner.onFootstep = (foot, k) => this.footstep(foot, k);
     scene.add(this.runner.root);
+    this.contact.attach(this.runner.root);
+    scene.add(this.contact.mesh);
     scene.add(this.particles.points, this.motes.points, this.ambient.root);
     // Cinematic fx (before the fog patch and the program warm-up below).
     this.cine.attachRunner(this.runner.root);
@@ -313,6 +317,7 @@ export class Game {
     this.cine.clear();
     this.releaseReveal();
     this.gapAt = null;
+    this.clearEscapeGate();
     this.runner.root.visible = true;
     this.rig.gap = 0;
     this.queue.length = 0;
@@ -449,6 +454,7 @@ export class Game {
   private reveal(): void {
     if (this.rev) clearTimeout(this.rev.timer);
     this.rev = null;
+    this.rig.revealed = this.stage === 'crash' || this.stage === 'cashout';
     this.cine.bars.target = 0;
     this.onReveal();
   }
@@ -456,6 +462,26 @@ export class Game {
   /** Release a pending reveal now (or tell the interface there is nothing to wait for). */
   private releaseReveal(): void {
     if (this.rev) this.reveal();
+  }
+
+  /** The carved gate an escape runs toward (presentation only; removed with the round). */
+  private escapeGate: THREE.Mesh | null = null;
+  private placeEscapeGate(pos: THREE.Vector3, yaw: number): void {
+    this.clearEscapeGate();
+    const geo = this.kit.geo.get('lintel_gate_0');
+    const mat = this.kit.mat.get(this.kit.matOf.get('lintel_gate_0') ?? '');
+    if (!geo || !mat) return;
+    const m = new THREE.Mesh(geo, mat);
+    m.position.copy(pos);
+    m.rotation.y = yaw;
+    m.castShadow = true;
+    m.receiveShadow = true;
+    this.scene.add(m);
+    this.escapeGate = m;
+  }
+  private clearEscapeGate(): void {
+    if (this.escapeGate) this.scene.remove(this.escapeGate);
+    this.escapeGate = null;
   }
 
   /** The collapsible floor tile under route distance `s`, if any. */
@@ -519,8 +545,8 @@ export class Game {
     const T = { lookback: 0.72, cheer: 0.5, salute: 1.0, leap: 1.15 }[st.variant];
     this.setStop(this.s + (v * T) / 2);
     this.sounds.escape();
-    this.fx.flash = 0.24 + 0.24 * E.g;
-    this.rig.setMode('cashout', { side: this.cosmetic.chance(0.5) ? 1 : -1, escape: st.variant, epic: st.epic, reveal: E.reveal });
+    this.fx.flash = 0.16 + 0.12 * E.g;
+    this.rig.setMode('cashout', { side: this.cosmetic.chance(0.5) ? 1 : -1, escape: st.variant, epic: st.epic, reveal: Math.max(0.75, E.reveal) });
     // A held breath on the moment of escape, longer and deeper for a big one (the leap holds at its apex).
     if (v > 3) this.slowmo = { t: st.variant === 'leap' ? -0.3 : 0, dur: E.slowDur, min: E.slowMin };
     this.stageEscape(E);
@@ -551,14 +577,20 @@ export class Game {
     const g = E.g;
     const f0 = this.track.path.sample(s0);
     const fw = forward(f0.yaw);
-    const glory = f0.pos.clone().addScaledVector(fw, 7 + 3 * g).addScaledVector(this.sunDir, 2).setY(f0.pos.y + 2.4 + 1.2 * g);
-    this.cine.glory.flare(glory, 9 + 8 * g, 0.75 + 0.5 * g, 0.9 + 1.4 * g);
+    // A place to escape to: a carved gate stands on the way ahead with daylight pouring through it.
+    const gateAt = s0 + 10 + 3 * g;
+    const fg = this.track.path.sample(gateAt);
+    this.placeEscapeGate(fg.pos, fg.yaw);
+    this.rig.gateAhead = gateAt - s0;
+    const glory = fg.pos.clone().addScaledVector(forward(fg.yaw), 0.9).setY(fg.pos.y + 3.0);
+    // Capped so the scene keeps its contrast (no bloom whiteout), a touch more for a big escape.
+    this.cine.glory.flare(glory, 7 + 3 * g, 0.5 + 0.2 * g, 1.0 + 1.2 * g);
     // Gold and jade glints burst up from the runner's feet, then keep rising around them.
     const feet = () => this.runner.root.position;
     this.later(0.1, () => this.cine.sparkles.burst(feet(), Math.round(36 + 110 * g), 4 + 2.5 * g, 0.5));
     for (let k = 1; k <= 11; k++) this.later(0.1 + k * 0.3, () => this.cine.sparkles.burst(feet(), Math.round(5 + 12 * g), 2.4 + g, 0.9, 0.4, 0.06, 2.0));
     // Safe ground: a warm pool of light at their feet, and the frame closes in like a film.
-    this.cine.pool.target = 0.42 + 0.3 * g;
+    this.cine.pool.target = 0.32 + 0.2 * g;
     this.cine.bars.target = 0.045;
     this.holdReveal(0, 'escape');
     this.later(0.35, () => {
@@ -886,7 +918,10 @@ export class Game {
       // recoils back (the clip). At the push-off it drops right in front of the crouch.
       const T = 0.5;
       const stop = this.s + (v * T) / 2;
-      const gateS = st.atStart ? this.s + 3.2 : stop + 2.8;
+      // The door lands just beyond the next whole slab, so the slab between it and the runner can
+      // break under the impact (the way falls); with no seam in reach it lands close and cracks it.
+      const seam = st.atStart ? null : this.tileEdge(stop + 0.6, stop + 4.4);
+      const gateS = st.atStart ? this.s + 3.2 : seam !== null ? seam + 4.4 : stop + 3.4;
       this.setStop(stop);
       const h = frameAt(gateS);
       this.rig.focus.copy(h.pos).setY(h.pos.y + 1.6);
@@ -931,7 +966,21 @@ export class Game {
           this.debris.spawn(`shard_${k + 2}`, new THREE.Matrix4().compose(p, new THREE.Quaternion(), new THREE.Vector3(sc, sc, sc)), h.fwd.clone().multiplyScalar(-r.range(1.5, 3)).addScaledVector(h.right, r.range(-1, 1)).setY(2), new THREE.Vector3(), onPath(h));
         }
         // The floor at its foot splits toward the runner.
-        this.cine.cracks.spawn(h.pos.clone().setY(h.pos.y + 0.05).addScaledVector(h.fwd, -0.55), h.yaw + Math.PI, PATH_HALF * 2 + 0.2, 1.6 + 1.6 * e, 0.3, 30);
+        this.cine.cracks.spawn(h.pos.clone().setY(h.pos.y + 0.05).addScaledVector(h.fwd, -0.55), h.yaw + Math.PI, PATH_HALF * 2 + 0.2, 1.6 + 1.6 * e, 0.3, seam !== null ? 0.5 : 30);
+        // The way falls: the door's weight snaps the slabs in front of it, and they sag and drop
+        // into the water, leaving a gap between the runner and the door.
+        if (seam !== null) {
+          const broken = this.collapseFrom(seam, seam + 0.2);
+          broken.forEach((t, i) =>
+            this.later(0.12 + i * 0.08, () => {
+              this.debris.spawn(t.piece, t.world, new THREE.Vector3(0, -0.4, 0), h.right.clone().multiplyScalar(r.range(-0.6, 0.6)).addScaledVector(h.fwd, 0).setY(0).add(new THREE.Vector3(r.range(-0.5, 0.5), 0, r.range(-0.5, 0.5))), () => null, { breakInto: 4, breakAfter: r.range(0.35, 0.6) });
+              const p = new THREE.Vector3().setFromMatrixPosition(t.world);
+              B.puff(p, { count: 1 + Math.round(F.dust), spread: 3, jitter: 1, vel: new THREE.Vector3(0, 1.5, 0).addScaledVector(h.fwd, 0.6), size: [0.8, 2.4 + 1.5 * e], life: 2, alpha: 0.28, tint: DUST_T, rise: 0.3 });
+              this.particles.burst(p, 10, { spread: 3, up: 1.2, speed: 2.4, size: 0.5, life: 1.4, color: DUST, alpha: 0.3 });
+            }),
+          );
+          this.later(0.2, () => kick(0.5));
+        }
         kick();
         this.fx.flash = 0.12 + 0.08 * e;
         this.sounds.slam?.(0.7 + 0.3 * e);
@@ -1296,6 +1345,8 @@ export class Game {
       this.runner.lookAt(k > 7 && k < 9.5 ? this.rig.camera.position : null, 0.6);
     } else this.runner.lookAt(null);
     this.runner.update(dt, this.speed);
+    // Contact shadow: on the floor under him (it fades by itself as a fall takes him off it).
+    this.contact.update(this.runner.root);
     // Braking: the soles scour the floor.
     if (this.stage === 'crash' && this.speed > 1.5) {
       const rp0 = this.runner.root.position;
@@ -1325,7 +1376,7 @@ export class Game {
     this.fx.gold += (goldTarget - this.fx.gold) * (1 - Math.exp(-rawDt * 3));
     this.fx.flash *= Math.exp(-rawDt * 6);
     // Cash-out: a sun-flare bloom, bigger and longer for a big escape.
-    this.fx.bloom = this.stage === 'cashout' ? (0.3 + 0.5 * this.epic) * Math.exp(-this.stageT * (1.2 - 0.6 * this.epic)) + (this.escape?.bloom ?? 0) * 0.5 * Math.min(1, this.stageT / 0.8) : this.fx.danger * 0.25;
+    this.fx.bloom = this.stage === 'cashout' ? (0.3 + 0.5 * this.epic) * Math.exp(-this.stageT * (1.2 - 0.6 * this.epic)) + (this.escape?.bloom ?? 0) * 0.25 * Math.min(1, this.stageT / 0.8) : this.fx.danger * 0.25;
 
     if (this.gateLand && !this.gateLand.done && this.stageT > 0.9) this.gateLand.done = true;
 

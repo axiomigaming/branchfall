@@ -1,7 +1,8 @@
 /**
- * The CAUSEWAY wordmark: chunky gold glyph letters with a cast edge, set in a carved limestone
- * cartouche (the hero plate's frame and recessed panel) under the gold crest with its ruby
- * and emeralds. `compact` is the top-bar size; `mark` keeps only the cartouche with the arch.
+ * The CAUSEWAY wordmark: chunky bevelled gold glyph letters (a cast lower edge, a lit top bevel,
+ * a carved notch) set in its own carved stone, a temple lintel with a stepped crown seating the
+ * gold crest (ruby between two emeralds). `compact` is the top-bar size; `mark` is the small
+ * square cartouche with the arch, for narrow phones.
  */
 export function Logo({ size = 'title' }: { size?: 'title' | 'compact' | 'mark' }) {
   return (
@@ -16,6 +17,10 @@ export function Logo({ size = 'title' }: { size?: 'title' | 'compact' | 'mark' }
           <span className="logo-word">
             {/* the cast edge under the gold face: a darker copy, a few pixels lower */}
             <span className="logo-edge" aria-hidden>
+              Causeway
+            </span>
+            {/* a lit bevel along the top of every glyph: a pale copy, a hair higher */}
+            <span className="logo-hi" aria-hidden>
               Causeway
             </span>
             <span className="logo-face">Causeway</span>
