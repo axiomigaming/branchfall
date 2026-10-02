@@ -267,6 +267,22 @@ export class Debris {
     this.bodies.splice(i, 1);
   }
 
+  private box = new THREE.Box3();
+  private lp = new THREE.Vector3();
+  /** Is `p` inside a heavy body (the gate door)? */
+  containsHeavy(p: THREE.Vector3): boolean {
+    for (const b of this.bodies) {
+      if (!b.heavy) continue;
+      const g = b.mesh.geometry;
+      if (!g.boundingBox) g.computeBoundingBox();
+      b.mesh.updateMatrixWorld();
+      this.lp.copy(p).applyMatrix4(this.inv.copy(b.mesh.matrixWorld).invert());
+      if (this.box.copy(g.boundingBox!).expandByScalar(0.3).containsPoint(this.lp)) return true;
+    }
+    return false;
+  }
+  private inv = new THREE.Matrix4();
+
   clear(): void {
     for (let i = this.bodies.length - 1; i >= 0; i--) this.remove(i);
   }
