@@ -39,15 +39,25 @@ export function TopBar() {
         <Logo size="mark" />
         <span className="tag">Demo</span>
       </button>
-      <button className="history" onClick={() => open('history')} aria-label="Previous runs">
+      <button className="history" onClick={() => open('history')} aria-label="Previous runs: where the way fell">
         {history.length === 0 ? (
           <span className="chip none">No runs yet</span>
         ) : (
-          history.slice(0, 14).map((h) => (
-            <span key={h.id} className={`chip ${tierOf(h.crash)}${h.id === newest ? ' fresh' : ''}${h.outcome === 'cashout' ? ' mine' : ''}`} title={h.outcome === 'cashout' ? `You left at ${formatMult(h.cashoutMult!)}×` : undefined}>
-              {formatMult(h.crash)}×
+          <>
+            {/* what the tallies are: the multiplier each recent way fell at */}
+            <span className="hist-k" aria-hidden>
+              Fell at
             </span>
-          ))
+            {history.slice(0, 14).map((h) => (
+              <span
+                key={h.id}
+                className={`chip ${tierOf(h.crash)}${h.id === newest ? ' fresh' : ''}${h.outcome === 'cashout' ? ' mine' : ''}`}
+                title={`The way fell at ${formatMult(h.crash)}×${h.outcome === 'cashout' ? `; you left at ${formatMult(h.cashoutMult!)}×` : ''}`}
+              >
+                {formatMult(h.crash)}×
+              </span>
+            ))}
+          </>
         )}
       </button>
       <div className={`balance${bump ? ' bump' : ''}`} aria-live="polite">
